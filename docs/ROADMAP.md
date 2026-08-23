@@ -165,6 +165,21 @@ sample of its claims against the input.
 
 ---
 
+## Running the crawler unattended
+
+`python -m valwr.collect.supervise --hours 10` restarts the crawl on any
+failure and logs to `data/crawl.log`. `crawl.bat` wraps it; `watch.bat` shows
+live progress; `stop.bat` stops it.
+
+Launch it **windowless** (`pythonw.exe`, `-WindowStyle Hidden`) for overnight
+runs. An early attempt died at 03:52 with nothing in the Windows event log --
+no sleep, no crash, no network event -- and the likeliest explanation was
+simply that its console window got closed. A window that does not exist cannot
+be closed by accident, and `watch.bat` provides the visibility instead.
+
+Two crawlers must never run at once: they share one API quota and will spend it
+twice, earning 429s. Check with `stop.bat` before starting a new one.
+
 ## Deliberately out of scope
 
 - **Other regions.** Metas differ; one region done properly beats three done
