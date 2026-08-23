@@ -85,11 +85,21 @@ All per-player features are computed **only** from matches with
 - Win rate on **this map × this agent** — the interaction from the original
   brief ("better on Ascent specifically as Jett"). Very sparse; shrink hard.
 
-**Performance detail**
-- ACS, ADR (average damage per round)
+**Performance detail** — all confirmed derivable from the real v4 response
+(see `docs/API-NOTES.md`); the `rounds[].stats` and `kills[]` arrays are much
+richer than the published docs suggested
+- ACS, and **true ADR** — `rounds[].stats` is per-player per-round, so damage
+  divides by the actual round count rather than an estimate
+- **KAST** — properly computable, not approximated, from per-round stats plus
+  kill timings
 - Headshot percentage
-- First-blood rate, first-death rate — entry impact, and its inverse
-- Clutch rate, trade participation, multi-kill rate
+- First-blood and first-death rate, from `kills[].time_in_round_in_ms` ordering
+- **Trade participation** — a kill within a few seconds of a teammate's death,
+  from kill timings and `assistants[]`
+- Multi-kill rate, from kills grouped by round and killer
+- **Clutch rate** — `rounds[].ceremony` carries direct clutch and ace labels,
+  so this needs no inference
+- Spike involvement, from `rounds[].plant` / `rounds[].defuse`
 
 **Form**
 - Last-N win rate (N ≈ 10, 20)

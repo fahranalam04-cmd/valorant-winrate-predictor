@@ -9,12 +9,12 @@ Endpoint reference: docs/API-NOTES.md. Do not invent paths.
 
 from __future__ import annotations
 
-import json
 import sqlite3
-import time
 from typing import Any
 
 import httpx
+
+from valwr.store import raw
 
 BASE = "https://api.henrikdev.xyz"
 TIMEOUT = 30.0
@@ -83,12 +83,7 @@ class HenrikClient:
         return r.json()
 
     def _record(self, path: str, params: dict, r: httpx.Response) -> None:
-        self._conn.execute(
-            "INSERT INTO raw_response (endpoint, params, fetched_at, status, body) "
-            "VALUES (?,?,?,?,?)",
-            (path, json.dumps(params, sort_keys=True), int(time.time()), r.status_code, r.text),
-        )
-        self._conn.commit()
+        raw.record(self._conn, path, params, r.status_code, r.text)
 
     # --- endpoints (docs/API-NOTES.md) ---------------------------------
 
