@@ -269,3 +269,43 @@ def test_transient_backoff_is_capped(conn, monkeypatch):
     c.run(minutes=0.05, verbose=False)
     assert waits, "should have backed off"
     assert max(waits) <= MAX_TRANSIENT_BACKOFF
+
+
+# --- coverage leverage (the breadth-vs-depth fix) ---------------------
+
+def test_claim_prefers_players_appearing_in_more_collected_matches(conn):
+    """Fetching a player who appears in five of our matches adds history to
+    five at once. The first version ignored this and optimised breadth, which
+    left 86% of players on a single match and only 1.3% of matches trainable.
+    """
+    from valwr.store import normalize
+    frontier.enqueue_many(conn, [("hub", 13), ("leaf", 13)])
+
+    # 'hub' appears in three collected matches, 'leaf' in one.
+    for i, roster in enumerate([["hub", "leaf"], ["hub", "x"], ["hub", "y"]]):
+        normalize.upsert_match(conn, {
+            "match_id": f"m{i}", "started_at": 1000 + i, "map": "Sunset",
+            "mode": "competitive", "queue": None, "region": "na", "season": None,
+            "rounds_red": 13, "rounds_blue": 5, "winner": "Red",
+            "data_quality": None, "ingested_at": 0})
+        normalize.upsert_players(conn, [
+            {"match_id": f"m{i}", "puuid": p, "team": "Red", "agent": "Jett",
+             "party_id": None, "tier": 13, "account_level": 1, "score": 1,
+             "kills": 1, "deaths": 1, "assists": 1, "headshots": 1,
+             "bodyshots": 1, "legshots": 1, "damage_dealt": 1, "damage_taken": 1,
+             "started_at": 1000 + i, "map": "Sunset", "won": 1,
+             "rounds_played": 20, "first_bloods": 0, "first_deaths": 0,
+             "multikills": 0, "trade_kills": 0, "traded_deaths": 0,
+             "kast_rounds": 10, "clutches": 0, "_name": p, "_tag": "NA1"}
+            for p in roster])
+    conn.commit()
+
+    assert frontier.claim(conn)["puuid"] == "hub"
+
+
+def test_coverage_summary_counts_trainable_matches(conn):
+    """Match count alone is misleading -- a match whose players have no prior
+    history carries no features."""
+    s = frontier.coverage_summary(conn)
+    assert set(s) == {"matches", "full_10", "usable_8", "partial_5"}
+    assert s["matches"] == 0

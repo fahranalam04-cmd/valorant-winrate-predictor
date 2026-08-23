@@ -35,6 +35,7 @@ def snapshot(conn) -> dict:
         "last_fetch": one("SELECT COALESCE(MAX(fetched_at), 0) FROM raw_response"),
         "bytes": raw.storage_summary(conn)["compressed_bytes"],
         "states": frontier.counts_by_state(conn),
+        "coverage": frontier.coverage_summary(conn),
         "bands": frontier.counts_by_band(conn),
     }
 
@@ -65,6 +66,15 @@ def render(now: dict, start: dict, started_at: float) -> str:
         f"  normalised     {now['normalised']:>8,}   {DIM}(run store.normalize){RESET}",
         f"  players known  {now['players']:>8,}",
         f"  storage        {now['bytes'] / 1e6:>8.1f} MB",
+        "",
+        f"  {BOLD}trainable matches{RESET}   "
+        f"{DIM}(the metric that actually matters){RESET}",
+        f"    all 10 covered  {now['coverage']['full_10']:>7,}   "
+        f"{GREEN}+{now['coverage']['full_10'] - start['coverage']['full_10']:,}{RESET}",
+        f"    8+ covered      {now['coverage']['usable_8']:>7,}   "
+        f"{GREEN}+{now['coverage']['usable_8'] - start['coverage']['usable_8']:,}{RESET}",
+        f"    5+ covered      {now['coverage']['partial_5']:>7,}   "
+        f"{GREEN}+{now['coverage']['partial_5'] - start['coverage']['partial_5']:,}{RESET}",
         "",
         f"  rate           {d_match / mins:>8.1f} matches/min   "
         f"{d_req / mins:.1f} req/min",
