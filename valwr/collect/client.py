@@ -24,6 +24,15 @@ class HenrikError(RuntimeError):
     pass
 
 
+class TransientError(HenrikError):
+    """A network-level failure that says nothing about the request itself.
+
+    Connection resets, timeouts, DNS blips -- and critically, every socket
+    dying when the machine suspends. These must never end a crawl: an
+    unattended overnight run has to survive the laptop going to sleep.
+    """
+
+
 class RateLimited(HenrikError):
     def __init__(self, retry_after: float | None):
         self.retry_after = retry_after
@@ -49,6 +58,7 @@ class HenrikClient:
     ):
         self._conn = conn
         self._limiter = limiter
+        self._api_key = api_key
         self._client = httpx.Client(
             base_url=BASE,
             timeout=TIMEOUT,
@@ -58,6 +68,17 @@ class HenrikClient:
 
     def close(self) -> None:
         self._client.close()
+
+    def _reconnect(self) -> None:
+        """Rebuild the connection pool after a network-level failure."""
+        try:
+            self._client.close()
+        except Exception:
+            pass
+        self._client = httpx.Client(
+            base_url=BASE, timeout=TIMEOUT,
+            headers={"Authorization": self._api_key, "Accept": "application/json"},
+        )
 
     def __enter__(self) -> "HenrikClient":
         return self
@@ -69,7 +90,13 @@ class HenrikClient:
         if self._limiter is not None:
             self._limiter.acquire()
 
-        r = self._client.get(path, params=params or None)
+        try:
+            r = self._client.get(path, params=params or None)
+        except httpx.HTTPError as e:
+            # Sleep/resume kills every pooled connection. Drop the pool so the
+            # next attempt dials fresh rather than reusing a dead socket.
+            self._reconnect()
+            raise TransientError(f"{type(e).__name__}: {e}") from e
 
         # Reconcile before anything can raise -- a 429 carries quota headers
         # too, and that is exactly when we most need them.

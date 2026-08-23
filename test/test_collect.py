@@ -210,3 +210,62 @@ def test_crawler_counts_new_versus_duplicate_matches(conn):
     assert c.stats.matches_seen_again >= 1
     assert c.stats.puuids_discovered >= 2
     assert c.stats.rate_limit_hits == 0
+
+
+# --- resilience (the overnight-run failure) ---------------------------
+
+class FlakyClient:
+    """Fails with a network error N times, then succeeds.
+
+    Models what actually happened overnight: the laptop slept, every pooled
+    socket died, and an unhandled httpx error ended a 10-hour run three
+    minutes in.
+    """
+
+    def __init__(self, failures: int):
+        self.remaining = failures
+        self.calls = 0
+
+    def matches(self, region, platform, puuid, size=10, **kw):
+        self.calls += 1
+        if self.remaining > 0:
+            self.remaining -= 1
+            from valwr.collect.client import TransientError
+            raise TransientError("ConnectError: connection reset")
+        return {"data": [{"metadata": {"match_id": f"m{self.calls}"},
+                          "players": [{"puuid": "x", "tier": {"id": 13}}]}]}
+
+
+def test_network_failure_does_not_end_the_crawl(conn, monkeypatch):
+    monkeypatch.setattr("valwr.collect.crawl.time.sleep", lambda s: None)
+    frontier.enqueue_many(conn, [("seed", 13)])
+    c = Crawler(conn, FlakyClient(failures=3), TokenBucket(6000), "na", "pc")
+    c.run(minutes=0.05, verbose=False)
+
+    assert c.stats.transient_errors == 3
+    assert c.stats.players_fetched >= 1, "should have recovered and fetched"
+
+
+def test_network_failure_does_not_charge_the_puuid_an_attempt(conn, monkeypatch):
+    """A dead socket is not the player's fault; blacklisting them would be
+    the wrong repair and would silently shrink the frontier."""
+    monkeypatch.setattr("valwr.collect.crawl.time.sleep", lambda s: None)
+    frontier.enqueue_many(conn, [("seed", 13)])
+    c = Crawler(conn, FlakyClient(failures=2), TokenBucket(6000), "na", "pc")
+    c.run(minutes=0.05, verbose=False)
+
+    assert conn.execute("SELECT attempts FROM frontier WHERE puuid='seed'"
+                        ).fetchone()["attempts"] == 0
+    assert c.stats.failures == 0
+
+
+def test_transient_backoff_is_capped(conn, monkeypatch):
+    """Exponential backoff must not run away to hours on a long outage."""
+    from valwr.collect.crawl import MAX_TRANSIENT_BACKOFF
+    waits = []
+    monkeypatch.setattr("valwr.collect.crawl.time.sleep", lambda s: waits.append(s))
+    frontier.enqueue_many(conn, [("seed", 13)])
+    c = Crawler(conn, FlakyClient(failures=12), TokenBucket(6000), "na", "pc")
+    c.run(minutes=0.05, verbose=False)
+    assert waits, "should have backed off"
+    assert max(waits) <= MAX_TRANSIENT_BACKOFF

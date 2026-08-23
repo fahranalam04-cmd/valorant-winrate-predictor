@@ -12,6 +12,7 @@ import sys
 from valwr import config
 from valwr.collect import frontier, seed
 from valwr.collect.client import HenrikClient
+from valwr.collect.keepawake import KeepAwake
 from valwr.collect.crawl import Crawler
 from valwr.collect.limiter import TokenBucket
 from valwr.store import raw, schema
@@ -69,6 +70,8 @@ def main(argv=None) -> int:
                          "disconnected high-elo cluster. See seed.py.")
     ap.add_argument("--size", type=int, default=10, help="matches per request")
     ap.add_argument("--report-only", action="store_true", help="print state and exit")
+    ap.add_argument("--allow-sleep", action="store_true",
+                    help="do not keep the machine awake during the crawl")
     args = ap.parse_args(argv)
 
     s = config.load()
@@ -79,7 +82,8 @@ def main(argv=None) -> int:
     print(f"limiter: {s.henrik_tier} tier, {limiter.stated_per_minute} req/min stated "
           f"-> {limiter.effective_per_minute} effective")
 
-    with HenrikClient(s.henrik_api_key, conn=conn, limiter=limiter) as client:
+    with KeepAwake(enabled=not args.allow_sleep) as awake,             HenrikClient(s.henrik_api_key, conn=conn, limiter=limiter) as client:
+        print(f"power:   {awake.status}")
         if args.report_only:
             from valwr.collect.crawl import CrawlStats
             report(conn, CrawlStats())

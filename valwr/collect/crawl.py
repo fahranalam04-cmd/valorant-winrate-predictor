@@ -15,8 +15,14 @@ import time
 from dataclasses import dataclass, field
 
 from valwr.collect import frontier
-from valwr.collect.client import HenrikClient, HenrikError, RateLimited
+from valwr.collect.client import (HenrikClient, HenrikError, RateLimited,
+                                  TransientError)
 from valwr.collect.limiter import TokenBucket
+
+# Cap on the retry backoff for network failures. Long enough to ride out a
+# suspend/resume cycle or a router reboot, short enough that a run recovers
+# promptly once connectivity returns.
+MAX_TRANSIENT_BACKOFF = 300.0
 
 
 @dataclass
@@ -28,6 +34,7 @@ class CrawlStats:
     players_fetched: int = 0
     failures: int = 0
     rate_limit_hits: int = 0
+    transient_errors: int = 0
     started_at: float = field(default_factory=time.monotonic)
 
     @property
@@ -72,6 +79,7 @@ class Crawler:
         self.platform = platform
         self.size = size
         self.stats = CrawlStats()
+        self._transient_streak = 0
 
     def _note_matches(self, harvested) -> None:
         now = int(time.time())
@@ -110,11 +118,22 @@ class Crawler:
             self.limiter.penalise(wait)
             time.sleep(wait)
             return False
+        except TransientError as e:
+            # Network-level, not this puuid's fault. Back off and retry the
+            # same player rather than charging it an attempt.
+            self.stats.transient_errors += 1
+            self._transient_streak += 1
+            wait = min(60.0 * 2 ** (self._transient_streak - 1), MAX_TRANSIENT_BACKOFF)
+            print(f"  [net] {e} -- retrying in {wait:.0f}s "
+                  f"(streak {self._transient_streak})")
+            time.sleep(wait)
+            return False
         except HenrikError as e:
             frontier.fail(self.conn, puuid, str(e))
             self.stats.failures += 1
             return True
 
+        self._transient_streak = 0
         self._note_matches(harvest(doc))
         frontier.complete(self.conn, puuid)
         self.stats.players_fetched += 1
