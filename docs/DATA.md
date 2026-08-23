@@ -185,9 +185,20 @@ never a re-crawl. Compression gets the same result without giving that up.
 ## Sampling bias — the thing to actively manage
 
 Seeding purely from the leaderboard produces an Immortal/Radiant dataset, and a
-model trained on it will not transfer to Fahran's own lobbies. Seeding purely
-from one player's history produces a dataset centred on that player's rank, too
-narrow to generalise.
+model trained on it will not transfer to Fahran's own lobbies.
+
+The worry that a self-seeded snowball would be *too narrow* turned out to be
+wrong, and it is worth recording why. A single lobby snapshot looks bounded:
+one Gold 2 account's matches spanned only Silver 1 to Diamond 3, which suggests
+matchmaking walls the crawl into a few adjacent tiers. It does not. Match
+history spans acts and placement periods, and `tier` is the rank *at that
+match*, so today's Gold player was Bronze last act and appears as such;
+unranked accounts bridge bands freely. The graph is far more connected than one
+lobby implies.
+
+Measured: from a single Gold 2 seed, the stratified crawler reached **Iron
+through Immortal at 7-12% per band**. Leaderboard seeding is therefore
+unnecessary for coverage, and `--seed self` is the default.
 
 The crawler does both, and **stratifies**: track `tier_band` per discovered
 player, and when one band is over-represented in the frontier, deprioritise it.
