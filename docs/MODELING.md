@@ -198,7 +198,10 @@ overtime — all resolved after the prediction point. Excluded.
 **3. Time-based splits only. Never random k-fold.** Match data is a time series.
 Shuffling trains on the future and tests on the past, and the inflation it
 produces is large. Train on the earliest slice, validate on the middle, test on
-the latest.
+the latest. Compute that boundary before building the matrix and pass the
+train/validation timestamp to `build_all(norms_as_of=...)`. Population norms
+and the shrinkage prior are then fitted on training rows and frozen; fitting
+them on the full database would leak held-out feature distributions.
 
 **4. Shrink every rate feature.** A player with 3 games at 100% is not a 100%
 win rate player. Use empirical-Bayes shrinkage toward the population mean:
