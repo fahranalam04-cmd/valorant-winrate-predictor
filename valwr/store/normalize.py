@@ -17,6 +17,8 @@ import time
 from datetime import datetime
 from typing import Any, Iterator
 
+from valwr.rating import components
+
 EXPECTED_ROSTER = 10
 
 
@@ -88,6 +90,10 @@ def parse_match(m: dict) -> tuple[dict, list[dict], list[str]]:
         "ingested_at": int(time.time()),
     }
 
+    # Round- and kill-derived components. Computed here so the expensive raw
+    # body is walked once at parse time rather than on every feature build.
+    comps = components.match_components(m)
+
     players = m.get("players") or []
     if len(players) != EXPECTED_ROSTER:
         flags.append(f"roster_{len(players)}")
@@ -126,6 +132,7 @@ def parse_match(m: dict) -> tuple[dict, list[dict], list[str]]:
             "won": None if winner is None else int(p.get("team_id") == winner),
             "_name": p.get("name"),
             "_tag": p.get("tag"),
+            **comps.get(puuid, components.blank()),
         })
 
     match_row["data_quality"] = ",".join(sorted(set(flags))) or None
@@ -138,7 +145,9 @@ MATCH_COLS = ["match_id", "started_at", "map", "mode", "queue", "region", "seaso
 PLAYER_COLS = ["match_id", "puuid", "team", "agent", "party_id", "tier",
                "account_level", "score", "kills", "deaths", "assists",
                "headshots", "bodyshots", "legshots", "damage_dealt", "damage_taken",
-               "started_at", "map", "won"]
+               "started_at", "map", "won",
+               "rounds_played", "first_bloods", "first_deaths", "multikills",
+               "trade_kills", "traded_deaths", "kast_rounds", "clutches"]
 
 
 def upsert_match(conn: sqlite3.Connection, row: dict) -> None:

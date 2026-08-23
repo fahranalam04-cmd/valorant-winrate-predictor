@@ -71,10 +71,24 @@ All per-player features are computed **only** from matches with
 `started_at < this_match.started_at`, via `valwr/store/temporal.py`. See
 [DATA.md](DATA.md).
 
+### The rating, validated
+
+Built and measured (`python -m valwr.rating.validate`), on 5,680 player-match
+rows:
+
+| Check | Result | Reading |
+|---|---|---|
+| Rank correlation | **r = +0.013** | As designed. Near-zero is *correct* — the rating normalises within band on purpose, so it measures performance against peers. A strong r would mean it is a rank proxy, and rank is already a separate feature. |
+| Split-half reliability | **r = +0.420**, Spearman-Brown **+0.592** | Measuring something stable rather than noise, but only moderately. Should improve with more matches per player. |
+| Beats raw ACS at next match | rating **+0.345** vs ACS **+0.304** | The rating wins — but by 0.04, which is a real edge and a small one. Worth stating plainly rather than dressing up. |
+
+Reliability near 0.59 is respectable, not strong. Both it and the ACS margin
+are computed on a few hundred players and should be re-run as the crawl grows.
+
 ### Per player
 
 **Skill**
-- Rating from `valwr/rating/` (see below)
+- Rating from `valwr/rating/` (see above)
 - Rank tier, RR
 - Account level, total games played — experience proxies
 

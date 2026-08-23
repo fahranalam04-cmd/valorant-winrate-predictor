@@ -19,10 +19,11 @@ and a README that states its own limitations.
 
 ## Status
 
-**Phases 0, 1 and 2 are done.** Environment, schema and reference data pass;
+**Phases 0-3 are done.** Environment, schema and reference data pass;
 the collector crawls, stratifies by rank band and survives being killed; raw
 JSON normalises idempotently and `store/temporal.py` enforces the `as_of`
-firewall. Next is Phase 3 (the player rating metric).
+firewall; the rating metric is built and validated. Next is Phase 4 (the
+time-gated feature builder).
 
 Work through `prompts/` in order — each file is one Claude Code session. Do not
 skip ahead; later phases assume earlier acceptance criteria actually pass.
@@ -62,6 +63,7 @@ cp .env.example .env        # then fill in HENRIK_API_KEY
 python -m valwr.check              # smoke test
 python -m valwr.collect --minutes 60   # crawl (resumable, ctrl-c safe)
 python -m valwr.store.normalize        # raw -> normalised tables
+python -m valwr.rating.validate        # is the rating measuring anything?
 pytest                             # after ANY change to valwr/
 ```
 
