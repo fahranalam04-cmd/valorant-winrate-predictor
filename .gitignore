@@ -1,0 +1,42 @@
+# Secrets — never commit
+.env
+*.key
+
+# Collected data: contains other players' match histories. Stays local.
+data/
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Trained artefacts
+models/
+*.pkl
+*.joblib
+*.cbm
+*.txt.model
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+.ruff_cache/
+.mypy_cache/
+
+# Notebook outputs can contain API keys and player data
+*.nbconvert.ipynb
+
+# Reports that embed data
+reports/*.html
+!reports/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

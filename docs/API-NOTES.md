@@ -1,0 +1,226 @@
+# API Notes
+
+Every endpoint here was verified against live documentation. **Do not invent
+endpoints or fields.** If something you need is not in this file, check the live
+docs and add it here with a note, rather than guessing at a path.
+
+---
+
+## HenrikDev API — bulk historical data
+
+Unofficial VALORANT API. This is the only practical source of bulk match
+history for a third-party project.
+
+- **Base URL:** `https://api.henrikdev.xyz`
+- **Auth:** `Authorization: HDEV-xxxxxxxx` — the raw key, **no `Bearer` prefix**
+- **Keys:** generated at <https://api.henrikdev.xyz/dashboard/>, which requires
+  joining their Discord and describing your use case
+- **OpenAPI spec:** <https://api.henrikdev.xyz/docs>
+- **Docs:** <https://docs.henrikdev.xyz>
+
+### Rate limits — the binding constraint on this project
+
+| Tier | Limit | Notes |
+|---|---|---|
+| Basic | **30 req/min** | educational projects, private bots |
+| Enhanced | **90 req/min** | public bots/sites; approval required, takes days |
+| Production | negotiated | requires Patreon support, rarely granted |
+
+Exceeding returns **`429`** with body `Rate Limited`. Honour `Retry-After`.
+
+The maintainer states plainly that this API "is not designed to be used in
+production apps" and is not intended for large analytics projects. Treat the
+limit as a hard design constraint, not an obstacle: cache everything, crawl
+politely, make the collector resumable, and never re-fetch what you already
+have. Do not attempt to evade limits with multiple keys or proxies.
+
+Version note: prefer **v4** where it exists. v2 is slated for deprecation. v4 is
+a Rust rewrite with a more streamlined data layout.
+
+### Endpoints in use
+
+**Matchlist by PUUID** — the crawler's workhorse.
+```
+GET /valorant/v4/by-puuid/matches/{region}/{platform}/{puuid}
+GET /valorant/v4/matches/{region}/{platform}/{name}/{tag}
+```
+Query params: `size` (default 10), `start` (pagination, v4.1.0+), `map`,
+`mode`, `queue`.
+
+One call returns up to `size` full match objects, each containing all ten
+players. That is the efficiency lever — a single request can yield 10 matches ×
+10 players of usable data. Filter `mode=competitive` for the training set.
+
+**Single match by ID**
+```
+GET /valorant/v4/match/{region}/{matchid}
+GET /valorant/v2/match/{matchid}          # deprecated, avoid
+```
+
+**Leaderboard** — crawler seed.
+```
+GET /valorant/v3/leaderboard/{region}/{platform}
+```
+Returns `puuid`, `name`, `tag`, `leaderboard_rank`, `tier`, `rr`, `wins`,
+`is_banned`, `is_anonymized`, `updated_at`, plus per-tier thresholds. Can filter
+by `puuid` **or** `name`+`tag`, not both. Season filter accepts a short code
+(`e1a1`, `e2a3`, …) **or** `season_id`, not both.
+
+Note `is_anonymized` — anonymised leaderboard entries have no usable PUUID.
+Skip them rather than letting them poison the frontier queue.
+
+**Stored matches** — lighter payload, useful when you only need outcomes.
+```
+GET /valorant/v1/by-puuid/stored-matches/{region}/{puuid}
+GET /valorant/v1/stored-matches/{region}/{name}/{tag}
+```
+
+**MMR history** — rank trajectory over time.
+```
+GET /valorant/v2/by-puuid/stored-mmr-history/{region}/{platform}/{puuid}
+GET /valorant/v1/by-puuid/stored-mmr-history/{region}/{puuid}
+```
+v2 adds `refunded_rr` and `was_derank_protected`.
+
+**Account lookup** — resolve a Riot ID to a PUUID.
+```
+GET /valorant/v2/account/{name}/{tag}
+GET /valorant/v2/by-puuid/account/{puuid}
+```
+
+### Response fields that matter
+
+From the v4 match object:
+
+- **Metadata:** `match_id`, `map`, `mode`, `queue`, `started_at`, `season`
+- **Per player:** `puuid`, `name`, `tag`, `team_id`, `agent`, `tier`,
+  **`party_id`**, `account_level`
+- **Per player stats:** `score`, `kills`, `deaths`, `assists`,
+  `shots{head,body,leg}`, `damage{dealt,received}`
+- **Kill events:** `kill_time_in_round`, `kill_time_in_match`, killer and victim
+  details, `damage_weapon` info
+
+`party_id` is the one to notice — it makes premade/stack detection possible
+without inference, which is a strong feature the naive version of this project
+would miss entirely.
+
+`started_at` is the timestamp everything temporal keys off. It is the *only*
+correct anchor for "what did we know before this match".
+
+### Values
+
+- `region`: `na`, `eu`, `ap`, `kr`, `latam`, `br` — this project uses `na`
+- `platform`: `pc`, `console` — this project uses `pc`
+
+---
+
+## valorant-api.com — static game metadata
+
+Community content API. **No key required.** Pull once into reference tables;
+refresh only when a new agent or map ships.
+
+- **Base URL:** `https://valorant-api.com/v1`
+- `GET /agents?isPlayableCharacter=true` — agents, UUIDs, **roles**, abilities
+- `GET /maps` — maps and UUIDs
+- `GET /competitivetiers` — rank tier names and numeric ordering
+- `GET /seasons` — episode/act boundaries, for the patch-era feature
+
+The agent→role mapping from `/agents` drives every composition feature
+(duelist count, has-controller, role balance, off-role penalty). Do not hardcode
+a role table; agents get reworked.
+
+Rank tier ordering from `/competitivetiers` is what makes `tier` numerically
+comparable. Do not assume the integer encoding is stable across episodes —
+resolve names through this endpoint.
+
+---
+
+## Riot local client API — live match detection
+
+Runs on the machine playing the game. Used only to answer "who are the ten
+players in the match I just loaded into". **Read-only** — see
+[ETHICS-AND-TOS.md](ETHICS-AND-TOS.md), which is a ban-safety document, not a
+formality.
+
+Reference: <https://valapidocs.techchrism.me/>
+
+### Lockfile
+
+```
+%LOCALAPPDATA%\Riot Games\Riot Client\Config\lockfile
+```
+Present only while the client is running. Single line, colon-separated:
+```
+name:pid:port:password:protocol
+```
+
+Authenticate with HTTP Basic, username literally `riot`, password from the
+lockfile, against `https://127.0.0.1:{port}`. The certificate is self-signed, so
+TLS verification must be disabled **for that localhost connection only** — never
+globally, and never for HenrikDev calls.
+
+### Tokens and identity
+
+```
+GET /entitlements/v1/token        # local: access token + entitlements token
+GET /chat/v1/session              # local: your own puuid
+```
+Remote `pd`/`glz` calls need both the access token (`Authorization: Bearer …`)
+and the entitlements token (`X-Riot-Entitlements-JWT: …`).
+
+Region/shard comes from the `-ares-deployment=` argument on the running client
+process — read it via `psutil` rather than hardcoding, so the app does not break
+if the account moves region.
+
+### Match detection
+
+Subscribe to the local websocket and watch:
+```
+OnJsonApiEvent_riot-messaging-service_v1_message
+```
+Match the event URI prefix:
+
+| URI prefix | Phase |
+|---|---|
+| `ares-pregame/pregame/v1/matches/` | agent select |
+| `ares-core-game/core-game/v1/matches/` | in game |
+
+Then fetch the roster:
+```
+GET  {glz}/pregame/v1/matches/{matchid}        # Pregame_GetMatch
+GET  {glz}/core-game/v1/matches/{matchid}      # CoreGame_FetchMatch
+```
+These give the ten PUUIDs, locked agents, and team assignment — everything the
+feature builder needs as input.
+
+Polling fallback: `Pregame_GetPlayer` / `CoreGame_FetchPlayer` return the
+current match ID on request, for when the websocket connection drops.
+
+### The rate-limit squeeze at match start
+
+Ten unknown PUUIDs, each needing history, against 30 req/min, in the ~30 seconds
+of agent select. This cannot be solved by fetching faster. Solve it by:
+
+1. **Cache first.** History from hours ago is fine. Most lobbies contain players
+   already in the local database from the crawl.
+2. **Priority order.** Fetch your own team first, then enemies — partial output
+   beats no output.
+3. **Degrade, do not fail.** Predict from whoever resolved, and widen the
+   confidence band to reflect missing data. Show which players are unresolved.
+4. **Pre-warm.** Queue recent teammates and opponents for background refresh
+   between matches, when there is rate budget to spare.
+
+---
+
+## What is deliberately *not* a data source
+
+**tracker.gg.** Their developer program covers Apex, CS, Division 2, and
+Splitgate — not VALORANT. TRN state they are not permitted to grant VALORANT API
+access and redirect developers to Riot. Tracker Score is therefore unavailable
+by any legitimate route. Scraping their site violates their ToS and would break
+constantly. This is why the project builds its own rating metric instead.
+
+**Riot's official VALORANT API.** Riot does not issue personal keys for
+VALORANT. Production keys require a working prototype, RSO integration, and a
+review that can run three weeks. Worth applying for *after* Phase 8, when a
+prototype exists to show them — not before.
