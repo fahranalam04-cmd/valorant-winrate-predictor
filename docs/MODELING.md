@@ -43,10 +43,15 @@ permanently and every evaluation reports against it.
 **1. Coin flip — 50%.** The floor. If anything scores below this, something is
 inverted.
 
-**2. Higher average rank wins.** The honest bar, and the one people skip. It is
-much stronger than it sounds, because rank is the single best available proxy
-for skill and it is already most of what there is to know. A complicated model
-that fails to beat this has demonstrated nothing.
+**2. Higher average rank wins.** The honest bar, and the one people skip.
+
+**Measured on 2,168 built matches: 52.1%.** That is lower than expected and it
+makes the problem harder, not easier -- matchmaking equalises rank so
+effectively that rank itself barely predicts the winner. The room between 52.1%
+and the ceiling is all the room there is.
+
+No single feature correlates with the outcome above **|r| = 0.077**. There is no
+shortcut in this data; any real model has to combine weak signals.
 
 **3. Logistic regression, 5–10 features.** Interpretable, fast, and the sanity
 check on the whole feature pipeline. If a linear model on shrunk win rates and
@@ -70,6 +75,26 @@ model is being compared against.
 All per-player features are computed **only** from matches with
 `started_at < this_match.started_at`, via `valwr/store/temporal.py`. See
 [DATA.md](DATA.md).
+
+### What the built matrix looks like
+
+2,168 matches x 52 difference features, no missing values, target balance
+0.476. The strongest signals, all weak:
+
+| Feature | \|r\| |
+|---|---|
+| `d_tier_max` (best player's rank) | 0.077 |
+| `d_acs_max`, `d_adr_max` | 0.075, 0.074 |
+| `d_rating_max`, `d_rating_mean` | 0.072 |
+| `d_n_grouped`, `d_n_parties` (**party structure**) | 0.071, 0.069 |
+
+Party structure landing in the top four is worth noting: `party_id` is reported
+directly by the API, so stacks are *observed* rather than inferred, and a naive
+version of this project would have missed the feature entirely.
+
+Note also that `max` beats `mean` for skill features -- the best player on a
+team predicts better than the team average, which is the kind of thing the
+spread aggregations were added to catch.
 
 ### The rating, validated
 

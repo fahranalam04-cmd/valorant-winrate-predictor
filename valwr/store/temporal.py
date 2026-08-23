@@ -26,7 +26,14 @@ SELECT mp.match_id, mp.started_at, mp.puuid, mp.team, mp.agent, mp.tier,
        mp.party_id, mp.score, mp.kills, mp.deaths, mp.assists,
        mp.headshots, mp.bodyshots, mp.legshots,
        mp.damage_dealt, mp.damage_taken,
-       mp.map, mp.won
+       mp.map, mp.won,
+       -- Round- and kill-derived components (Phase 3). Omitting these is not
+       -- a visible error: per_round_rates() simply divides by a missing
+       -- rounds_played, returns None for everything, and every performance
+       -- feature silently collapses to its default. Keep this list in step
+       -- with valwr/rating/components.py.
+       mp.rounds_played, mp.first_bloods, mp.first_deaths, mp.multikills,
+       mp.trade_kills, mp.traded_deaths, mp.kast_rounds, mp.clutches
 FROM match_players mp
 WHERE mp.puuid = ? AND mp.started_at < ?
 """
@@ -125,6 +132,28 @@ def record_map_agent(conn, puuid: str, as_of: int, map_name: str, agent: str) ->
 def recent_record(conn, puuid: str, as_of: int, last_n: int = 20) -> Record:
     """Form. Note the LIMIT applies to matches before `as_of`, never around it."""
     return _record(conn, puuid, as_of, last_n=last_n)
+
+
+# Columns knowable at the loading screen, before a single round is played.
+# Deliberately excludes score, kills, deaths, damage, won and the derived
+# components -- those are the outcome of the match being predicted.
+ROSTER_COLUMNS = ("match_id", "puuid", "team", "agent", "party_id",
+                  "tier", "account_level")
+
+
+def match_roster(conn, match_id: str) -> list[sqlite3.Row]:
+    """Who is in this match, and nothing about how it went.
+
+    The target match's roster is legitimate input -- at the loading screen you
+    can see all ten players, their agents and their ranks. Its statistics are
+    not. `SELECT *` would hand back kills, damage and `won` alongside, which is
+    the shortest path to a model that predicts the past, so this returns only
+    the pre-match columns and there is no variant that returns more.
+    """
+    cols = ", ".join(ROSTER_COLUMNS)
+    return conn.execute(
+        f"SELECT {cols} FROM match_players WHERE match_id = ?", (match_id,)
+    ).fetchall()
 
 
 def population_win_rate(conn, as_of: int) -> float:
