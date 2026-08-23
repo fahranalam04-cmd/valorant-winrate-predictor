@@ -1,0 +1,121 @@
+"""HenrikDev API client.
+
+Every call to api.henrikdev.xyz in this project goes through here. Phase 1 adds
+the token-bucket limiter behind this same interface, so nothing else needs to
+know about rate limiting.
+
+Endpoint reference: docs/API-NOTES.md. Do not invent paths.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import time
+from typing import Any
+
+import httpx
+
+BASE = "https://api.henrikdev.xyz"
+TIMEOUT = 30.0
+
+
+class HenrikError(RuntimeError):
+    pass
+
+
+class RateLimited(HenrikError):
+    def __init__(self, retry_after: float | None):
+        self.retry_after = retry_after
+        super().__init__(
+            f"rate limited by HenrikDev"
+            + (f", retry after {retry_after}s" if retry_after else "")
+        )
+
+
+class HenrikClient:
+    """Thin wrapper. Stores every response verbatim when given a connection.
+
+    The raw store matters more than it looks: API calls are the rate-limited
+    resource and parsing is free, so a parsing bug should cost a re-parse, not
+    a re-crawl.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        conn: sqlite3.Connection | None = None,
+        limiter: Any = None,
+    ):
+        self._conn = conn
+        self._limiter = limiter
+        self._client = httpx.Client(
+            base_url=BASE,
+            timeout=TIMEOUT,
+            # The raw key, no Bearer prefix -- see docs/API-NOTES.md.
+            headers={"Authorization": api_key, "Accept": "application/json"},
+        )
+
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> "HenrikClient":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    def get(self, path: str, **params) -> dict:
+        if self._limiter is not None:
+            self._limiter.acquire()
+
+        r = self._client.get(path, params=params or None)
+
+        if self._conn is not None:
+            self._record(path, params, r)
+
+        if r.status_code == 429:
+            retry_after = r.headers.get("Retry-After")
+            raise RateLimited(float(retry_after) if retry_after else None)
+        if r.status_code >= 400:
+            raise HenrikError(f"{r.status_code} on {path}: {r.text[:200]}")
+
+        return r.json()
+
+    def _record(self, path: str, params: dict, r: httpx.Response) -> None:
+        self._conn.execute(
+            "INSERT INTO raw_response (endpoint, params, fetched_at, status, body) "
+            "VALUES (?,?,?,?,?)",
+            (path, json.dumps(params, sort_keys=True), int(time.time()), r.status_code, r.text),
+        )
+        self._conn.commit()
+
+    # --- endpoints (docs/API-NOTES.md) ---------------------------------
+
+    def account(self, name: str, tag: str) -> dict:
+        return self.get(f"/valorant/v2/account/{name}/{tag}")
+
+    def account_by_puuid(self, puuid: str) -> dict:
+        return self.get(f"/valorant/v2/by-puuid/account/{puuid}")
+
+    def matches(
+        self, region: str, platform: str, puuid: str, size: int = 10, **filters
+    ) -> dict:
+        """Matchlist by PUUID.
+
+        One call returns up to `size` full matches, each with all 10 players --
+        the efficiency lever against the rate limit.
+        """
+        return self.get(
+            f"/valorant/v4/by-puuid/matches/{region}/{platform}/{puuid}",
+            size=size,
+            **filters,
+        )
+
+    def leaderboard(self, region: str, platform: str, **params) -> dict:
+        return self.get(f"/valorant/v3/leaderboard/{region}/{platform}", **params)
+
+    def mmr_history(self, region: str, platform: str, puuid: str) -> dict:
+        return self.get(
+            f"/valorant/v2/by-puuid/stored-mmr-history/{region}/{platform}/{puuid}"
+        )
