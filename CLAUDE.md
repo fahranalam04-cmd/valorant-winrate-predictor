@@ -19,11 +19,11 @@ and a README that states its own limitations.
 
 ## Status
 
-**Phases 0-3 are done.** Environment, schema and reference data pass;
+**Phases 0-4 are done.** Environment, schema and reference data pass;
 the collector crawls, stratifies by rank band and survives being killed; raw
 JSON normalises idempotently and `store/temporal.py` enforces the `as_of`
-firewall; the rating metric is built and validated. Next is Phase 4 (the
-time-gated feature builder).
+firewall; the rating metric is built and validated; the feature builder and
+its leakage audit pass. Next is Phase 5 (baselines, training, calibration).
 
 Work through `prompts/` in order — each file is one Claude Code session. Do not
 skip ahead; later phases assume earlier acceptance criteria actually pass.
@@ -64,6 +64,7 @@ python -m valwr.check              # smoke test
 python -m valwr.collect --minutes 60   # crawl (resumable, ctrl-c safe)
 python -m valwr.store.normalize        # raw -> normalised tables
 python -m valwr.rating.validate        # is the rating measuring anything?
+python -m valwr.features.build         # -> data/features.parquet
 pytest                             # after ANY change to valwr/
 ```
 
