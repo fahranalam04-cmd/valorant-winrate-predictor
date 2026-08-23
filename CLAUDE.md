@@ -19,9 +19,10 @@ and a README that states its own limitations.
 
 ## Status
 
-**Phases 0 and 1 are done.** Environment, schema, reference data and the smoke
-test pass; the collector crawls, stratifies by rank band, and survives being
-killed. Next is Phase 2 (normalisation and the temporal store).
+**Phases 0, 1 and 2 are done.** Environment, schema and reference data pass;
+the collector crawls, stratifies by rank band and survives being killed; raw
+JSON normalises idempotently and `store/temporal.py` enforces the `as_of`
+firewall. Next is Phase 3 (the player rating metric).
 
 Work through `prompts/` in order — each file is one Claude Code session. Do not
 skip ahead; later phases assume earlier acceptance criteria actually pass.
@@ -58,8 +59,10 @@ models/         trained artefacts, gitignored
 python -m venv .venv && source .venv/Scripts/activate   # Windows/Git Bash
 pip install -r requirements.txt
 cp .env.example .env        # then fill in HENRIK_API_KEY
-python -m valwr.check       # Phase 0 smoke test
-pytest                      # after ANY change to valwr/
+python -m valwr.check              # smoke test
+python -m valwr.collect --minutes 60   # crawl (resumable, ctrl-c safe)
+python -m valwr.store.normalize        # raw -> normalised tables
+pytest                             # after ANY change to valwr/
 ```
 
 ## Data sources — the real ones

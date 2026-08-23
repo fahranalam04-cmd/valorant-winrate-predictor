@@ -84,11 +84,28 @@ CREATE TABLE players (
 CREATE INDEX idx_mp_puuid_time ON match_players(puuid, match_id);
 ```
 
-Every feature query is "rows for player X, in matches before time T". Without a
-composite index reaching `started_at`, that becomes a full scan per player, ten
-times per prediction. Phase 2 should benchmark this — if the join is slow,
-denormalise `started_at` onto `match_players` and index `(puuid, started_at)`.
-Duplicating one column to make the hot query fast is the right call here.
+Every feature query is "rows for player X, in matches before time T".
+
+**Benchmarked, and the honest answer is that it is currently marginal.** At 330
+matches, the denormalised form beats the join by only **1.16x** (9.3 vs 10.9 µs
+per player). Both are fast enough that neither would be noticed today.
+
+The query plans are the real argument:
+
+```
+denormalised: SEARCH mp USING INDEX idx_mp_puuid_time (puuid=? AND started_at<?)
+join:         SEARCH mp USING INDEX idx_mp_puuid_time (puuid=?)
+              SEARCH m  USING INDEX sqlite_autoindex_matches_1 (match_id=?)
+```
+
+The join performs one extra B-tree lookup **per match in the player's history**,
+so its cost grows with history depth, while the denormalised form stays a single
+range scan. Right now players average one or two matches each; at 40k matches
+they will have far more. `started_at`, `map` and `won` are therefore carried on
+`match_players`, indexed `(puuid, started_at)`.
+
+Cheap insurance against a scaling cliff — not a dramatic win, and it should not
+be described as one.
 
 ## Layer 3 — crawler state
 
