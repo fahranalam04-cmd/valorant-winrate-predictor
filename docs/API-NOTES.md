@@ -28,6 +28,41 @@ history for a third-party project.
 
 Exceeding returns **`429`** with body `Rate Limited`. Honour `Retry-After`.
 
+**The stated ceiling is not the request budget.** Every response carries the
+server's own accounting:
+
+```
+x-ratelimit-limit: 30      ratelimit-policy: "per1min";q=30;w=60
+x-ratelimit-remaining: 29  x-ratelimit-bucket: <uuid>
+x-ratelimit-reset: 60
+```
+
+Measured live: **15 matchlist requests consumed ~26 quota units** — a full
+`size=10` matchlist costs roughly **2 units**, not 1, because it fans out to
+Riot rather than serving cache. HenrikDev's own docs foreshadow this ("some
+calls require fetches from Riot while others use cache or local data").
+
+So do not model the limit client-side. `valwr/collect/limiter.py` reconciles
+against `x-ratelimit-remaining` after every response and only ever revises
+*down*. A client-side 30/min token bucket earned three 429s while averaging
+under 3 req/min; the adaptive version has earned none.
+
+Responses also carry `x-cache-status` and `x-cache-ttl: 300` — HenrikDev
+caches for five minutes, which is worth knowing for the live path's re-fetches.
+
+### Real throughput (basic tier, measured)
+
+| | |
+|---|---|
+| Sustained requests | **~3.4 req/min** |
+| New matches per request | ~7.6 |
+| New matches per minute | ~26 |
+| Time for 40k matches | **~26 hours** of crawling |
+
+The Enhanced key (90/min stated) should be roughly 3x this. That is the
+difference between one overnight run and most of a week, which is why applying
+early matters more than any code optimisation.
+
 The maintainer states plainly that this API "is not designed to be used in
 production apps" and is not intended for large analytics projects. Treat the
 limit as a hard design constraint, not an obstacle: cache everything, crawl

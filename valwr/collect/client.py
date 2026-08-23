@@ -71,6 +71,11 @@ class HenrikClient:
 
         r = self._client.get(path, params=params or None)
 
+        # Reconcile before anything can raise -- a 429 carries quota headers
+        # too, and that is exactly when we most need them.
+        if self._limiter is not None:
+            self._limiter.observe(r.headers)
+
         if self._conn is not None:
             self._record(path, params, r)
 

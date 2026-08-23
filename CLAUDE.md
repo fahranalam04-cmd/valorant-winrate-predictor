@@ -19,9 +19,12 @@ and a README that states its own limitations.
 
 ## Status
 
-Phase 0. Nothing is built yet. Work through `prompts/` in order — each file is
-one Claude Code session. Do not skip ahead; later phases assume earlier
-acceptance criteria actually pass.
+**Phases 0 and 1 are done.** Environment, schema, reference data and the smoke
+test pass; the collector crawls, stratifies by rank band, and survives being
+killed. Next is Phase 2 (normalisation and the temporal store).
+
+Work through `prompts/` in order — each file is one Claude Code session. Do not
+skip ahead; later phases assume earlier acceptance criteria actually pass.
 
 See `docs/ROADMAP.md` for all nine phases.
 
@@ -84,13 +87,19 @@ Phase 8.
 
 ## Rules that exist for a reason
 
-**1. The rate limit is the binding constraint. Design around it, not past it.**
-HenrikDev Basic is **30 req/min** (Enhanced 90, approval-gated). The maintainer
-explicitly states the API is not intended for large analytics projects. Every
-call goes through the shared token-bucket limiter in `valwr/collect/limiter.py`
-— no direct `requests.get` to `api.henrikdev.xyz` anywhere else. Honour
-`Retry-After` on 429 and back off exponentially. Cache aggressively; a player's
-history from two hours ago is fine.
+**1. The rate limit is the binding constraint. Trust the server's count, not
+your own.** Every call goes through the limiter in `valwr/collect/limiter.py`,
+wired into `HenrikClient` so a caller cannot forget it. The limiter reconciles
+against the `x-ratelimit-remaining` header after every response and only ever
+revises *down*.
+
+Do not replace this with a client-side token bucket sized to the stated 30
+req/min. That was the first implementation, and it earned three 429s while
+averaging under 3 req/min: a `size=10` matchlist costs ~2 quota units, not 1,
+and the bucket started full so the opening requests fired unspaced into a
+rolling window that still held the previous run's calls. Real sustained
+throughput on the basic tier is **~3.4 req/min**. Cache aggressively; a
+player's history from two hours ago is fine.
 
 **2. Never compute a feature from data that did not exist yet.**
 This is the bug class that silently ruins the whole project, because it makes

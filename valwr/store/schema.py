@@ -91,6 +91,15 @@ CREATE TABLE IF NOT EXISTS frontier (
 );
 CREATE INDEX IF NOT EXISTS idx_frontier_state ON frontier(state, tier_band);
 
+-- Match ids the crawler has already seen. Crawler bookkeeping, not the
+-- normalised `matches` table: it answers "is this new?" without decompressing
+-- every stored body, and it survives Phase 2 re-parses.
+CREATE TABLE IF NOT EXISTS crawl_seen_match (
+  match_id      TEXT PRIMARY KEY,
+  first_seen_at INTEGER NOT NULL,
+  tier_band     INTEGER
+);
+
 -- Layer 4: reference data from valorant-api.com. No key required.
 CREATE TABLE IF NOT EXISTS ref_agents (
   uuid          TEXT PRIMARY KEY,
