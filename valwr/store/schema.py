@@ -69,6 +69,16 @@ CREATE TABLE IF NOT EXISTS match_players (
   started_at    INTEGER,
   map           TEXT,
   won           INTEGER,        -- 1/0 from this player's perspective, NULL if undecided
+  -- Derived from the rounds[] and kills[] arrays, which the aggregate stats
+  -- block does not expose. See valwr/rating/components.py.
+  rounds_played INTEGER,
+  first_bloods  INTEGER,
+  first_deaths  INTEGER,
+  multikills    INTEGER,
+  trade_kills   INTEGER,
+  traded_deaths INTEGER,
+  kast_rounds   INTEGER,
+  clutches      INTEGER,
   PRIMARY KEY (match_id, puuid)
 );
 -- The index the whole feature pipeline leans on.
@@ -154,6 +164,15 @@ MIGRATIONS: dict[str, dict[str, str]] = {
         "started_at": "INTEGER",
         "map": "TEXT",
         "won": "INTEGER",
+        # Derived from rounds[] and kills[] -- see valwr/rating/components.py.
+        "rounds_played": "INTEGER",
+        "first_bloods": "INTEGER",
+        "first_deaths": "INTEGER",
+        "multikills": "INTEGER",
+        "trade_kills": "INTEGER",
+        "traded_deaths": "INTEGER",
+        "kast_rounds": "INTEGER",
+        "clutches": "INTEGER",
     },
     "matches": {
         "data_quality": "TEXT",
