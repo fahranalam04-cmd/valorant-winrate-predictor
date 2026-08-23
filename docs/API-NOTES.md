@@ -88,24 +88,71 @@ GET /valorant/v2/account/{name}/{tag}
 GET /valorant/v2/by-puuid/account/{puuid}
 ```
 
-### Response fields that matter
+### Verified v4 match response shape
 
-From the v4 match object:
+Confirmed against a real response, not inferred from docs. Top-level keys:
 
-- **Metadata:** `match_id`, `map`, `mode`, `queue`, `started_at`, `season`
-- **Per player:** `puuid`, `name`, `tag`, `team_id`, `agent`, `tier`,
-  **`party_id`**, `account_level`
-- **Per player stats:** `score`, `kills`, `deaths`, `assists`,
-  `shots{head,body,leg}`, `damage{dealt,received}`
-- **Kill events:** `kill_time_in_round`, `kill_time_in_match`, killer and victim
-  details, `damage_weapon` info
+```
+metadata, players, teams, rounds, kills, coaches, observers
+```
 
-`party_id` is the one to notice — it makes premade/stack detection possible
-without inference, which is a strong feature the naive version of this project
-would miss entirely.
+The published docs list only a fraction of this. The `rounds` and `kills`
+arrays in particular are far richer than advertised, and they unlock most of
+the rating metric.
 
-`started_at` is the timestamp everything temporal keys off. It is the *only*
-correct anchor for "what did we know before this match".
+**`metadata`**
+```
+match_id  map{id,name}  game_version  game_length_in_ms  started_at (ISO string)
+is_completed  queue{id,name,mode_type}  season{id,short}  platform  region
+cluster  premier  party_rr_penaltys[]
+```
+`started_at` is an **ISO 8601 string**, not an epoch int. The `matches` table
+stores an INTEGER, so Phase 2 must parse it. Getting this wrong silently
+breaks every time-gated feature, so assert on it.
+
+`game_version` gives patch-level granularity, finer than `season`.
+`is_completed` is a data-quality flag worth respecting.
+
+**`players[]`** (10 per match)
+```
+puuid  name  tag  team_id  platform  party_id  account_level
+agent{id,name}  tier{id,name}
+stats{score,kills,deaths,assists,headshots,bodyshots,legshots,damage{...}}
+ability_casts{grenade,ability1,ability2,ultimate}
+behavior{afk_rounds, friendly_fire{...}, rounds_in_spawn}
+economy{spent{...}, loadout_value{...}}
+session_playtime_in_ms
+customization{...}
+```
+
+**`teams[]`** — `team_id`, `won`, `rounds{won,lost}`
+
+**`rounds[]`** (~26 per match)
+```
+id  result  ceremony  winning_team  plant  defuse  stats[10]
+```
+`stats` is **per-player, per-round** -- which is what makes true ADR and a real
+KAST possible rather than approximated. `ceremony` carries direct labels for
+clutches and aces. `plant`/`defuse` give spike involvement.
+
+**`kills[]`** (~195 per match)
+```
+time_in_round_in_ms  time_in_match_in_ms  round
+killer{puuid,name,tag,team}  victim{...}  assistants[]
+weapon{id,name,type}  location{x,y}  player_locations[9]  secondary_fire_mode
+```
+Kill timings plus killer/victim identity give first bloods, first deaths,
+trade participation, and multi-kills directly. `player_locations` records every
+other player's position at the moment of each kill -- unused for pre-match
+prediction, but it is 36% of the response size.
+
+### Response size
+
+**~450 KB per match uncompressed.** At 50k matches that is ~23 GB of JSON,
+which does not fit a laptop comfortably. zlib level 6 takes it to **7.4%
+(~1.7 GB)**, so `raw_response.body` is a compressed BLOB -- see
+`valwr/store/raw.py`. Compressing rather than dropping fields keeps the
+response verbatim, which is the point of the raw layer.
 
 ### Values
 

@@ -15,13 +15,18 @@ SCHEMA = """
 -- Layer 1: raw. Never mutated, never deleted. API calls are the expensive,
 -- rate-limited resource; parsing is free. This is the insurance policy against
 -- every parsing mistake made downstream.
+--
+-- `body` is zlib-compressed JSON, not text. A v4 matchlist response measured
+-- ~450 KB per match uncompressed, which is ~23 GB at 50k matches; zlib takes
+-- that to 7.4% (~1.7 GB). Compressing rather than trimming keeps the response
+-- verbatim, which is the whole point of this layer. Read via store.raw.
 CREATE TABLE IF NOT EXISTS raw_response (
   id            INTEGER PRIMARY KEY,
   endpoint      TEXT NOT NULL,
   params        TEXT NOT NULL,
   fetched_at    INTEGER NOT NULL,
   status        INTEGER NOT NULL,
-  body          TEXT NOT NULL
+  body          BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_raw_endpoint_fetched
   ON raw_response(endpoint, fetched_at);

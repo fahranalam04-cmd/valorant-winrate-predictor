@@ -1,8 +1,9 @@
 # Data Model
 
-SQLite. One file, `data/valwr.db`. Chosen because the whole dataset fits
-comfortably, it needs no server, and a single file is trivially backed up before
-a risky migration.
+SQLite. One file, `data/valwr.db`. Chosen because it needs no server and a
+single file is trivially backed up before a risky migration. It holds the whole
+dataset comfortably once raw bodies are compressed — see Storage below, which is
+not a detail: uncompressed, a 50k-match crawl is ~23 GB.
 
 The central design idea: **raw responses are kept forever, normalised tables are
 derived and rebuildable.** API calls are the expensive, rate-limited resource.
@@ -20,7 +21,7 @@ CREATE TABLE raw_response (
   params        TEXT NOT NULL,      -- JSON of path+query params
   fetched_at    INTEGER NOT NULL,   -- unix seconds
   status        INTEGER NOT NULL,
-  body          TEXT NOT NULL       -- verbatim JSON
+  body          BLOB NOT NULL       -- zlib-compressed JSON; see store/raw.py
 );
 CREATE INDEX idx_raw_endpoint_fetched ON raw_response(endpoint, fetched_at);
 ```
@@ -166,6 +167,20 @@ intermittent crawling, giving 400k–800k player-match rows. That is ample; the
 constraint on this project is feature quality, not sample size.
 
 Set a target and stop. More data does not fix a leaky feature pipeline.
+
+### Storage — measured, not estimated
+
+A real v4 matchlist response is **~450 KB per match**. At 50k matches that is
+**~23 GB** of raw JSON, which is more than this should cost on a laptop.
+
+zlib level 6 compresses it to **7.4%, about 1.7 GB** — so `raw_response.body`
+is a compressed BLOB rather than TEXT, handled by `valwr/store/raw.py`.
+
+The alternative was dropping `kills[].player_locations`, which is 36% of the
+response on its own and is genuinely unused for pre-match prediction. Rejected:
+it saves only another ~0.8 GB once compressed, and it breaks the guarantee that
+makes this layer worth having — that a parsing mistake costs a re-parse and
+never a re-crawl. Compression gets the same result without giving that up.
 
 ## Sampling bias — the thing to actively manage
 
