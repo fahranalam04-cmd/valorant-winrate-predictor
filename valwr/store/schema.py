@@ -205,7 +205,9 @@ def connect(database_path: Path) -> sqlite3.Connection:
     # WAL allows many readers but only one writer. The normaliser and the
     # crawler both write, so without this a concurrent run fails outright
     # instead of waiting its turn.
-    conn.execute("PRAGMA busy_timeout=30000")
+    # Generous: the crawler must wait out an analysis pass rather than die.
+    # 30s was not enough -- a full normalise run exceeded it.
+    conn.execute("PRAGMA busy_timeout=120000")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 

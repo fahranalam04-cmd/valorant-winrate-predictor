@@ -189,6 +189,13 @@ def iter_matches(conn: sqlite3.Connection) -> Iterator[dict]:
             yield m
 
 
+# Commit every N matches rather than once at the end. SQLite allows a single
+# writer, so one long transaction holds the lock for the whole run and starves
+# the crawler -- which is exactly what happened: 59 consecutive crawler runs
+# died with "database is locked" while a normalise pass held the lock.
+COMMIT_EVERY = 200
+
+
 def normalize_all(conn: sqlite3.Connection, verbose: bool = True) -> dict[str, int]:
     stats = {"matches": 0, "players": 0, "flagged": 0, "errors": 0}
     for m in iter_matches(conn):
@@ -205,6 +212,8 @@ def normalize_all(conn: sqlite3.Connection, verbose: bool = True) -> dict[str, i
         stats["players"] += len(player_rows)
         if flags:
             stats["flagged"] += 1
+        if stats["matches"] % COMMIT_EVERY == 0:
+            conn.commit()          # release the write lock; let the crawler in
         if verbose and stats["matches"] % 500 == 0:
             print(f"  normalised {stats['matches']} matches")
     conn.commit()

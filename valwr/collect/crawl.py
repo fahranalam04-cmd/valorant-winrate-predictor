@@ -14,6 +14,8 @@ import sqlite3
 import time
 from dataclasses import dataclass, field
 
+import sqlite3 as _sqlite3
+
 from valwr.collect import frontier
 from valwr.collect.client import (HenrikClient, HenrikError, RateLimited,
                                   TransientError)
@@ -140,7 +142,14 @@ class Crawler:
         return True
 
     def run(self, minutes: float, verbose: bool = True) -> CrawlStats:
-        recovered = frontier.recover_stale(self.conn)
+        try:
+            recovered = frontier.recover_stale(self.conn)
+        except _sqlite3.OperationalError as e:
+            # An analysis pass holds the write lock. Wait rather than crash --
+            # the supervisor would only restart into the same contention.
+            print(f"  [db] {e} -- waiting for the writer to finish")
+            time.sleep(60)
+            recovered = 0
         if recovered:
             print(f"  recovered {recovered} stale claim(s) from a previous run")
 
