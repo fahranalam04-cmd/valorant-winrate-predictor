@@ -52,8 +52,19 @@ def main(argv=None) -> int:
     tr = df[df["slice"] == "train"]
     te = df[df["slice"] == "test"]
 
-    bundle = joblib.load(Path(s.database_path).parent.parent / "models" / "gbm.joblib")
-    gbm, cols = bundle["gbm"], bundle["columns"]
+    bundle_path = Path(s.database_path).parent.parent / "models" / "model.joblib"
+    if not bundle_path.exists():
+        print(f"no model at {bundle_path}; run python -m valwr.model.train first")
+        return 1
+    bundle = joblib.load(bundle_path)
+    cols = bundle["columns"]
+    # Analyse the model that is actually shipped, not a hardcoded favourite.
+    # This used to load gbm.joblib by name and kept working off a stale file
+    # after the bundle was renamed -- reporting on a model that was no longer
+    # the one being served.
+    gbm = bundle["estimators"]["gbm"]
+    print(f"  shipped model: {bundle['best']}")
+    print("  (importance below is from the gradient booster)")
 
     print("=" * 66)
     print("1. EQUAL-RANK SUBSET  (where matchmaking did its job)")

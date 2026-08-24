@@ -8,6 +8,8 @@ on test, or a metric that flatters.
 
 from __future__ import annotations
 
+import pathlib
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -238,3 +240,38 @@ def test_log_loss_standard_error_is_positive_and_shrinks_with_n():
     varied_big = evaluate.log_loss_standard_error(
         y_big, rng.uniform(0.3, 0.7, 20000))
     assert varied_small > varied_big
+
+
+def test_analyze_reads_the_same_bundle_train_writes():
+    """The two modules must agree on the artefact name and its keys.
+
+    analyze.py loaded 'gbm.joblib' by name and kept working off a stale file
+    after train.py was changed to write 'model.joblib' -- silently reporting
+    on a model that was no longer the one being served. A fresh clone would
+    have crashed instead, which is the better failure but still a bug.
+    """
+    import re
+    root = pathlib.Path(__file__).resolve().parent.parent
+    written = (root / "valwr" / "model" / "train.py").read_text(encoding="utf-8")
+    read = (root / "valwr" / "model" / "analyze.py").read_text(encoding="utf-8")
+
+    w = set(re.findall(r'models / "([^"]+\.joblib)"', written))
+    r = set(re.findall(r'"models" / "([^"]+\.joblib)"', read))
+    assert w and r, f"could not locate bundle names (write={w} read={r})"
+    assert w == r, f"train writes {w} but analyze reads {r}"
+
+
+def test_bundle_carries_everything_inference_needs():
+    """Reproducing training features live needs more than the estimator."""
+    import joblib
+    root = pathlib.Path(__file__).resolve().parent.parent
+    path = root / "models" / "model.joblib"
+    if not path.exists():
+        pytest.skip("no trained bundle present")
+    b = joblib.load(path)
+    for key in ("estimators", "best", "columns", "norms", "prior_rate",
+                "roles", "norms_as_of"):
+        assert key in b, f"bundle is missing {key}; live features would drift"
+    assert b["best"] in b["estimators"] or b["best"] in (
+        "logistic regression", "gradient boosting", "margin regression",
+        "logistic + margin blend"), "selected model is not servable"
