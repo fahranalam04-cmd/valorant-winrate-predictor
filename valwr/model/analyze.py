@@ -18,7 +18,6 @@ import numpy as np
 import pandas as pd
 
 from valwr import config
-from valwr.features import build as fb  # noqa: F401  (kept for column names)
 from valwr.model import baselines, evaluate, split
 from valwr.store import schema
 

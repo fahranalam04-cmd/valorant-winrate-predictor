@@ -1,0 +1,182 @@
+"""Phase 5 tests: splits, baselines, metrics, and the leakage checks.
+
+The model modules decide what the README claims, so the things worth testing
+are the ones that would silently inflate a result: a split that leaks the
+future, a baseline given less of a chance than the model, a calibration fitted
+on test, or a metric that flatters.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from valwr.model import baselines, evaluate, split, train
+
+
+@pytest.fixture
+def frame():
+    """A synthetic matrix with a known, weak signal."""
+    rng = np.random.default_rng(0)
+    n = 900
+    d_rating = rng.normal(0, 1, n)
+    d_tier = rng.normal(0, 1, n)
+    # Weak true signal, deliberately similar in strength to the real thing.
+    p = 1 / (1 + np.exp(-(0.35 * d_rating + 0.2 * d_tier)))
+    y = (rng.random(n) < p).astype(int)
+    return pd.DataFrame({
+        "match_id": [f"m{i}" for i in range(n)],
+        "started_at": np.arange(1000, 1000 + n),
+        "target": y,
+        "margin": np.where(y == 1, 4, -4) + rng.normal(0, 3, n).astype(int),
+        "coverage": rng.integers(5, 11, n),
+        "d_rating_mean": d_rating,
+        "d_tier_mean": d_tier,
+        "d_tier_max": d_tier + rng.normal(0, 0.5, n),
+        "d_constant": np.ones(n),
+    })
+
+
+# --- splits -----------------------------------------------------------
+
+def test_splits_are_time_ordered_and_disjoint(frame):
+    b = split.Boundaries(train_end=1600, val_end=1750, n_matches=len(frame))
+    df = split.apply(frame, b)
+    tr, va, te = (df[df["slice"] == k] for k in ("train", "val", "test"))
+
+    assert tr["started_at"].max() < va["started_at"].min()
+    assert va["started_at"].max() < te["started_at"].min()
+    assert len(tr) + len(va) + len(te) == len(df)
+
+
+def test_no_match_appears_in_two_slices(frame):
+    b = split.Boundaries(1600, 1750, len(frame))
+    df = split.apply(frame, b)
+    counts = df.groupby("match_id")["slice"].nunique()
+    assert counts.max() == 1
+
+
+def test_boundary_row_goes_to_the_later_slice(frame):
+    """Strict `<` on the boundary, matching the temporal layer's convention."""
+    b = split.Boundaries(1600, 1750, 0)
+    assert b.slice_of(1599) == "train"
+    assert b.slice_of(1600) == "val"
+    assert b.slice_of(1749) == "val"
+    assert b.slice_of(1750) == "test"
+
+
+def test_compute_refuses_a_dataset_too_small_to_split():
+    import sqlite3
+    from valwr.store import schema
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(schema.SCHEMA)
+    with pytest.raises(ValueError, match="too few"):
+        split.compute(conn)
+
+
+# --- baselines --------------------------------------------------------
+
+def test_baselines_are_fitted_on_train_not_hand_scaled(frame):
+    """A hand-scaled baseline scored worse than a coin flip, which made
+    'the model beats the baseline' a statement about my scaling. Baselines
+    get the same chance as the model or beating them proves nothing."""
+    b = split.Boundaries(1600, 1750, len(frame))
+    df = split.apply(frame, b)
+    tr, te = df[df["slice"] == "train"], df[df["slice"] == "test"]
+
+    fitted = baselines.fitted(tr)
+    rank = fitted["avg rank (fitted)"](te)
+    coin = fitted["coin flip"](te)
+
+    s_rank = evaluate.score("rank", te["target"], rank)
+    s_coin = evaluate.score("coin", te["target"], coin)
+    assert s_rank.log_loss <= s_coin.log_loss + 1e-6, (
+        "a fitted baseline must not score worse than a coin flip")
+
+
+def test_coin_flip_is_exactly_uninformative(frame):
+    p = baselines.coin_flip(len(frame))
+    s = evaluate.score("coin", frame["target"], p)
+    assert s.log_loss == pytest.approx(0.6931, abs=1e-3)
+    assert np.isnan(s.auc) or s.auc == pytest.approx(0.5, abs=1e-9)
+
+
+# --- metrics ----------------------------------------------------------
+
+def test_perfect_predictions_score_perfectly():
+    y = np.array([0, 1, 0, 1, 1, 0])
+    s = evaluate.score("oracle", y, y.astype(float) * 0.98 + 0.01)
+    assert s.auc == 1.0
+    assert s.accuracy == 1.0
+    assert s.log_loss < 0.05
+
+
+def test_confidently_wrong_is_punished_harder_than_hedging():
+    y = np.array([1] * 50)
+    hedged = evaluate.score("hedge", y, np.full(50, 0.45))
+    confident = evaluate.score("confident", y, np.full(50, 0.05))
+    assert confident.log_loss > hedged.log_loss
+
+
+def test_calibration_error_catches_a_miscalibrated_model():
+    """A model can rank well and still lie about its probabilities."""
+    rng = np.random.default_rng(1)
+    y = rng.integers(0, 2, 2000)
+    honest = np.full(2000, 0.5)
+    overconfident = np.where(y == 1, 0.9, 0.1) * 0 + 0.9   # always claims 90%
+    assert evaluate.expected_calibration_error(y, honest) < 0.05
+    assert evaluate.expected_calibration_error(y, overconfident) > 0.3
+
+
+def test_confidence_interval_shrinks_with_sample_size():
+    wide = evaluate.confidence_interval(0.53, 300)
+    narrow = evaluate.confidence_interval(0.53, 30000)
+    assert wide > narrow
+    assert narrow < 0.01
+
+
+# --- the leakage check ------------------------------------------------
+
+def test_shuffled_target_check_reports_a_distribution(frame):
+    """One draw has a standard deviation near 0.014, so a single sample can
+    land at 0.518 and mean nothing -- which happened and cost an
+    investigation. The distribution is the test."""
+    b = split.Boundaries(1600, 1750, len(frame))
+    df = split.apply(frame, b)
+    cols = ["d_rating_mean", "d_tier_mean", "d_tier_max"]
+    tr, te = df[df["slice"] == "train"], df[df["slice"] == "test"]
+
+    out = train.shuffled_target_check(
+        tr[cols].to_numpy(float), tr["target"].to_numpy(int),
+        te[cols].to_numpy(float), te["target"].to_numpy(int), draws=8)
+
+    assert set(out) >= {"mean", "std", "sigmas_from_chance", "draws_over_threshold"}
+    assert out["draws"] == 8
+    assert abs(out["mean"] - 0.5) < 0.15, "shuffled labels must not predict"
+
+
+def test_zero_variance_features_are_dropped(frame):
+    b = split.Boundaries(1600, 1750, len(frame))
+    df = split.apply(frame, b)
+    cols = train.feature_columns(df)
+    assert "d_constant" not in cols, "a constant column teaches nothing"
+    assert "d_rating_mean" in cols
+
+
+# --- margin target ----------------------------------------------------
+
+def test_margin_model_produces_valid_probabilities(frame):
+    b = split.Boundaries(1600, 1750, len(frame))
+    df = split.apply(frame, b)
+    cols = ["d_rating_mean", "d_tier_mean"]
+    tr, va, te = (df[df["slice"] == k] for k in ("train", "val", "test"))
+
+    _, _, p = train.fit_margin_model(
+        tr[cols].to_numpy(float), tr["margin"].to_numpy(float),
+        va[cols].to_numpy(float), va["margin"].to_numpy(float),
+        te[cols].to_numpy(float), va["target"].to_numpy(int))
+
+    assert len(p) == len(te)
+    assert ((p > 0) & (p < 1)).all(), "probabilities must stay in (0,1)"
