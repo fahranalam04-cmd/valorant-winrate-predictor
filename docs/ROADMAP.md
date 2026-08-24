@@ -177,6 +177,19 @@ no sleep, no crash, no network event -- and the likeliest explanation was
 simply that its console window got closed. A window that does not exist cannot
 be closed by accident, and `watch.bat` provides the visibility instead.
 
+A watchdog runs from Task Scheduler every 10 minutes and restarts the crawler
+if nothing has been fetched recently. Liveness is read from the database, not
+the process table -- a hung process holding a PID while fetching nothing is
+just as dead as a missing one.
+
+One Task Scheduler default silently defeats this on a laptop:
+`DisallowStartIfOnBatteries` is **True** unless overridden, so an unplugged
+machine never runs the task -- exactly the unattended case it exists for. Pass
+`-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries`.
+
+The crawler also blocks system sleep itself via `SetThreadExecutionState`, so
+it does not depend on anything being played to keep the machine awake.
+
 Two crawlers must never run at once: they share one API quota and will spend it
 twice, earning 429s. Check with `stop.bat` before starting a new one.
 
