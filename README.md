@@ -4,9 +4,9 @@ Predicts each team's win probability the moment you load into a VALORANT match,
 using only what is knowable before the first round — then explains the
 prediction in plain English.
 
-> **Status: in development.** Phase 0 of 8. Results below are placeholders and
-> will be filled in with real measured numbers at Phase 5. Nothing here claims
-> a result it has not measured.
+> **Status: Phases 0–5 complete.** The results below are measured on a held-out
+> test set, not estimated. The live dashboard and coaching layer (Phases 6–8)
+> are not built yet.
 
 ---
 
@@ -92,23 +92,59 @@ Countermeasures, enforced in tests rather than by discipline:
 
 ## Results
 
-<!-- Filled in at Phase 5. Do not populate until measured on the held-out
-     time-split test set. -->
+Measured on a held-out, time-ordered test set of **2,288 matches** never touched
+during training or tuning. 11,062 matches with at least 5 of 10 players having
+prior history; 52 features.
 
-| Model | AUC | Log loss | Brier | Accuracy |
+| Model | Log loss | Brier | AUC | Accuracy |
 |---|---|---|---|---|
-| Coin flip | 0.500 | 0.693 | 0.250 | 50.0% |
-| Higher average rank wins | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
-| Logistic regression | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
-| Gradient boosting | _tbd_ | _tbd_ | _tbd_ | _tbd_ |
+| **Avg rating (1 feature)** | **0.6908** | 0.2488 | 0.539 | **53.1%** |
+| Logistic regression (52 feat.) | 0.6913 | 0.2490 | **0.549** | 53.0% |
+| Best-player rank (1 feature) | 0.6913 | 0.2491 | 0.535 | 52.9% |
+| Gradient boosting (52 feat.) | 0.6923 | 0.2495 | 0.540 | 52.5% |
+| Avg rank — *the baseline to beat* | 0.6924 | 0.2496 | 0.519 | 51.5% |
+| Coin flip | 0.6931 | 0.2500 | 0.500 | 48.6% |
 
-**Expected range: AUC 0.60–0.68, accuracy 58–64%.**
+**Accuracy 53.1% ± 2.0%** (95% CI). Shuffled-target check: **AUC 0.499** — clean,
+so this is not leakage.
 
-That is the honest ceiling for pre-match prediction from public stats, and it is
-stated up front deliberately. Matchmaking is designed to make matches even; a
-model that beats a rank baseline by a few points of log loss on this problem is
-doing real work. A repository claiming 90% accuracy on pre-match VALORANT
-prediction has undetected leakage, not a breakthrough.
+### Reading this honestly
+
+**The signal is real but very weak, and smaller than expected.** I predicted AUC
+0.60–0.68 before building. The measured ceiling is **0.549**. That prediction was
+too optimistic and the data says so.
+
+**A single feature beats the full pipeline.** `avg rating` — the Phase 3 metric
+alone — edges out both the 52-feature logistic regression and the gradient
+booster on log loss. All the composition, party-structure and map×agent work
+adds essentially nothing on top of it. Gradient boosting scoring *below* the
+linear model is the classic signature of a booster overfitting weak signal.
+
+**On equal-rank matches, nothing beats a coin flip.** This is the result that
+matters most. Restricted to the 842 test matches where team average ranks are
+within half a tier — where matchmaking did its job and any remaining signal is
+the genuine residual — the best model scores **51.7% ± 3.4%**. That interval
+contains 50%. So the honest conclusion is that most of what the model finds is
+**rank in disguise**, and the features add little beyond it at this sample size.
+
+### Why that is still worth reporting
+
+Matchmaking is designed to make matches even. It is very good at it. A project
+that reports 90% accuracy on pre-match VALORANT prediction has undetected
+leakage, not a breakthrough — which is why the shuffled-target check, the
+truncation audit and the equal-rank subset are all in the repo and all run.
+
+What would move these numbers: more data (a ±1.5% interval needs ~28,000 usable
+matches against the current 11,000), and in-round state, which is a different
+and much larger problem.
+
+![Reliability diagram](reports/reliability.png)
+
+Calibration is decent where the data is dense — the 1,226-match bin predicts
+0.558 against an observed 0.523, and expected calibration error is 0.011–0.024
+across models. Isotonic calibration made log loss *worse* on this signal
+(0.6976 vs 0.6922) by overfitting the validation slice, so the pipeline now
+picks between isotonic and Platt on held-out data rather than by preference.
 
 ## Setup
 
