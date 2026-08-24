@@ -39,6 +39,7 @@ class MatchFeatures:
     match_id: str
     started_at: int
     target: int                       # 1 if TEAM_A won
+    margin: int                       # TEAM_A rounds minus TEAM_B rounds
     values: dict[str, float]
     context: dict[str, str]
     coverage: int                     # players with history, 0-10
@@ -79,10 +80,17 @@ def build_match(conn, match: dict, rows: list[sqlite3.Row], norms: Norms,
     a, b = sides[TEAM_A], sides[TEAM_B]
     values = {f"d_{k}": a[k] - b.get(k, 0.0) for k in a}
 
+    # Round margin from TEAM_A's perspective. A far richer target than the
+    # binary label: 13-3 and 13-11 are the same bit but very different
+    # evidence about which side was stronger.
+    ra, rb = match.get("rounds_blue"), match.get("rounds_red")
+    margin = int(ra - rb) if ra is not None and rb is not None else 0
+
     return MatchFeatures(
         match_id=match["match_id"],
         started_at=as_of,
         target=int(match["winner"] == TEAM_A),
+        margin=margin,
         values=values,
         context=ctx.build(match),
         coverage=coverage,
@@ -98,6 +106,7 @@ def mirror(mf: MatchFeatures) -> MatchFeatures:
     return MatchFeatures(
         match_id=mf.match_id, started_at=mf.started_at,
         target=1 - mf.target,
+        margin=-mf.margin,
         values={k: -v for k, v in mf.values.items()},
         context=mf.context, coverage=mf.coverage,
     )
@@ -156,7 +165,7 @@ def to_frame(rows: list[MatchFeatures]):
     recs = []
     for r in rows:
         d = {"match_id": r.match_id, "started_at": r.started_at,
-             "target": r.target, "coverage": r.coverage}
+             "target": r.target, "margin": r.margin, "coverage": r.coverage}
         d.update(r.context)
         d.update(r.values)
         recs.append(d)

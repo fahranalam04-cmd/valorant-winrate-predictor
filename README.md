@@ -147,6 +147,25 @@ the genuine residual — the best model scores **51.7% ± 3.4%**. That interval
 contains 50%. So the honest conclusion is that most of what the model finds is
 **rank in disguise**, and the features add little beyond it at this sample size.
 
+### What was tried and did not work
+
+Reported because negative results are the part of a modelling project that is
+usually hidden, and because each of these is a plausible idea that a reviewer
+would otherwise ask about.
+
+| Attempted | Rationale | Result |
+|---|---|---|
+| **Round-margin regression** | A binary label carries one bit; 13-3 and 13-11 are the same bit but very different evidence. Standard practice in sports modelling. | **No gain.** 0.6896 vs 0.6898. The bottleneck is the features, not the target. |
+| **Regularisation sweep** (C from 0.003 to 1.0) | Weak signal usually rewards stronger regularisation. | **0.0001.** The validation curve is almost flat. |
+| **Feature selection** (top 5/10/20/35 of 52) | Fewer, stronger features often beat many noisy ones. | **Worse.** Dropping any features hurts; all 52 contribute a little. |
+| **Coverage-weighted training** | Well-covered matches have better features, so weight them higher. | **Worse.** Unweighted wins. |
+| **Isotonic calibration** | The standard choice for calibrating probabilities. | **Worse** than uncalibrated. Too flexible for this signal; the pipeline now picks isotonic vs Platt on validation. |
+| **Gradient boosting** | Trees find interactions a linear model cannot express. | **Worse than logistic regression.** The usual signature of a booster overfitting weak signal. |
+
+Four independent levers, none of which moved the result. Taken together that
+is stronger evidence than any single number: the ceiling here is a property of
+the problem, not of the tuning.
+
 ### Why that is still worth reporting
 
 Matchmaking is designed to make matches even. It is very good at it. A project
