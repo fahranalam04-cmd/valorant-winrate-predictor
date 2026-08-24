@@ -147,6 +147,22 @@ the genuine residual — the best model scores **51.7% ± 3.4%**. That interval
 contains 50%. So the honest conclusion is that most of what the model finds is
 **rank in disguise**, and the features add little beyond it at this sample size.
 
+### Seven models are statistically tied
+
+The log-loss standard error on the test set is **0.0021**, and the spread from
+best to seventh-best is smaller than that. Consecutive runs on identical data
+crowned different winners — first the margin blend, then gradient boosting —
+because the ranking is being decided by noise.
+
+Picking the raw minimum is therefore picking noise. The pipeline applies the
+**one-standard-error rule**: among models statistically tied with the best,
+ship the simplest. That selects `avg rating` — a **single feature**.
+
+So the honest summary is not "the model gets 53.4%". It is: *a 52-feature
+pipeline, a gradient booster, and a margin regression are all statistically
+indistinguishable from one well-constructed feature.* The Phase 3 rating is
+carrying the result, and everything layered on top is measurement noise.
+
 ### What was tried and did not work
 
 Reported because negative results are the part of a modelling project that is

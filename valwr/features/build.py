@@ -38,8 +38,8 @@ TEAM_A, TEAM_B = "Blue", "Red"
 class MatchFeatures:
     match_id: str
     started_at: int
-    target: int                       # 1 if TEAM_A won
-    margin: int                       # TEAM_A rounds minus TEAM_B rounds
+    target: int | None                # 1 if TEAM_A won; None before the match
+    margin: int | None                # TEAM_A rounds minus TEAM_B; None live
     values: dict[str, float]
     context: dict[str, str]
     coverage: int                     # players with history, 0-10
@@ -54,11 +54,20 @@ def _team_rows(rows: list[sqlite3.Row], team: str):
 
 
 def build_match(conn, match: dict, rows: list[sqlite3.Row], norms: Norms,
-                prior_rate: float, roles: dict[str, str | None]) -> MatchFeatures | None:
-    """Features for one match, from data strictly before it started."""
+                prior_rate: float, roles: dict[str, str | None],
+                *, require_outcome: bool = True) -> MatchFeatures | None:
+    """Features for one match, from data strictly before it started.
+
+    `require_outcome=False` is the live path. A match being predicted has not
+    finished, so it has no winner and no margin -- but the features themselves
+    are identical, and they must be, because a model fed inputs built by a
+    different code path is being fed inputs it never saw. Training and
+    inference share this function precisely so they cannot drift.
+    """
     as_of = match["started_at"]
-    if match.get("winner") not in (TEAM_A, TEAM_B):
-        return None                    # draws and unresolved matches carry no target
+    winner = match.get("winner")
+    if require_outcome and winner not in (TEAM_A, TEAM_B):
+        return None                    # draws and unresolved carry no target
 
     sides = {}
     coverage = 0
@@ -84,12 +93,13 @@ def build_match(conn, match: dict, rows: list[sqlite3.Row], norms: Norms,
     # binary label: 13-3 and 13-11 are the same bit but very different
     # evidence about which side was stronger.
     ra, rb = match.get("rounds_blue"), match.get("rounds_red")
-    margin = int(ra - rb) if ra is not None and rb is not None else 0
+    margin = int(ra - rb) if ra is not None and rb is not None else None
+    target = int(winner == TEAM_A) if winner in (TEAM_A, TEAM_B) else None
 
     return MatchFeatures(
         match_id=match["match_id"],
         started_at=as_of,
-        target=int(match["winner"] == TEAM_A),
+        target=target,
         margin=margin,
         values=values,
         context=ctx.build(match),
@@ -105,8 +115,8 @@ def mirror(mf: MatchFeatures) -> MatchFeatures:
     """
     return MatchFeatures(
         match_id=mf.match_id, started_at=mf.started_at,
-        target=1 - mf.target,
-        margin=-mf.margin,
+        target=None if mf.target is None else 1 - mf.target,
+        margin=None if mf.margin is None else -mf.margin,
         values={k: -v for k, v in mf.values.items()},
         context=mf.context, coverage=mf.coverage,
     )
