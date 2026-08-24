@@ -33,6 +33,11 @@ class TokenBucket:
         self.waited_seconds = 0.0
         self.server_remaining: int | None = None
         self.server_limit: int = per_minute
+        # Learned cost of one request in quota units. A size=10 matchlist fans
+        # out to Riot and bills roughly 2, but this is measured rather than
+        # assumed because it varies by endpoint and by cache hit.
+        self.cost_per_request: float = 1.0
+        self._prev_remaining: int | None = None
 
     def _refill(self) -> None:
         now = time.monotonic()
@@ -73,10 +78,29 @@ class TokenBucket:
             return
 
         with self._lock:
+            # Learn what a request actually costs, from consecutive readings.
+            if (self._prev_remaining is not None
+                    and 0 < self._prev_remaining - remaining <= 20):
+                observed = float(self._prev_remaining - remaining)
+                self.cost_per_request = 0.7 * self.cost_per_request + 0.3 * observed
+            self._prev_remaining = remaining
+
             self.server_remaining = remaining
             self.server_limit = limit or self.server_limit
+
+            # Pace to the sustainable request rate rather than the raw unit
+            # ceiling: 30 units/min at ~2 units per request is ~15 req/min.
+            sustainable = self.server_limit / max(self.cost_per_request, 1.0)
+            self.rate = max(sustainable * HEADROOM / 60.0, 1 / 120.0)
+
+            # Keep a reserve and never sprint to zero. Hitting zero triggers a
+            # fixed backoff whose length we cannot infer -- the reset header
+            # reports the window size, not the time left in it -- and stalling
+            # blind for a full window is what cost 82% of an hour's wall clock.
+            reserve = max(2.0, 0.15 * self.server_limit)
+            usable = max(0.0, remaining - reserve)
             self._refill()
-            self._tokens = min(self._tokens, float(remaining))
+            self._tokens = min(self._tokens, usable)
 
         if remaining == 0 and reset > 0:
             self.penalise(reset)

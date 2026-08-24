@@ -343,3 +343,39 @@ def test_crawler_normalises_inline_so_there_is_one_writer(conn):
 
     assert conn.execute("SELECT COUNT(*) n FROM matches").fetchone()["n"] == 1
     assert conn.execute("SELECT COUNT(*) n FROM match_players").fetchone()["n"] == 10
+
+
+# --- adaptive pacing --------------------------------------------------
+
+def test_limiter_learns_the_real_cost_of_a_request():
+    """A size=10 matchlist bills ~2 units, not 1. Pacing to the raw unit
+    ceiling overshoots by 2x and ends in a stall."""
+    b = TokenBucket(30)
+    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "28",
+               "x-ratelimit-reset": "60"})
+    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "26",
+               "x-ratelimit-reset": "60"})
+    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "24",
+               "x-ratelimit-reset": "60"})
+    assert 1.5 < b.cost_per_request < 2.5, b.cost_per_request
+
+
+def test_limiter_keeps_a_reserve_instead_of_sprinting_to_zero():
+    """Hitting zero triggers a blind full-window backoff. 53 of those cost
+    82% of one hour's wall clock."""
+    b = TokenBucket(30)
+    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "3",
+               "x-ratelimit-reset": "60"})
+    # reserve is max(2, 15% of 30) = 4.5, so 3 remaining leaves nothing usable
+    assert b._tokens == 0.0
+    assert b.acquire() > 0.0
+
+
+def test_pacing_adapts_downward_when_requests_cost_more():
+    b = TokenBucket(30)
+    fast = b.rate
+    for r in (25, 20, 15, 10):
+        b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": str(r),
+                   "x-ratelimit-reset": "60"})
+    assert b.cost_per_request > 3.0
+    assert b.rate < fast, "expensive requests must slow the pace"
