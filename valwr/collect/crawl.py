@@ -20,6 +20,7 @@ from valwr.collect import frontier
 from valwr.collect.client import (HenrikClient, HenrikError, RateLimited,
                                   TransientError)
 from valwr.collect.limiter import TokenBucket
+from valwr.store import normalize
 
 # Cap on the retry backoff for network failures. Long enough to ride out a
 # suspend/resume cycle or a router reboot, short enough that a run recovers
@@ -83,6 +84,31 @@ class Crawler:
         self.stats = CrawlStats()
         self._transient_streak = 0
 
+    def _normalise(self, doc: dict) -> int:
+        """Normalise this response inline, in the crawler process.
+
+        SQLite allows exactly one writer. Running the normaliser as a separate
+        process against a live crawl deadlocks whichever one loses the race --
+        both directions were observed: 59 crawler runs died with "database is
+        locked", and later the normaliser did. Doing it here makes the crawler
+        the only writer that ever exists, so analysis processes are pure
+        readers and WAL handles them concurrently without contention.
+
+        It also keeps the normalised tables continuously current, instead of
+        drifting behind raw until someone remembers to catch them up.
+        """
+        done = 0
+        for m in doc.get("data") or []:
+            try:
+                row, players, _ = normalize.parse_match(m)
+            except normalize.ParseError:
+                continue
+            normalize.upsert_match(self.conn, row)
+            if players:
+                normalize.upsert_players(self.conn, players)
+            done += 1
+        return done
+
     def _note_matches(self, harvested) -> None:
         now = int(time.time())
         for match_id, players in harvested:
@@ -136,6 +162,7 @@ class Crawler:
             return True
 
         self._transient_streak = 0
+        self._normalise(doc)
         self._note_matches(harvest(doc))
         frontier.complete(self.conn, puuid)
         self.stats.players_fetched += 1

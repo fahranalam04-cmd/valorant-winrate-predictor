@@ -309,3 +309,37 @@ def test_coverage_summary_counts_trainable_matches(conn):
     s = frontier.coverage_summary(conn)
     assert set(s) == {"matches", "full_10", "usable_8", "partial_5"}
     assert s["matches"] == 0
+
+
+def test_crawler_normalises_inline_so_there_is_one_writer(conn):
+    """SQLite allows exactly one writer, and a separate normaliser process
+    deadlocked against a live crawl in both directions. The crawler now writes
+    both raw and normalised tables itself."""
+    class RealShapeClient:
+        def matches(self, region, platform, puuid, size=10, **kw):
+            return {"data": [{
+                "metadata": {"match_id": "m1", "started_at": "2026-08-01T00:00:00Z",
+                             "map": {"name": "Sunset"}, "region": "na",
+                             "queue": {"id": "competitive", "mode_type": "Standard"},
+                             "season": {"short": "e11a5"}, "is_completed": True},
+                "teams": [{"team_id": "Red", "won": False, "rounds": {"won": 12}},
+                          {"team_id": "Blue", "won": True, "rounds": {"won": 14}}],
+                "rounds": [{"id": i, "ceremony": "CeremonyDefault",
+                            "winning_team": "Blue", "stats": []} for i in range(20)],
+                "kills": [],
+                "players": [{"puuid": f"p{i}", "name": f"n{i}", "tag": "NA1",
+                             "team_id": "Blue" if i < 5 else "Red",
+                             "agent": {"name": "Jett"}, "tier": {"id": 13},
+                             "party_id": None, "account_level": 50,
+                             "stats": {"score": 4000, "kills": 15, "deaths": 14,
+                                       "assists": 5, "headshots": 10,
+                                       "bodyshots": 20, "legshots": 2,
+                                       "damage": {"dealt": 2800, "received": 2900}}}
+                            for i in range(10)]}]}
+
+    frontier.enqueue_many(conn, [("seed", 13)])
+    c = Crawler(conn, RealShapeClient(), TokenBucket(6000), "na", "pc")
+    c.run(minutes=0.02, verbose=False)
+
+    assert conn.execute("SELECT COUNT(*) n FROM matches").fetchone()["n"] == 1
+    assert conn.execute("SELECT COUNT(*) n FROM match_players").fetchone()["n"] == 10
