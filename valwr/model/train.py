@@ -33,6 +33,24 @@ RANDOM_STATE = 17
 # itself the finding: regularisation is not what is limiting this model.
 LOGISTIC_C = 0.03
 
+# Preference order when models are statistically tied. Lower is simpler, and
+# simpler wins ties: fewer moving parts to explain, and less to go wrong in
+# the live path.
+COMPLEXITY = {
+    "coin flip": 0,
+    "avg rank (fitted)": 1,
+    "best player rank": 1,
+    "avg rating (fitted)": 2,
+    "logistic regression": 3,
+    "logistic + platt": 4,
+    "logistic + isotonic": 4,
+    "margin regression": 5,
+    "logistic + margin blend": 6,
+    "gradient boosting": 7,
+    "gbm + platt": 8,
+    "gbm + isotonic": 8,
+}
+
 
 def feature_columns(df) -> list[str]:
     """Difference features only, dropping any with no variance in training.
@@ -195,6 +213,13 @@ def main(argv=None) -> int:
         df = pd.read_parquet(cache)
         print(f"  reusing {cache.name} ({len(df):,} rows) -- --rebuild to refresh")
 
+    # Rebuild the exact norms the matrix was built with, so inference can
+    # reuse them rather than approximating them later.
+    from valwr.rating.normalize import build_norms
+    from valwr.store import temporal as _temporal
+    norms_used = build_norms(conn, b.train_end)
+    prior_used = _temporal.population_win_rate(conn, b.train_end)
+
     df = split.apply(df, b).sort_values("started_at").reset_index(drop=True)
     # The crawler collects the same match via several players, so duplicates
     # across splits are a live risk rather than a theoretical one.
@@ -304,12 +329,60 @@ def main(argv=None) -> int:
     }, indent=2), encoding="utf-8")
     print(f"\n  wrote {out / 'results.json'}")
 
+    # --- 8. persist everything inference needs ------------------------
+    # Not just the estimator. Live features must be built with the SAME
+    # population norms, shrinkage prior and agent->role map used in training,
+    # or the model is handed inputs it never saw. Saving the estimator alone
+    # is the quiet way to get a live path that silently disagrees with its
+    # own evaluation.
     import joblib
+    from valwr.store import reference
+
     models = Path(s.database_path).parent.parent / "models"
     models.mkdir(exist_ok=True)
-    joblib.dump({"gbm": gbm, "isotonic": iso, "columns": cols},
-                models / "gbm.joblib")
-    print(f"  wrote {models / 'gbm.joblib'}")
+
+    # Ship the SIMPLEST model within one standard error of the best, not
+    # whichever happened to win. Consecutive runs crowned "logistic + margin
+    # blend" and then "gradient boosting" on the same data -- the ranking
+    # flips because the gaps are smaller than the noise, so selecting on the
+    # raw minimum is selecting on noise. The one-standard-error rule is the
+    # standard remedy and it also happens to ship the model that is easier to
+    # explain and cheaper to run live.
+    se = evaluate.log_loss_standard_error(yte, p_lr_te)
+    ranked = sorted(results, key=lambda r: r.log_loss)
+    threshold = ranked[0].log_loss + se
+    eligible = [r for r in ranked if r.log_loss <= threshold]
+    winner_name = min(eligible, key=lambda r: COMPLEXITY.get(r.name, 99)).name
+    print(f"\n  log-loss standard error {se:.4f}; "
+          f"{len(eligible)} model(s) statistically tied")
+    print(f"  shipping the simplest of them: {winner_name}")
+    # Baselines are shippable models too. The one-standard-error rule can
+    # legitimately choose one -- and did -- so the bundle has to be able to
+    # serve it rather than silently falling back to something else.
+    estimators = {"logistic": lr, "gbm": gbm, "margin_reg": reg,
+                  "margin_link": link}
+    fitted_baselines = baselines.fitted(tr)
+    for bname in fitted_baselines:
+        if bname != "coin flip":
+            estimators[bname] = fitted_baselines[bname]
+    if winner_name not in estimators and winner_name not in (
+            "logistic regression", "gradient boosting", "margin regression",
+            "logistic + margin blend"):
+        raise RuntimeError(
+            f"selected {winner_name!r} but it is not in the persisted "
+            f"estimators; the live path could not serve it")
+
+    joblib.dump({
+        "estimators": estimators,
+        "best": winner_name,
+        "columns": cols,
+        "norms": norms_used,
+        "prior_rate": prior_used,
+        "roles": reference.agent_roles(conn),
+        "norms_as_of": b.train_end,
+        "metrics": {r.name: r.__dict__ for r in results},
+    }, models / "model.joblib")
+    print(f"  wrote {models / 'model.joblib'}  (best: {winner_name})")
     return 0
 
 

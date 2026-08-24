@@ -180,3 +180,61 @@ def test_margin_model_produces_valid_probabilities(frame):
 
     assert len(p) == len(te)
     assert ((p > 0) & (p < 1)).all(), "probabilities must stay in (0,1)"
+
+
+# --- inference-bundle readiness (pre-Phase 6) -------------------------
+
+def test_features_can_be_built_without_an_outcome(tmp_path):
+    """The live path predicts matches that have not finished.
+
+    build_match() used to return None whenever a winner was missing, which
+    would have made the live path impossible -- discovered by auditing Phase 6
+    dependencies before building it rather than during.
+    """
+    from valwr.features import build as fb
+    from valwr.rating.normalize import build_norms
+    from valwr.store import normalize, reference, schema, temporal
+
+    conn = schema.connect(tmp_path / "t.db")
+    schema.create_all(conn)
+    conn.execute("INSERT INTO ref_agents (uuid,name,role) VALUES ('u','Jett','Duelist')")
+    conn.commit()
+
+    from test.test_leakage import ingest, make_match
+    ingest(conn, make_match("past", "2026-08-01T00:00:00Z"))
+
+    as_of = normalize.parse_started_at("2026-08-05T00:00:00Z")
+    live = {"match_id": "live", "started_at": as_of, "map": "Sunset",
+            "season": "e11a5", "region": "na", "winner": None,
+            "rounds_blue": None, "rounds_red": None}
+    roster = temporal.match_roster(conn, "past")
+
+    out = fb.build_match(conn, live, roster, build_norms(conn, as_of), 0.5,
+                         reference.agent_roles(conn), require_outcome=False)
+    assert out is not None, "live matches have no winner and must still build"
+    assert out.target is None and out.margin is None
+    assert out.values, "features must still be produced"
+
+
+def test_one_standard_error_rule_prefers_the_simpler_tied_model():
+    """Consecutive runs on identical data crowned different winners, because
+    the gaps are smaller than the noise. Selecting on the raw minimum is
+    selecting on noise."""
+    from valwr.model.train import COMPLEXITY
+    assert COMPLEXITY["avg rating (fitted)"] < COMPLEXITY["logistic regression"]
+    assert COMPLEXITY["logistic regression"] < COMPLEXITY["gradient boosting"]
+
+
+def test_log_loss_standard_error_is_positive_and_shrinks_with_n():
+    rng = np.random.default_rng(3)
+    y_small = rng.integers(0, 2, 200)
+    y_big = rng.integers(0, 2, 20000)
+    se_small = evaluate.log_loss_standard_error(y_small, np.full(200, 0.5))
+    se_big = evaluate.log_loss_standard_error(y_big, np.full(20000, 0.5))
+    # A constant prediction has zero variance in per-sample loss.
+    assert se_small >= 0 and se_big >= 0
+    varied_small = evaluate.log_loss_standard_error(
+        y_small, rng.uniform(0.3, 0.7, 200))
+    varied_big = evaluate.log_loss_standard_error(
+        y_big, rng.uniform(0.3, 0.7, 20000))
+    assert varied_small > varied_big

@@ -85,6 +85,19 @@ def confidence_interval(accuracy: float, n: int) -> float:
     return 1.96 * math.sqrt(max(accuracy * (1 - accuracy), 1e-9) / n)
 
 
+def log_loss_standard_error(y, p) -> float:
+    """Standard error of the mean per-sample log loss.
+
+    Model differences here are in the third decimal place. Without knowing the
+    noise floor there is no way to say whether 0.6896 genuinely beats 0.6924
+    or whether they are the same model wearing different hats.
+    """
+    y = np.asarray(y, dtype=float)
+    p = np.clip(np.asarray(p, dtype=float), EPS, 1 - EPS)
+    per_sample = -(y * np.log(p) + (1 - y) * np.log(1 - p))
+    return float(per_sample.std(ddof=1) / np.sqrt(len(per_sample)))
+
+
 def reliability_table(y, p, bins: int = 10) -> list[tuple[float, float, int]]:
     """(mean predicted, observed frequency, count) per bin, for the diagram."""
     y = np.asarray(y, dtype=float)
