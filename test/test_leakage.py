@@ -69,6 +69,48 @@ def conn(tmp_path):
 
 # --- 1. the truncation audit -----------------------------------------
 
+def test_feature_matrix_requires_an_explicit_training_cutoff(conn):
+    """The orchestration layer must not silently fit norms on held-out rows.
+
+    Per-match history queries can all be correctly time-gated while population
+    normalisation still reaches into validation and test. Requiring the split
+    boundary makes that failure mode explicit instead of defaulting to the
+    latest match in the database.
+    """
+    ingest(conn,
+           make_match("train", "2026-08-01T00:00:00Z"),
+           make_match("test", "2026-08-05T00:00:00Z"))
+
+    with pytest.raises(TypeError, match="norms_as_of"):
+        fb.build_all(conn, verbose=False)
+
+
+def test_feature_matrix_fits_population_stats_at_training_cutoff(conn, monkeypatch):
+    ingest(conn,
+           make_match("train", "2026-08-01T00:00:00Z"),
+           make_match("validation", "2026-08-05T00:00:00Z"),
+           make_match("test", "2026-08-09T00:00:00Z"))
+    cutoff = normalize.parse_started_at("2026-08-05T00:00:00Z")
+    seen: dict[str, int] = {}
+    real_build_norms = fb.build_norms
+    real_population_win_rate = temporal.population_win_rate
+
+    def tracked_build_norms(c, as_of):
+        seen["norms"] = as_of
+        return real_build_norms(c, as_of)
+
+    def tracked_population_win_rate(c, as_of):
+        seen["prior"] = as_of
+        return real_population_win_rate(c, as_of)
+
+    monkeypatch.setattr(fb, "build_norms", tracked_build_norms)
+    monkeypatch.setattr(temporal, "population_win_rate", tracked_population_win_rate)
+
+    rows = fb.build_all(conn, norms_as_of=cutoff, verbose=False)
+
+    assert rows
+    assert seen == {"norms": cutoff, "prior": cutoff}
+
 def test_features_are_identical_when_the_future_is_deleted(conn):
     """The core audit.
 

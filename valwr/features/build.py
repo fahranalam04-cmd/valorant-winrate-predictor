@@ -103,10 +103,16 @@ def mirror(mf: MatchFeatures) -> MatchFeatures:
     )
 
 
-def build_all(conn: sqlite3.Connection, norms_as_of: int | None = None,
+def build_all(conn: sqlite3.Connection, *, norms_as_of: int,
               min_coverage: int = 0, limit: int | None = None,
               verbose: bool = True) -> list[MatchFeatures]:
     """Build features for every resolved match.
+
+    `norms_as_of` is the train/validation boundary. Population norms and the
+    shrinkage prior are fitted only on rows strictly before it, then frozen for
+    every split. It is deliberately required: defaulting to the latest match
+    would fit preprocessing on validation and test data before Phase 5 has even
+    split the matrix.
 
     `min_coverage` filters on how many of the ten players have any prior
     history. A match where nobody is known contributes only population means
@@ -120,9 +126,8 @@ def build_all(conn: sqlite3.Connection, norms_as_of: int | None = None,
     if not matches:
         return []
 
-    cutoff = norms_as_of or (matches[-1]["started_at"] + 1)
-    norms = build_norms(conn, cutoff)
-    prior_rate = temporal.population_win_rate(conn, cutoff)
+    norms = build_norms(conn, norms_as_of)
+    prior_rate = temporal.population_win_rate(conn, norms_as_of)
     roles = reference.agent_roles(conn)
     if verbose:
         print(f"  norms from {norms.rows_used:,} rows, "
@@ -167,12 +172,24 @@ def main(argv=None) -> int:
     ap.add_argument("--min-coverage", type=int, default=5,
                     help="require at least N of 10 players to have prior history")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument(
+        "--norms-as-of",
+        type=int,
+        required=True,
+        help=("Unix timestamp at the train/validation boundary; population "
+              "statistics are fitted only on earlier rows"),
+    )
     ap.add_argument("--out", default="data/features.parquet")
     args = ap.parse_args(argv)
 
     s = config.load(require_key=False)
     conn = schema.connect(s.database_path)
-    rows = build_all(conn, min_coverage=args.min_coverage, limit=args.limit)
+    rows = build_all(
+        conn,
+        norms_as_of=args.norms_as_of,
+        min_coverage=args.min_coverage,
+        limit=args.limit,
+    )
     if not rows:
         print("no matches met the criteria")
         return 1

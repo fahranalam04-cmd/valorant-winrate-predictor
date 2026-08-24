@@ -64,7 +64,8 @@ python -m valwr.check              # smoke test
 python -m valwr.collect --minutes 60   # crawl (resumable, ctrl-c safe)
 python -m valwr.store.normalize        # raw -> normalised tables
 python -m valwr.rating.validate        # is the rating measuring anything?
-python -m valwr.features.build         # -> data/features.parquet
+python -m valwr.features.build --norms-as-of <train_cutoff_unix>
+                                      # -> data/features.parquet
 pytest                             # after ANY change to valwr/
 ```
 
