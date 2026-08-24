@@ -17,6 +17,9 @@ lightgbm>=4.3
 xgboost>=2.1
 shap>=0.45
 joblib>=1.4            # model persistence; used directly, not via sklearn
+                       # NOTE: joblib's pickle loader uses a NumPy API
+                       # deprecated in 2.5. The live path loads this
+                       # bundle, so raise the floor when upstream fixes it.
 matplotlib>=3.9        # reliability diagrams, feature importance plots
 
 # Live client + dashboard

@@ -166,7 +166,22 @@ system prompt forbids inventing statistics — the model may only reason over
 supplied numbers. An LLM that makes up plausible-sounding VALORANT stats is
 worse than no coach at all, because it is convincing.
 
-**11. Secrets never enter git.**
+**11. Train and infer through the same code path.**
+`features/build.build_match()` serves both, with `require_outcome=False` for
+live matches, which have no winner yet. Do not write a second feature builder
+for inference: a model fed features from a different code path is being fed
+inputs it never saw, and nothing will report an error. For the same reason
+`models/model.joblib` carries the norms, shrinkage prior and agent-role map
+alongside the estimator -- persisting the estimator alone is the quiet way to
+get a live path that disagrees with its own evaluation.
+
+**12. Ship the simplest model that is statistically tied with the best.**
+The log-loss standard error is ~0.002 and seven models sit inside it, so
+consecutive runs on identical data crown different winners. Selecting the raw
+minimum is selecting noise. `train.py` applies the one-standard-error rule
+against the `COMPLEXITY` ordering. Do not replace it with `min(log_loss)`.
+
+**13. Secrets never enter git.**
 `.env` is gitignored; only `.env.example` is tracked. No key literal in any
 committed file, notebook output, or test fixture.
 
