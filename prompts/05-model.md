@@ -27,6 +27,11 @@ leakage and go looking.
 
 Time-ordered by match start: 70% train, 15% validation, 15% test.
 
+Compute the train/validation boundary timestamp before building the feature
+matrix and pass it to `build_all(norms_as_of=...)`. The feature builder requires
+this cutoff so population norms and the shrinkage prior cannot silently fit on
+validation or test rows.
+
 **Never random k-fold.** Match data is a time series; shuffling trains on the
 future and the inflation is large.
 
