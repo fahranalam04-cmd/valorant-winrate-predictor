@@ -28,42 +28,66 @@ def test_limiter_leaves_headroom_below_stated_limit():
     assert b.effective_per_minute < 30
 
 
-def test_limiter_starts_empty_so_it_paces_from_the_first_request():
-    """A full bucket lets the first N requests fire unspaced.
+def test_limiter_allows_one_probe_before_any_quota_is_known():
+    """Quota is only observable by spending some, so the first request must
+    not block on a reading that cannot exist yet."""
+    b = TokenBucket(30)
+    assert b.acquire() == 0.0
 
-    That is how the first live crawl earned 429s while averaging under
-    3 req/min -- the server's rolling window still held earlier requests.
+
+def test_limiter_spends_the_window_rather_than_trickling():
+    """The window is fixed: unused quota expires at the boundary. Measured by
+    probing -- reset counts 60, 48, 37, 25, 14, 2 then jumps back to full.
+    An earlier version held a 15% reserve, which simply evaporated each minute.
     """
-    b = TokenBucket(6000)  # 90/s effective -- keeps the test fast
-    assert b.acquire() > 0.0
+    b = TokenBucket(30)
+    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "20",
+               "x-ratelimit-reset": "40"})
+    assert b.acquire() == 0.0, "quota is available; nothing should be held back"
 
 
-def test_limiter_never_grants_more_than_the_server_reports():
-    b = TokenBucket(6000)
-    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "2",
-               "x-ratelimit-reset": "60"})
-    assert b.server_remaining == 2
-    assert b._tokens <= 2.0
-
-
-def test_exhausted_quota_triggers_a_backoff():
-    b = TokenBucket(6000)
+def test_limiter_waits_for_the_boundary_when_the_window_is_spent():
+    b = TokenBucket(30)
     b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "0",
-               "x-ratelimit-reset": "0.05"})
+               "x-ratelimit-reset": "1"})
     assert b.acquire() > 0.0
+
+
+def test_exhausted_window_recovers_without_a_new_reading():
+    """Regression: a deadlock. With remaining at 0 and no further response to
+    correct it, acquire() slept forever waiting for a reading that could only
+    come from a request it refused to make. It hung the whole test suite."""
+    b = TokenBucket(30)
+    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "0",
+               "x-ratelimit-reset": "1"})
+    b.acquire()
+    assert b._affordable() > 1
+
+
+def test_limiter_learns_the_real_cost_of_a_request():
+    """A fresh matchlist bills several units, not one, because it fans out to
+    Riot instead of serving cache."""
+    b = TokenBucket(30)
+    for r in (28, 26, 24):
+        b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": str(r),
+                   "x-ratelimit-reset": "60"})
+    assert 1.5 < b.cost_per_request < 2.5, b.cost_per_request
+
+
+def test_affordability_falls_as_requests_get_more_expensive():
+    b = TokenBucket(30)
+    for r in (25, 20, 15, 10):
+        b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": str(r),
+                   "x-ratelimit-reset": "60"})
+    assert b.cost_per_request > 3.0
+    assert b._affordable() < 10 / 1.0
 
 
 def test_observe_ignores_responses_without_quota_headers():
-    b = TokenBucket(6000)
+    b = TokenBucket(30)
     b.observe({})
     b.observe({"x-ratelimit-remaining": "not-a-number"})
     assert b.server_remaining is None
-
-
-def test_penalise_drains_the_bucket():
-    b = TokenBucket(6000)
-    b.penalise(0.05)
-    assert b.acquire() > 0.0
 
 
 # --- frontier --------------------------------------------------------
@@ -359,23 +383,3 @@ def test_limiter_learns_the_real_cost_of_a_request():
                "x-ratelimit-reset": "60"})
     assert 1.5 < b.cost_per_request < 2.5, b.cost_per_request
 
-
-def test_limiter_keeps_a_reserve_instead_of_sprinting_to_zero():
-    """Hitting zero triggers a blind full-window backoff. 53 of those cost
-    82% of one hour's wall clock."""
-    b = TokenBucket(30)
-    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "3",
-               "x-ratelimit-reset": "60"})
-    # reserve is max(2, 15% of 30) = 4.5, so 3 remaining leaves nothing usable
-    assert b._tokens == 0.0
-    assert b.acquire() > 0.0
-
-
-def test_pacing_adapts_downward_when_requests_cost_more():
-    b = TokenBucket(30)
-    fast = b.rate
-    for r in (25, 20, 15, 10):
-        b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": str(r),
-                   "x-ratelimit-reset": "60"})
-    assert b.cost_per_request > 3.0
-    assert b.rate < fast, "expensive requests must slow the pace"
