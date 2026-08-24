@@ -1,4 +1,24 @@
-"""Token-bucket rate limiter.
+"""Fixed-window rate limiter.
+
+Measured, not assumed. Probing the API every 10 seconds showed:
+
+    t=1   remaining 29  reset 60
+    t=13  remaining 28  reset 48
+    t=59  remaining 24  reset  2
+    t=71  remaining 29  reset 60     <- jumped back to full
+
+So `reset` counts down to the window boundary, and the window is FIXED: the
+allowance refills all at once rather than trickling. Two consequences, both
+the opposite of what a token bucket assumes.
+
+Unused quota **expires** at the boundary, so holding a reserve is pure waste --
+an earlier version kept 15% back and it simply evaporated every minute.
+And when the allowance runs out, `reset` is the exact time to wait, not a
+guess.
+
+The right shape is therefore: spend the window down, sleep precisely until it
+rolls, repeat.
+
 
 Every call to api.henrikdev.xyz goes through one of these. The limit is the
 binding constraint on this whole project, and the maintainer runs the service
@@ -38,25 +58,48 @@ class TokenBucket:
         # assumed because it varies by endpoint and by cache hit.
         self.cost_per_request: float = 1.0
         self._prev_remaining: int | None = None
+        self._reset_at: float | None = None
 
-    def _refill(self) -> None:
-        now = time.monotonic()
-        self._tokens = min(self.capacity, self._tokens + (now - self._last) * self.rate)
-        self._last = now
+    def _affordable(self) -> float:
+        """How many further requests the current window can pay for."""
+        if self.server_remaining is None:
+            # Before the first response, allow one probe so the real numbers
+            # can be observed.
+            return 1.0
+        if self._reset_at is not None and time.monotonic() >= self._reset_at:
+            # The window boundary has passed. Assume it refilled and allow a
+            # probe: quota is only observable by spending some, so waiting for
+            # a fresh reading that can never arrive is a deadlock. This is what
+            # hung the test suite -- with remaining at 0 and no new response to
+            # correct it, acquire() slept forever.
+            self.server_remaining = self.server_limit
+            self._reset_at = None
+        return self.server_remaining / max(self.cost_per_request, 1.0)
+
+    def _seconds_to_reset(self) -> float:
+        if self._reset_at is None:
+            return 5.0
+        return max(0.0, self._reset_at - time.monotonic())
 
     def acquire(self, tokens: int = 1) -> float:
-        """Block until `tokens` are available. Returns seconds spent waiting."""
+        """Block until the window can pay for a request. Returns seconds waited.
+
+        No smooth pacing: in a fixed window, quota not spent before the
+        boundary is lost, so spending it as it becomes available is strictly
+        better than trickling.
+        """
         waited = 0.0
         while True:
             with self._lock:
-                self._refill()
-                if self._tokens >= tokens:
-                    self._tokens -= tokens
+                if self._affordable() >= tokens:
+                    # Debit optimistically; observe() overwrites this with the
+                    # authoritative count when the response returns.
+                    if self.server_remaining is not None:
+                        self.server_remaining -= self.cost_per_request
                     self.acquired += tokens
                     self.waited_seconds += waited
                     return waited
-                deficit = tokens - self._tokens
-                sleep_for = deficit / self.rate
+                sleep_for = max(1.0, self._seconds_to_reset())
             time.sleep(sleep_for)
             waited += sleep_for
 
@@ -85,34 +128,15 @@ class TokenBucket:
                 self.cost_per_request = 0.7 * self.cost_per_request + 0.3 * observed
             self._prev_remaining = remaining
 
+            # The server's count is authoritative; ours was only a placeholder
+            # between responses.
             self.server_remaining = remaining
             self.server_limit = limit or self.server_limit
-
-            # Pace to the sustainable request rate rather than the raw unit
-            # ceiling: 30 units/min at ~2 units per request is ~15 req/min.
-            sustainable = self.server_limit / max(self.cost_per_request, 1.0)
-            self.rate = max(sustainable * HEADROOM / 60.0, 1 / 120.0)
-
-            # Keep a reserve and never sprint to zero. Hitting zero triggers a
-            # fixed backoff whose length we cannot infer -- the reset header
-            # reports the window size, not the time left in it -- and stalling
-            # blind for a full window is what cost 82% of an hour's wall clock.
-            reserve = max(2.0, 0.15 * self.server_limit)
-            usable = max(0.0, remaining - reserve)
-            self._refill()
-            self._tokens = min(self._tokens, usable)
-
-        if remaining == 0 and reset > 0:
-            self.penalise(reset)
+            if reset > 0:
+                self._reset_at = time.monotonic() + reset
 
     def penalise(self, seconds: float) -> None:
-        """Drain the bucket after a 429.
-
-        A 429 means our accounting disagrees with the server's. Emptying the
-        bucket and refusing to spend for `seconds` is the conservative
-        response -- back off rather than probe the boundary.
-        """
+        """Back off after a 429: treat the window as spent until it rolls."""
         with self._lock:
-            self._refill()
-            self._tokens = 0.0
-            self._last = time.monotonic() + max(0.0, seconds)
+            self.server_remaining = 0
+            self._reset_at = time.monotonic() + max(1.0, seconds)
