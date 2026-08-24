@@ -50,6 +50,43 @@ under 3 req/min; the adaptive version has earned none.
 Responses also carry `x-cache-status` and `x-cache-ttl: 300` — HenrikDev
 caches for five minutes, which is worth knowing for the live path's re-fetches.
 
+### Quota semantics, measured
+
+Probing every 10 seconds settles how the window behaves:
+
+```
+t=1   remaining 29  reset 60
+t=13  remaining 28  reset 48
+t=59  remaining 24  reset  2
+t=71  remaining 29  reset 60     <- jumps back to full
+```
+
+`reset` **counts down** to the boundary; it is not the window length. The
+window is **fixed**, not rolling -- the allowance refills all at once. So
+unused quota expires, holding a reserve is waste, and an exhausted window
+should sleep exactly `reset` seconds.
+
+### A fresh matchlist costs ~10 units, not 1
+
+This is the number that governs everything. Three different limiter designs
+were tried -- a token bucket, adaptive pacing, and a fixed-window limiter --
+and all three landed at **2.6-3.2 req/min**:
+
+| Implementation | req/min | implied cost |
+|---|---|---|
+| Token bucket | 3.2 | 9.4 units |
+| Adaptive pacing | 2.8 | 10.7 units |
+| Fixed window | 2.6 | 11.5 units |
+
+Three designs converging on the same number is not three failures; it is the
+ceiling. At 30 units per minute and ~10 units per fresh matchlist, **~3
+req/min is the Basic tier's hard limit.** Cached repeats bill ~1 unit, which is
+why a naive probe of the same PUUID looks far cheaper than reality.
+
+The long gaps in a crawl are therefore not waste to optimise away -- they are
+the window genuinely spent. **There is no client-side optimisation left.** The
+only lever is the Enhanced key: 90 units/min is ~8.6 req/min, roughly 3x.
+
 ### Real throughput (basic tier, measured)
 
 | | |
