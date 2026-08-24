@@ -109,17 +109,33 @@ def calibrate(p_val, y_val, p_test):
             ("platt", platt))
 
 
-def shuffled_target_check(X, y, X_test, y_test) -> float:
-    """Retrain on shuffled labels; AUC must collapse to ~0.5.
+def shuffled_target_check(X, y, X_test, y_test, draws: int = 25) -> dict:
+    """Retrain on shuffled labels repeatedly; the AUCs must centre on 0.5.
 
     If a model can predict shuffled labels, a feature encodes the outcome.
-    Cheap, and it catches leakage the traceability audit cannot.
+
+    Deliberately many draws rather than one. A single shuffle has a standard
+    deviation around 0.014 at this sample size, so one draw landing at 0.518
+    looks alarming and means nothing -- which happened, and cost a round of
+    investigation. The distribution is the test; a single sample is a rumour.
     """
-    rng = np.random.default_rng(RANDOM_STATE)
-    y_shuf = rng.permutation(y)
-    model = fit_logistic(X, y_shuf)
     from sklearn.metrics import roc_auc_score
-    return float(roc_auc_score(y_test, model.predict_proba(X_test)[:, 1]))
+    aucs = []
+    for seed in range(draws):
+        rng = np.random.default_rng(seed)
+        model = fit_logistic(X, rng.permutation(y))
+        aucs.append(roc_auc_score(y_test, model.predict_proba(X_test)[:, 1]))
+    a = np.asarray(aucs)
+    se = a.std() / max(len(a) ** 0.5, 1e-9)
+    return {
+        "mean": float(a.mean()),
+        "std": float(a.std()),
+        "min": float(a.min()),
+        "max": float(a.max()),
+        "sigmas_from_chance": float(abs(a.mean() - 0.5) / se) if se else 0.0,
+        "draws_over_threshold": int((a > 0.55).sum()),
+        "draws": draws,
+    }
 
 
 def main(argv=None) -> int:
@@ -209,19 +225,39 @@ def main(argv=None) -> int:
     if best.auc > 0.75:
         print("\n  !! AUC above 0.75 -- assume leakage and investigate. !!")
 
-    # --- 6. leakage check --------------------------------------------
-    auc_shuf = shuffled_target_check(Xtr, ytr, Xte, yte)
-    print(f"\n  shuffled-target AUC: {auc_shuf:.3f} "
-          f"({'OK' if auc_shuf < 0.55 else 'LEAK -- INVESTIGATE'})")
+    # --- 5b. coverage strata -----------------------------------------
+    # How many of the ten players we actually knew about matters more than
+    # the headline number suggests, and reporting one blended figure hides it.
+    print("\n  by how many of the 10 players had prior history:")
+    print(f"    {'coverage':>10} {'n':>7} {'logloss':>9} {'auc':>7} {'acc':>8}")
+    strata = []
+    for lo, hi, label in [(5, 6, "5-6"), (7, 8, "7-8"), (9, 10, "9-10")]:
+        m = (te["coverage"] >= lo) & (te["coverage"] <= hi)
+        if m.sum() < 150:
+            continue
+        sc = evaluate.score(label, yte[m.to_numpy()], p_lr_te[m.to_numpy()])
+        strata.append(sc)
+        print(f"    {label:>10} {sc.n:>7,} {sc.log_loss:>9.4f} "
+              f"{sc.auc:>7.3f} {sc.accuracy*100:>7.1f}%")
 
+    # --- 6. leakage check --------------------------------------------
+    shuf = shuffled_target_check(Xtr, ytr, Xte, yte)
+    clean = shuf["sigmas_from_chance"] < 3.0 and shuf["draws_over_threshold"] == 0
+    print(f"\n  shuffled-target ({shuf['draws']} draws): "
+          f"mean AUC {shuf['mean']:.4f} +/- {shuf['std']:.4f}, "
+          f"range {shuf['min']:.3f}-{shuf['max']:.3f}")
+    print(f"    {shuf['sigmas_from_chance']:.1f} sigma from chance, "
+          f"{shuf['draws_over_threshold']}/{shuf['draws']} over 0.55 -> "
+          f"{'OK' if clean else 'LEAK -- INVESTIGATE'}")
     # --- 7. persist ---------------------------------------------------
     out = Path(s.database_path).parent.parent / "reports"
     out.mkdir(exist_ok=True)
     (out / "results.json").write_text(json.dumps({
         "n_train": len(tr), "n_val": len(va), "n_test": len(te),
         "n_features": len(cols),
-        "shuffled_auc": auc_shuf,
+        "shuffled": shuf,
         "results": [r.__dict__ for r in results],
+        "coverage_strata": [r.__dict__ for r in strata],
         "reliability": evaluate.reliability_table(yte, p_gb_cal),
     }, indent=2), encoding="utf-8")
     print(f"\n  wrote {out / 'results.json'}")

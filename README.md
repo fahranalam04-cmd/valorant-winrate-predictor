@@ -92,31 +92,51 @@ Countermeasures, enforced in tests rather than by discipline:
 
 ## Results
 
-Measured on a held-out, time-ordered test set of **2,288 matches** never touched
-during training or tuning. 11,062 matches with at least 5 of 10 players having
+Measured on a held-out, time-ordered test set of **2,648 matches** never touched
+during training or tuning. 13,912 matches with at least 5 of 10 players having
 prior history; 52 features.
 
 | Model | Log loss | Brier | AUC | Accuracy |
 |---|---|---|---|---|
-| **Avg rating (1 feature)** | **0.6908** | 0.2488 | 0.539 | **53.1%** |
-| Logistic regression (52 feat.) | 0.6913 | 0.2490 | **0.549** | 53.0% |
-| Best-player rank (1 feature) | 0.6913 | 0.2491 | 0.535 | 52.9% |
-| Gradient boosting (52 feat.) | 0.6923 | 0.2495 | 0.540 | 52.5% |
-| Avg rank — *the baseline to beat* | 0.6924 | 0.2496 | 0.519 | 51.5% |
-| Coin flip | 0.6931 | 0.2500 | 0.500 | 48.6% |
+| **Logistic regression (52 feat.)** | **0.6897** | 0.2483 | **0.550** | 53.6% |
+| Avg rating (1 feature) | 0.6906 | 0.2487 | 0.544 | **53.9%** |
+| Gradient boosting (52 feat.) | 0.6916 | 0.2492 | 0.536 | 52.6% |
+| Best-player rank (1 feature) | 0.6918 | 0.2493 | 0.528 | 53.0% |
+| Avg rank — *the baseline to beat* | 0.6925 | 0.2497 | 0.516 | 51.4% |
+| Coin flip | 0.6931 | 0.2500 | 0.500 | 48.5% |
 
-**Accuracy 53.1% ± 2.0%** (95% CI). Shuffled-target check: **AUC 0.499** — clean,
-so this is not leakage.
+**Accuracy 53.6% ± 1.9%** (95% CI).
+
+**Leakage check: 25 independent label shuffles, mean AUC 0.5026 ± 0.0137, range
+0.480–0.535, 0 of 25 above the 0.55 alarm threshold.** One draw is not a test —
+a single shuffle has a standard deviation near 0.014, so one landing at 0.518
+looks alarming and means nothing. That happened, and cost a round of
+investigation before the distribution settled it.
+
+### Coverage matters, but less than one measurement suggested
+
+Performance rises with how many of the ten players had prior history:
+
+| Players covered | Test n | AUC | Accuracy |
+|---|---|---|---|
+| 5–6 of 10 | 709 | 0.533 | 52.9% |
+| 7–8 of 10 | 990 | 0.553 | 53.6% |
+| 9–10 of 10 | 946 | 0.559 | 53.7% |
+
+Monotonic, and worth knowing — a match where half the lobby is unknown is
+predicted barely better than by rank alone. But an earlier run on ~25% less
+data put the top bucket at 0.580, and that gap did not survive more data. The
+gradient is real and modest; the dramatic version of it was noise.
 
 ### Reading this honestly
 
 **The signal is real but very weak, and smaller than expected.** I predicted AUC
-0.60–0.68 before building. The measured ceiling is **0.549**. That prediction was
-too optimistic and the data says so.
+0.60–0.68 before building. The measured ceiling is **0.550**, and it has not
+moved as data grew. That prediction was too optimistic and the data says so.
 
-**A single feature beats the full pipeline.** `avg rating` — the Phase 3 metric
-alone — edges out both the 52-feature logistic regression and the gradient
-booster on log loss. All the composition, party-structure and map×agent work
+**A single feature nearly matches the full pipeline.** `avg rating` — the Phase 3
+metric alone — scores within 0.001 log loss of the 52-feature model and beats it
+on raw accuracy. On a smaller sample it beat the full pipeline outright. All the composition, party-structure and map×agent work
 adds essentially nothing on top of it. Gradient boosting scoring *below* the
 linear model is the classic signature of a booster overfitting weak signal.
 
