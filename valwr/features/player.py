@@ -30,6 +30,20 @@ PRIOR_AGENT = 30.0
 PRIOR_MAP_AGENT = 45.0
 PRIOR_RECENT = 10.0
 
+# The rating and the performance averages need shrinking for exactly the same
+# reason the win rates do, and this was missed: 62% of players have a single
+# prior match, and a rating averaged over one game was being trusted as much
+# as one averaged over fifty. The rating is centred on 1.0 by construction, so
+# that is the prior to pull toward.
+RATING_PRIOR = 1.0
+PRIOR_RATING = 4.0
+PRIOR_PERF = 4.0
+
+# Recent matches say more about a player than old ones, and this history spans
+# over two years. Weight each match by exp(-age / HALFLIFE) so a season-old
+# game counts for less without being discarded.
+RECENCY_HALFLIFE_DAYS = 30
+
 RECENT_N = 20
 
 
@@ -47,6 +61,26 @@ class PlayerFeatures:
 def _mean(xs):
     xs = [x for x in xs if x is not None]
     return sum(xs) / len(xs) if xs else None
+
+
+def _weighted_mean(xs, ws):
+    pairs = [(x, w) for x, w in zip(xs, ws) if x is not None]
+    if not pairs:
+        return None
+    total_w = sum(w for _, w in pairs)
+    return sum(x * w for x, w in pairs) / total_w if total_w else None
+
+
+def _shrink(value, n, prior, weight):
+    """Pull a small-sample average toward a prior, by sample size.
+
+    Identical in spirit to the empirical-Bayes shrinkage on the rate features.
+    Without it a one-match average carries the same authority as a fifty-match
+    one, and most players in this dataset have one match.
+    """
+    if value is None:
+        return prior
+    return (value * n + prior * weight) / (n + weight)
 
 
 def build(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
@@ -88,32 +122,39 @@ def build(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
     f["wr_recent"] = recent.shrunk(prior_rate, PRIOR_RECENT)
 
     # --- rating and performance averages ----------------------------
-    ratings, accs, adrs, kasts, fbs, fds = [], [], [], [], [], []
+    ratings, accs, adrs, kasts, fbs, fds, weights = [], [], [], [], [], [], []
     for row in history:
         d = dict(row)
         r = rate_performance(d, norms)
-        if r is not None:
-            ratings.append(r.value)
+        ratings.append(r.value if r is not None else None)
         rates = per_round_rates(d)
         accs.append(rates.get("acs"))
         adrs.append(rates.get("adr"))
         kasts.append(rates.get("kast"))
         fbs.append(rates.get("fb_rate"))
         fds.append(rates.get("fd_rate"))
+        age_days = max(0.0, (as_of - (d.get("started_at") or as_of)) / 86400.0)
+        weights.append(0.5 ** (age_days / RECENCY_HALFLIFE_DAYS))
 
-    f["rating"] = _mean(ratings) if ratings else 1.0
-    f["rating_n"] = float(len(ratings))
-    f["acs"] = _mean(accs) or 0.0
-    f["adr"] = _mean(adrs) or 0.0
-    f["kast"] = _mean(kasts) or 0.0
-    f["fb_rate"] = _mean(fbs) or 0.0
-    f["fd_rate"] = _mean(fds) or 0.0
+    n_rated = sum(1 for r in ratings if r is not None)
+    f["rating"] = _shrink(_weighted_mean(ratings, weights), n_rated,
+                          RATING_PRIOR, PRIOR_RATING)
+    f["rating_n"] = float(n_rated)
+
+    n_hist = len(history)
+    pop = {"acs": 210.0, "adr": 140.0, "kast": 0.71, "fb_rate": 0.10,
+           "fd_rate": 0.10}
+    for name, vals in (("acs", accs), ("adr", adrs), ("kast", kasts),
+                       ("fb_rate", fbs), ("fd_rate", fds)):
+        f[name] = _shrink(_weighted_mean(vals, weights), n_hist,
+                          pop[name], PRIOR_PERF)
 
     # Trend: are they improving or sliding? Recent half minus older half.
-    if len(ratings) >= 4:
-        half = len(ratings) // 2
+    rated = [r for r in ratings if r is not None]
+    if len(rated) >= 4:
+        half = len(rated) // 2
         # history is newest-first, so the first half is the recent one.
-        f["rating_trend"] = (_mean(ratings[:half]) or 0) - (_mean(ratings[half:]) or 0)
+        f["rating_trend"] = (_mean(rated[:half]) or 0) - (_mean(rated[half:]) or 0)
     else:
         f["rating_trend"] = 0.0
 
