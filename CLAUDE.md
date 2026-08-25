@@ -19,12 +19,12 @@ and a README that states its own limitations.
 
 ## Status
 
-**Phases 0-5 are done.** Environment, schema and reference data pass;
+**Phases 0-6 are done.** Environment, schema and reference data pass;
 the collector crawls, stratifies by rank band and survives being killed; raw
 JSON normalises idempotently and `store/temporal.py` enforces the `as_of`
 firewall; the rating metric is built and validated; the feature builder and
-its leakage audit pass; the model is trained and measured. Next is Phase 6
-(the live client integration).
+its leakage audit pass; the model is trained and measured; the live client
+reads a real match and predicts it. Next is Phase 7 (the browser dashboard).
 
 The measured result is weak and that is the honest finding: AUC 0.549,
 accuracy 53.1% +/- 2.0%, and on equal-rank matches nothing beats a coin flip.
