@@ -141,13 +141,17 @@ def build(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
                           RATING_PRIOR, PRIOR_RATING)
     f["rating_n"] = float(n_rated)
 
+    # Shrink toward the measured population mean, not a hardcoded guess. The
+    # norms already carry exactly these values, fitted on training data at the
+    # correct cutoff, so a literal here would be both redundant and something
+    # that silently goes stale as the meta shifts.
     n_hist = len(history)
-    pop = {"acs": 210.0, "adr": 140.0, "kast": 0.71, "fb_rate": 0.10,
-           "fd_rate": 0.10}
     for name, vals in (("acs", accs), ("adr", adrs), ("kast", kasts),
                        ("fb_rate", fbs), ("fd_rate", fds)):
+        cell = norms.glob.get(name)
+        prior = cell.mean if cell is not None and cell.n else 0.0
         f[name] = _shrink(_weighted_mean(vals, weights), n_hist,
-                          pop[name], PRIOR_PERF)
+                          prior, PRIOR_PERF)
 
     # Trend: are they improving or sliding? Recent half minus older half.
     rated = [r for r in ratings if r is not None]
