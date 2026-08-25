@@ -278,6 +278,32 @@ lockfile, against `https://127.0.0.1:{port}`. The certificate is self-signed, so
 TLS verification must be disabled **for that localhost connection only** — never
 globally, and never for HenrikDev calls.
 
+### Three corrections from a live client
+
+Verified against a running game; each of these costs an hour if taken from the
+docs instead.
+
+**The lockfile existing does not mean VALORANT is running.** It is written by
+the Riot Client launcher, which is up most of the time. With the launcher
+alone, `/help` exposes seven functions (`Exit`, `Help`, `Subscribe`, …) and
+every endpoint here returns 404. With the game running it exposes ~1,270.
+Check capability, not the file.
+
+**`X-Riot-ClientVersion` is required** on the glz endpoints. Without it they
+return an opaque `400` that reads like a bad URL. It comes from
+`/product-session/v1/external-sessions` — but that map also holds a `host_app`
+entry whose version is the literal string `"0"`, and sending that placeholder
+produces the same 400. Skip it and take the real session's 16-character value.
+
+**Take the shard from `/riotclient/region-locale`, not `/chat/v1/session`.**
+The chat session reports its XMPP server — `la1` on an NA account — which
+builds a glz host that does not exist. There is also no need to scrape
+`-ares-deployment` off the process command line as suggested below; the API
+reports the region directly.
+
+`404 RESOURCE_NOT_FOUND` from pregame or core-game is the normal "not in a
+match" answer, not an error.
+
 ### Tokens and identity
 
 ```
