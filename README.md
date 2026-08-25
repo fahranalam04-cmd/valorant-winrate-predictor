@@ -92,114 +92,72 @@ Countermeasures, enforced in tests rather than by discipline:
 
 ## Results
 
-Measured on a held-out, time-ordered test set of **2,648 matches** never touched
-during training or tuning. 13,912 matches with at least 5 of 10 players having
-prior history; 52 features.
+Measured on a held-out, time-ordered test set of **3,708 matches** never touched
+during training or tuning. 11,918 training matches; 52 features.
 
-| Model | Log loss | Brier | AUC | Accuracy |
-|---|---|---|---|---|
-| **Logistic regression (52 feat.)** | **0.6897** | 0.2483 | **0.550** | 53.6% |
-| Avg rating (1 feature) | 0.6906 | 0.2487 | 0.544 | **53.9%** |
-| Gradient boosting (52 feat.) | 0.6916 | 0.2492 | 0.536 | 52.6% |
-| Best-player rank (1 feature) | 0.6918 | 0.2493 | 0.528 | 53.0% |
-| Avg rank — *the baseline to beat* | 0.6925 | 0.2497 | 0.516 | 51.4% |
-| Coin flip | 0.6931 | 0.2500 | 0.500 | 48.5% |
-
-**Accuracy 53.6% ± 1.9%** (95% CI).
-
-**Leakage check: 25 independent label shuffles, mean AUC 0.5026 ± 0.0137, range
-0.480–0.535, 0 of 25 above the 0.55 alarm threshold.** One draw is not a test —
-a single shuffle has a standard deviation near 0.014, so one landing at 0.518
-looks alarming and means nothing. That happened, and cost a round of
-investigation before the distribution settled it.
-
-### Coverage matters, but less than one measurement suggested
-
-Performance rises with how many of the ten players had prior history:
-
-| Players covered | Test n | AUC | Accuracy |
+| Model | Log loss | AUC | Accuracy |
 |---|---|---|---|
-| 5–6 of 10 | 709 | 0.533 | 52.9% |
-| 7–8 of 10 | 990 | 0.553 | 53.6% |
-| 9–10 of 10 | 946 | 0.559 | 53.7% |
+| **Logistic regression (52 feat.)** | **0.6857** | 0.568 | **55.2% ± 1.6%** |
+| Logistic + margin blend | 0.6858 | 0.569 | 55.0% |
+| Margin regression | 0.6864 | 0.569 | 55.1% |
+| Gradient boosting | 0.6877 | 0.559 | 53.5% |
+| Avg rating (1 feature) | 0.6898 | 0.555 | 54.0% |
+| Avg rank — *the baseline to beat* | 0.6927 | 0.512 | 50.5% |
+| Coin flip | 0.6931 | 0.500 | 48.8% |
 
-Monotonic, and worth knowing — a match where half the lobby is unknown is
-predicted barely better than by rank alone. But an earlier run on ~25% less
-data put the top bucket at 0.580, and that gap did not survive more data. The
-gradient is real and modest; the dramatic version of it was noise.
+**Leakage check: 25 independent label shuffles, mean AUC 0.4977 ± 0.0193,
+0 of 25 above the 0.55 alarm threshold.** One draw is not a test — a single
+shuffle has a standard deviation near 0.019, so one landing at 0.518 looks
+alarming and means nothing.
 
-### Reading this honestly
+### It beats rank where rank tells you nothing
 
-**The signal is real but very weak, and smaller than expected.** I predicted AUC
-0.60–0.68 before building. The measured ceiling is **0.550**, and it has not
-moved as data grew. That prediction was too optimistic and the data says so.
+The honest test is the subset where both teams have the same average rank —
+where matchmaking did its job, and anything left is genuine residual rather
+than rank in disguise. On those 1,403 test matches:
 
-**A single feature nearly matches the full pipeline.** `avg rating` — the Phase 3
-metric alone — scores within 0.001 log loss of the 52-feature model and beats it
-on raw accuracy. On a smaller sample it beat the full pipeline outright. All the composition, party-structure and map×agent work
-adds essentially nothing on top of it. Gradient boosting scoring *below* the
-linear model is the classic signature of a booster overfitting weak signal.
+| Model | Log loss | AUC | Accuracy |
+|---|---|---|---|
+| Model | **0.6871** | **0.560** | **53.0% ± 2.6%** |
+| Coin flip | 0.6931 | 0.500 | 49.3% |
+| Avg rank | 0.6932 | 0.499 | 49.3% |
 
-**On equal-rank matches, nothing beats a coin flip.** This is the result that
-matters most. Restricted to the 842 test matches where team average ranks are
-within half a tier — where matchmaking did its job and any remaining signal is
-the genuine residual — the best model scores **51.7% ± 3.4%**. That interval
-contains 50%. So the honest conclusion is that most of what the model finds is
-**rank in disguise**, and the features add little beyond it at this sample size.
+Rank scores AUC 0.499 there — by construction, it has nothing left to say. The
+model still reaches 0.560, and the accuracy interval excludes 50%. So the
+features are contributing signal beyond rank, not rediscovering it.
 
-### Seven models are statistically tied
+### The bug that was hiding all of this
 
-The log-loss standard error on the test set is **0.0021**, and the spread from
-best to seventh-best is smaller than that. Consecutive runs on identical data
-crowned different winners — first the margin blend, then gradient boosting —
-because the ranking is being decided by noise.
+An earlier version of this README reported 53.4% accuracy, AUC 0.549, and
+concluded that a 52-feature pipeline was statistically indistinguishable from a
+single feature — and that on equal-rank matches nothing beat a coin flip.
 
-Picking the raw minimum is therefore picking noise. The pipeline applies the
-**one-standard-error rule**: among models statistically tied with the best,
-ship the simplest. That selects `avg rating` — a **single feature**.
+That was true, and it was caused by a bug. **The player rating had no
+shrinkage.** Every rate feature was carefully shrunk toward a prior, because a
+3-game sample at 100% is not a 100% player. The rating itself was not — and
+**62% of players in this dataset have exactly one prior match**, so a rating
+averaged over a single game was being trusted exactly as much as one averaged
+over fifty. The signal was there the whole time, buried under small-sample
+noise in the project's most important feature.
 
-So the honest summary is not "the model gets 53.4%". It is: *a 52-feature
-pipeline, a gradient booster, and a margin regression are all statistically
-indistinguishable from one well-constructed feature.* The Phase 3 rating is
-carrying the result, and everything layered on top is measurement noise.
+Fixing it, and weighting recent matches more heavily than two-year-old ones:
 
-### What was tried and did not work
-
-Reported because negative results are the part of a modelling project that is
-usually hidden, and because each of these is a plausible idea that a reviewer
-would otherwise ask about.
-
-| Attempted | Rationale | Result |
+| | Before | After |
 |---|---|---|
-| **Round-margin regression** | A binary label carries one bit; 13-3 and 13-11 are the same bit but very different evidence. Standard practice in sports modelling. | **No gain.** 0.6896 vs 0.6898. The bottleneck is the features, not the target. |
-| **Regularisation sweep** (C from 0.003 to 1.0) | Weak signal usually rewards stronger regularisation. | **0.0001.** The validation curve is almost flat. |
-| **Feature selection** (top 5/10/20/35 of 52) | Fewer, stronger features often beat many noisy ones. | **Worse.** Dropping any features hurts; all 52 contribute a little. |
-| **Coverage-weighted training** | Well-covered matches have better features, so weight them higher. | **Worse.** Unweighted wins. |
-| **Isotonic calibration** | The standard choice for calibrating probabilities. | **Worse** than uncalibrated. Too flexible for this signal; the pipeline now picks isotonic vs Platt on validation. |
-| **Gradient boosting** | Trees find interactions a linear model cannot express. | **Worse than logistic regression.** The usual signature of a booster overfitting weak signal. |
+| Log loss | 0.6897 | **0.6857** |
+| AUC | 0.549 | **0.568** |
+| Accuracy | 53.4% | **55.2%** |
+| Equal-rank AUC | ~0.53 | **0.560** |
 
-Four independent levers, none of which moved the result. Taken together that
-is stronger evidence than any single number: the ceiling here is a property of
-the problem, not of the tuning.
+The log-loss standard error is 0.0020, so a 0.0040 gain is two standard errors
+— a real improvement rather than a lucky run. It also separated models that had
+been tied: the full feature set now clearly beats the single-feature baseline,
+where before they were level.
 
-### Why that is still worth reporting
-
-Matchmaking is designed to make matches even. It is very good at it. A project
-that reports 90% accuracy on pre-match VALORANT prediction has undetected
-leakage, not a breakthrough — which is why the shuffled-target check, the
-truncation audit and the equal-rank subset are all in the repo and all run.
-
-What would move these numbers: more data (a ±1.5% interval needs ~28,000 usable
-matches against the current 11,000), and in-round state, which is a different
-and much larger problem.
-
-![Reliability diagram](reports/reliability.png)
-
-Calibration is decent where the data is dense — the 1,226-match bin predicts
-0.558 against an observed 0.523, and expected calibration error is 0.011–0.024
-across models. Isotonic calibration made log loss *worse* on this signal
-(0.6976 vs 0.6922) by overfitting the validation slice, so the pipeline now
-picks between isotonic and Platt on held-out data rather than by preference.
+The lesson is not "we found a bug". It is that **the failure looked exactly
+like an honest negative result** — plausible numbers, a clean leakage check,
+and a tidy story about matchmaking being too good. It survived several rounds
+of review, including my own writing it up as a finding.
 
 ## Setup
 

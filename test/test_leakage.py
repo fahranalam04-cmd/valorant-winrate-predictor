@@ -310,3 +310,49 @@ def test_built_features_are_not_all_zero(conn):
     assert perf, "expected performance features"
     assert any(mf.values[k] != 0.0 for k in perf), (
         "every performance feature is zero -- the rating pipeline is dead")
+
+
+def test_the_rating_is_shrunk_toward_its_prior(conn):
+    """The rating had no shrinkage, and 62% of players have one prior match.
+
+    A rating averaged over a single game was trusted as much as one averaged
+    over fifty, which buried the signal in the project's most important
+    feature: accuracy 53.4% -> 55.2% and equal-rank AUC ~0.53 -> 0.560 once
+    fixed. The failure looked exactly like an honest negative result, which is
+    why it survived several rounds of review.
+    """
+    ingest(conn, make_match("only", "2026-08-01T00:00:00Z", winner="Blue"))
+    as_of = normalize.parse_started_at("2026-08-10T00:00:00Z")
+    norms = build_norms(conn, as_of)
+
+    p = pf.build(conn, "b0", as_of, "Sunset", "Jett", 13, 100, norms, 0.5)
+    assert p.games == 1
+    # One match cannot move the rating far from the 1.0 prior.
+    assert abs(p.values["rating"] - pf.RATING_PRIOR) < 0.25, (
+        f"one-game rating landed at {p.values['rating']:.3f}; it is not shrunk")
+
+
+def test_more_history_earns_more_movement_from_the_prior(conn):
+    """Shrinkage must relax as evidence accumulates, not clamp forever."""
+    days = [f"2026-08-{d:02d}T00:00:00Z" for d in range(1, 13)]
+    ingest(conn, *[make_match(f"m{i}", d) for i, d in enumerate(days)])
+    as_of = normalize.parse_started_at("2026-08-20T00:00:00Z")
+    norms = build_norms(conn, as_of)
+
+    many = pf.build(conn, "b0", as_of, "Sunset", "Jett", 13, 100, norms, 0.5)
+    few_at = normalize.parse_started_at("2026-08-02T00:00:00Z")
+    few = pf.build(conn, "b0", few_at, "Sunset", "Jett", 13, 100,
+                   build_norms(conn, few_at), 0.5)
+
+    assert many.games > few.games
+    assert abs(many.values["rating"] - pf.RATING_PRIOR) >= \
+        abs(few.values["rating"] - pf.RATING_PRIOR) - 1e-9
+
+
+def test_recent_matches_count_for_more_than_old_ones(conn):
+    """History here spans over two years; a 2024 game should not weigh the
+    same as last week's."""
+    assert pf.RECENCY_HALFLIFE_DAYS > 0
+    w_new = 0.5 ** (0 / pf.RECENCY_HALFLIFE_DAYS)
+    w_old = 0.5 ** (730 / pf.RECENCY_HALFLIFE_DAYS)
+    assert w_new > w_old * 10, "two-year-old matches must be heavily discounted"
