@@ -275,3 +275,38 @@ def test_bundle_carries_everything_inference_needs():
     assert b["best"] in b["estimators"] or b["best"] in (
         "logistic regression", "gradient boosting", "margin regression",
         "logistic + margin blend"), "selected model is not servable"
+
+
+def test_readme_results_are_generated_not_hand_written():
+    """Hand-maintained numbers went stale four times as the crawl grew.
+
+    The results table is regenerated from reports/results.json between
+    markers, so it cannot drift from the run it describes.
+    """
+    root = pathlib.Path(__file__).resolve().parent.parent
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    from valwr.model import report
+    assert report.START in readme and report.END in readme, (
+        "README lost its results markers; the table would go stale again")
+
+    body = readme.split(report.START, 1)[1].split(report.END, 1)[0]
+    assert "| Model | Log loss | AUC | Accuracy |" in body
+    assert "Coin flip" in body, "the floor must always be shown"
+
+
+def test_report_renders_every_headline_number_from_the_run():
+    """The rendered table must agree with results.json, not approximate it."""
+    import json
+    from valwr.model import report
+    root = pathlib.Path(__file__).resolve().parent.parent
+    path = root / "reports" / "results.json"
+    if not path.exists():
+        pytest.skip("no results.json present")
+
+    res = json.loads(path.read_text(encoding="utf-8"))
+    out = report.render(res)
+    best = min(res["results"], key=lambda r: r["log_loss"])
+
+    assert f"{best['log_loss']:.4f}" in out
+    assert f"{res['n_test']:,}" in out
+    assert f"{res['n_train']:,}" in out
