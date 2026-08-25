@@ -383,6 +383,15 @@ def main(argv=None) -> int:
         "metrics": {r.name: r.__dict__ for r in results},
     }, models / "model.joblib")
     print(f"  wrote {models / 'model.joblib'}  (best: {winner_name})")
+
+    # Regenerate the README table from what was just measured. Hand-maintained
+    # numbers went stale four times as the crawl grew, and each manual edit is
+    # a chance to leave a claim standing that the latest run no longer supports.
+    try:
+        from valwr.model import report
+        report.main([])
+    except Exception as e:
+        print(f"  (README not regenerated: {e})")
     return 0
 
 

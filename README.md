@@ -92,23 +92,24 @@ Countermeasures, enforced in tests rather than by discipline:
 
 ## Results
 
-Measured on a held-out, time-ordered test set of **3,708 matches** never touched
-during training or tuning. 11,918 training matches; 52 features.
+<!-- results:start -->
+Measured on a held-out, time-ordered test set of **3,753 matches** never touched during training or tuning. 12,052 training matches; 52 features.
 
 | Model | Log loss | AUC | Accuracy |
 |---|---|---|---|
-| **Logistic regression (52 feat.)** | **0.6857** | 0.568 | **55.2% ± 1.6%** |
-| Logistic + margin blend | 0.6858 | 0.569 | 55.0% |
-| Margin regression | 0.6864 | 0.569 | 55.1% |
-| Gradient boosting | 0.6877 | 0.559 | 53.5% |
-| Avg rating (1 feature) | 0.6898 | 0.555 | 54.0% |
-| Avg rank — *the baseline to beat* | 0.6927 | 0.512 | 50.5% |
-| Coin flip | 0.6931 | 0.500 | 48.8% |
+| **Logistic regression (52 features)** | **0.6859** | 0.566 | **54.5% ± 1.6%** |
+| Logistic + margin blend | 0.6860 | 0.567 | 54.8% |
+| Margin regression | 0.6867 | 0.567 | 54.5% |
+| Gradient boosting | 0.6879 | 0.563 | 54.1% |
+| Player rating alone (1 feature) | 0.6897 | 0.558 | 53.9% |
+| Best player's rank (1 feature) | 0.6918 | 0.531 | 52.6% |
+| Average rank — *the baseline to beat* | 0.6925 | 0.518 | 50.9% |
+| Coin flip | 0.6931 | 0.500 | 48.9% |
 
-**Leakage check: 25 independent label shuffles, mean AUC 0.4977 ± 0.0193,
-0 of 25 above the 0.55 alarm threshold.** One draw is not a test — a single
-shuffle has a standard deviation near 0.019, so one landing at 0.518 looks
-alarming and means nothing.
+**Leakage check: 25 independent label shuffles, mean AUC 0.4996 ± 0.0163, 0 of 25 above the 0.55 alarm threshold.** One draw is not a test — a single shuffle has a standard deviation near 0.016, so any one of them can land anywhere and mean nothing.
+
+Split by how many of the ten players had prior history: **5-6** 0.585, **7-8** 0.541, **9-10** 0.578. Not monotonic — see the retraction below.
+<!-- results:end -->
 
 ### It beats rank where rank tells you nothing
 
@@ -140,14 +141,15 @@ averaged over a single game was being trusted exactly as much as one averaged
 over fifty. The signal was there the whole time, buried under small-sample
 noise in the project's most important feature.
 
-Fixing it, and weighting recent matches more heavily than two-year-old ones:
+Fixing it, measured on the same data before and after (a snapshot from the day
+of the fix — the live figures above move as the crawl grows):
 
 | | Before | After |
 |---|---|---|
-| Log loss | 0.6897 | **0.6857** |
-| AUC | 0.549 | **0.568** |
-| Accuracy | 53.4% | **55.2%** |
-| Equal-rank AUC | ~0.53 | **0.560** |
+| Log loss | 0.6897 | 0.6857 |
+| AUC | 0.549 | 0.568 |
+| Accuracy | 53.4% | 55.2% |
+| Equal-rank AUC | ~0.53 | 0.560 |
 
 The log-loss standard error is 0.0020, so a 0.0040 gain is two standard errors
 — a real improvement rather than a lucky run. It also separated models that had

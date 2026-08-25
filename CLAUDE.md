@@ -181,7 +181,15 @@ consecutive runs on identical data crown different winners. Selecting the raw
 minimum is selecting noise. `train.py` applies the one-standard-error rule
 against the `COMPLEXITY` ordering. Do not replace it with `min(log_loss)`.
 
-**13. Secrets never enter git.**
+**13. Never hand-write a measured number into the README.**
+The results table lives between `<!-- results:start -->` markers and is
+regenerated from `reports/results.json` by `valwr/model/report.py`, which
+`train.py` calls automatically. Hand-maintained figures went stale four times
+as the crawl grew, and every manual edit is a chance to leave a claim standing
+that the latest run no longer supports. Historical before/after tables are the
+exception and are labelled as snapshots.
+
+**14. Secrets never enter git.**
 `.env` is gitignored; only `.env.example` is tracked. No key literal in any
 committed file, notebook output, or test fixture.
 
