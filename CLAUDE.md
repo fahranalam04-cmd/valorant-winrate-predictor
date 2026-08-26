@@ -189,7 +189,15 @@ as the crawl grew, and every manual edit is a chance to leave a claim standing
 that the latest run no longer supports. Historical before/after tables are the
 exception and are labelled as snapshots.
 
-**14. Secrets never enter git.**
+**14. Sandbox scenarios are diagnostics, never training data.**
+`valwr/sandbox/` builds synthetic players in an in-memory database and drives
+the real feature path. Its results never enter `features.parquet` or the real
+database, and the model is never fitted on them -- training on synthetic
+expectations would teach the model to agree with our assumptions, which is the
+opposite of a test. Held-out evaluation stays the only source of truth on
+predictive accuracy. See docs/SANDBOX.md.
+
+**15. Secrets never enter git.**
 `.env` is gitignored; only `.env.example` is tracked. No key literal in any
 committed file, notebook output, or test fixture.
 
