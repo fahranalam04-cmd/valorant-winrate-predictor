@@ -318,6 +318,26 @@ had to become.** `world._buckets` and `world._allocate_wins` will show you.
 
 ---
 
+## The browsable dashboard
+
+The terminal report is fine for one scenario and unwieldy for 159. `tools/
+export_dashboard.py` runs the whole catalog through both estimators, adds a
+24-sample variance pass, and writes `reports/sandbox/dashboard_data.json` --
+per scenario: the rosters, both probabilities and both mirror errors, the six
+largest feature differences and the six largest linear contributions (in the
+plain-English names from `report.friendly`), and the variance band.
+
+```bash
+python tools/export_dashboard.py
+```
+
+The JSON is committed so the page can be rebuilt without a model bundle, and
+because a diff on it shows exactly which scenarios moved after a retrain --
+the same job `benchmark compare` does, in a form you can read.
+
+It is a **snapshot, not a live view**: re-export after retraining, or the page
+describes a model you no longer ship.
+
 ## Findings so far
 
 The sandbox is meant to surface surprises. Three so far, all reported rather
