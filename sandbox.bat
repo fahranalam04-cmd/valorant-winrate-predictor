@@ -2,6 +2,21 @@
 title valwr sandbox
 cd /d "%~dp0"
 
+set "PY=.venv\Scripts\python.exe"
+set "ONESHOT="
+set "empties=0"
+
+REM Without this you get cmd's bare "The system cannot find the file
+REM specified.", which is what made a failing run so hard to read.
+if not exist "%PY%" goto novenv
+
+REM An argument runs one option and exits: `sandbox.bat 5`, or
+REM `sandbox.bat 11 fair_match`. Without it the menu can only be driven by
+REM hand, which is why it went untested.
+if not "%~1"=="" set "ONESHOT=1"
+if defined ONESHOT set "choice=%~1"
+if defined ONESHOT goto dispatch
+
 :menu
 cls
 echo.
@@ -33,6 +48,16 @@ set "choice="
 set /p choice=Choose a number then press Enter:
 echo.
 
+REM `set /p` leaves the variable untouched at end-of-file, so a piped or
+REM redirected run used to spin here forever -- 1,052 redraws in 15 seconds
+REM before a timeout killed it. Three empty reads means nobody is typing.
+if not "%choice%"=="" goto dispatch
+set /a empties+=1
+if %empties% geq 3 goto noinput
+goto menu
+
+:dispatch
+set "empties=0"
 if "%choice%"=="1"  goto tests
 if "%choice%"=="2"  goto listall
 if "%choice%"=="3"  goto shrink
@@ -45,72 +70,99 @@ if "%choice%"=="9"  goto variance
 if "%choice%"=="10" goto compare
 if "%choice%"=="11" goto custom
 if "%choice%"=="0"  exit /b 0
+if defined ONESHOT goto badarg
 goto menu
 
 :tests
-.venv\Scripts\python.exe -m pytest test\test_sandbox.py -q
+%PY% -m pytest test\test_sandbox.py -q
 goto done
 
 :listall
-.venv\Scripts\python.exe -m valwr.sandbox list
+%PY% -m valwr.sandbox list
 goto done
 
 :shrink
 echo   A player with 3 games at 100%% against one with 500 games at 55%%.
 echo   If shrinkage works, the 3-game player should NOT be favoured.
 echo.
-.venv\Scripts\python.exe -m valwr.sandbox run --scenario shrinkage
+%PY% -m valwr.sandbox run --scenario shrinkage
 goto done
 
 :smurf
-.venv\Scripts\python.exe -m valwr.sandbox run --scenario single_smurf
+%PY% -m valwr.sandbox run --scenario single_smurf
 goto done
 
 :catalog
-.venv\Scripts\python.exe -m valwr.sandbox run --scenario all
+%PY% -m valwr.sandbox run --scenario all
 goto done
 
 :gbm
 echo   Two identical teams. A fair model must say 50%%.
 echo.
 echo   --- shipped linear model ---
-.venv\Scripts\python.exe -m valwr.sandbox --model logistic run --scenario fair_match
+%PY% -m valwr.sandbox --model logistic run --scenario fair_match
 echo.
 echo   --- gradient booster ---
-.venv\Scripts\python.exe -m valwr.sandbox --model gbm run --scenario fair_match
+%PY% -m valwr.sandbox --model gbm run --scenario fair_match
 goto done
 
 :sweeprating
-.venv\Scripts\python.exe -m valwr.sandbox sweep --feature rating
+%PY% -m valwr.sandbox sweep --feature rating
 goto done
 
 :sweepwr
 echo   Higher win rate should mean a higher predicted chance of winning.
 echo   Watch what actually happens.
 echo.
-.venv\Scripts\python.exe -m valwr.sandbox sweep --feature wr
+%PY% -m valwr.sandbox sweep --feature wr
 goto done
 
 :variance
-.venv\Scripts\python.exe -m valwr.sandbox run --mode variance --scenario single_smurf --samples 100 --seed 42
+%PY% -m valwr.sandbox run --mode variance --scenario single_smurf --samples 100 --seed 42
 goto done
 
 :compare
-.venv\Scripts\python.exe -m valwr.sandbox compare
+%PY% -m valwr.sandbox compare
 goto done
 
 :custom
 echo   Examples: fair_match  bad_map  five_stack_vs_solos  contra_rank_vs_rating
 echo   Or a category: carry  coverage  boundary  contradiction  distribution
 echo.
-set "target="
+set "target=%~2"
+if not "%target%"=="" goto runcustom
 set /p target=Scenario or category:
-if "%target%"=="" goto menu
-.venv\Scripts\python.exe -m valwr.sandbox run --scenario %target%
+if not "%target%"=="" goto runcustom
+if defined ONESHOT exit /b 1
+goto menu
+:runcustom
+%PY% -m valwr.sandbox run --scenario %target%
 goto done
 
 :done
 echo.
 echo   ---------------------------------------------------------------
+if defined ONESHOT exit /b 0
 pause
 goto menu
+
+:badarg
+echo   Unknown option "%choice%". Valid options are 0-11.
+exit /b 1
+
+:noinput
+echo   No input received -- exiting. Run sandbox.bat with a number to
+echo   pick an option directly, for example:  sandbox.bat 2
+exit /b 0
+
+:novenv
+echo.
+echo   Cannot find %PY%
+echo.
+echo   Create the virtual environment first:
+echo       python -m venv .venv
+echo       .venv\Scripts\pip install -e .
+echo.
+if not "%~1"=="" exit /b 3
+pause
+exit /b 3
