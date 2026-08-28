@@ -111,6 +111,11 @@ Measured on a held-out, time-ordered test set of **3,753 matches** never touched
 Split by how many of the ten players had prior history: **5-6** 0.585, **7-8** 0.541, **9-10** 0.578. Not monotonic — see the retraction below.
 <!-- results:end -->
 
+Why the linear model rather than the gradient booster, and what else was tried
+and rejected — Bradley-Terry player strength, symmetric augmentation, the
+coverage threshold — is in [docs/MODEL-CHOICE.md](docs/MODEL-CHOICE.md), with
+every null result recorded rather than quietly dropped.
+
 ### It beats rank where rank tells you nothing
 
 The honest test is the subset where both teams have the same average rank —
