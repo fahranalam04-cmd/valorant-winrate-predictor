@@ -21,12 +21,17 @@ test set is just overfitting more slowly.
 
 Three independent arguments, and they agree.
 
-**1. It wins on the held-out test set.** Measured once, on 3,753 matches:
+**1. It beats the booster on the held-out test set.** Measured once, on 6,132
+matches:
 
 | | Log loss | AUC | Accuracy |
 |---|---|---|---|
-| **Logistic regression** | **0.6859** | **0.566** | **54.5% ± 1.6%** |
-| Gradient boosting | 0.6879 | 0.563 | 54.1% |
+| **Logistic regression** | **0.6883** | **0.558** | **54.3% ± 1.2%** |
+| Gradient boosting | 0.6885 | 0.557 | 54.1% |
+
+It is not the lowest log loss overall — margin regression reaches 0.6878 —
+but the gap is a third of a standard error, and argument 2 is what settles
+that.
 
 **2. The one-standard-error rule selected it.** Seven models finish
 statistically tied. Consecutive runs crowned different winners on the same
@@ -41,19 +46,21 @@ purely the model. On validation rows:
 
 | Model | Mean mirror error |
 |---|---|
-| Logistic, exact symmetry (below) | **7.2e-18** — machine zero |
-| Logistic as shipped | 1.8e-03 |
+| **Logistic as now shipped** | **7.2e-18** — machine zero |
+| Logistic as previously shipped | 1.8e-03 |
 | Gradient booster, augmented | 1.1e-02 |
 | Gradient booster | 3.1e-02 |
 
 Trees carry no symmetry constraint, and this one learned a side preference from
-noise. It gets identical teams wrong — 0.5138 instead of 0.5000.
+noise. It gets identical teams wrong — 0.4831 instead of 0.5000. An earlier
+bundle had it at 0.5138, favouring the *other* side by a similar margin, which
+is what a preference learned from noise looks like when you retrain it.
 
 ---
 
-## The one change worth making: exact symmetry
+## The one change worth making: exact symmetry — now shipped
 
-The shipped logistic misses the mirror by 1.8e-03. Not because of the model —
+The logistic used to miss the mirror by 1.8e-03. Not because of the model —
 because of two implementation details:
 
 - `StandardScaler` subtracts a non-zero training mean, so the *standardised*
@@ -66,12 +73,30 @@ tolerance:
 
 | | Log loss | delta | Mirror error |
 |---|---|---|---|
-| Logistic as shipped | 0.6893 | — | 1.76e-03 |
+| Logistic, with intercept and centering | 0.6893 | — | 1.76e-03 |
 | Logistic, exact symmetry | 0.6893 | +0.0000 | **7.18e-18** |
 
 Free. It costs nothing measurable in log loss and turns an approximate
 invariant into an exact one. This is a **correctness** win, not an accuracy
-one, and it is the only change here that earns its place.
+one, and it is the only change here that earned its place.
+
+**Shipped.** `fit_logistic` now fits this way, and the retrained bundle was
+verified against the full sandbox catalog:
+
+| | Before | After |
+|---|---|---|
+| Identical teams | 0.500130 | **0.5000000000** |
+| Worst mirror error, 159 scenarios | ~1.8e-03 | **1.1e-16** |
+
+`test_mirrored_probabilities_sum_to_one` now asserts `< 1e-12` instead of
+`< 1e-3`, so a change that reintroduced an intercept would fail the suite
+rather than pass quietly.
+
+One caveat on reading the numbers below against the current README: this
+change shipped alongside a retrain that picked up roughly 10,000 matches
+collected since the previous run, so the test-set figures moved for reasons
+that have nothing to do with symmetry. The validation measurement above
+(+0.0000, same data, same split) is the one that isolates it.
 
 ---
 
@@ -166,10 +191,10 @@ negative. **5 is fine, and now that is measured rather than assumed.**
 
 XGBoost, CatBoost, random forests and small neural networks were considered and
 skipped deliberately. Seven models already tie within one standard error, and
-the *entire* spread from coin flip (0.6931) to best (0.6859) is 0.0072 log
+the *entire* spread from coin flip (0.6931) to best (0.6878) is 0.0053 log
 loss. LightGBM already represents gradient boosting here and loses to the
 logistic; XGBoost and CatBoost are the same family with different defaults. A
-neural network needs far more signal than AUC 0.566 offers. Adding them would
+neural network needs far more signal than AUC 0.558 offers. Adding them would
 lengthen the results table without changing any conclusion.
 
 ---
@@ -177,10 +202,10 @@ lengthen the results table without changing any conclusion.
 ## The conclusion worth stating plainly
 
 **Model class is not the bottleneck.** Every candidate above is null, and the
-gap between a coin flip and the best model is 0.0072 log loss. The limit is the
+gap between a coin flip and the best model is 0.0053 log loss. The limit is the
 data and the domain: Valorant's matchmaker is *designed* to produce even games,
 so it actively suppresses the signal this project is trying to detect. An AUC
-of 0.566 from pre-match public statistics may be close to the practical
+of 0.558 from pre-match public statistics may be close to the practical
 ceiling.
 
 The remaining levers are more data and better features — not a better

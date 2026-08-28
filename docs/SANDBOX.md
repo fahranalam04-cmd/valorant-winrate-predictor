@@ -227,15 +227,25 @@ Composition and party effects, where no universal expected direction is
 defensible. Tagged `observational`; the report shows the number and declines to
 judge it.
 
-### The mirror tolerance is 1e-3, not zero
+### The mirror is exact for the shipped model
 
-The *raw* difference vector negates exactly — measured error is `0.00e+00`,
+The *raw* difference vector negates exactly -- measured error is `0.00e+00`,
 asserted at `< 1e-9`.
 
-The *probability* does not. `StandardScaler` subtracts non-zero training means
-from all 52 columns, so the standardised vector does not simply negate even
-though the raw one does. For the shipped linear model the resulting error is
-about 2.6e-4, and identical teams score 0.500130 rather than 0.5.
+The *probability* used to not. `StandardScaler` subtracted non-zero training
+means from all 52 columns, so the standardised vector stopped negating even
+though the raw one did, and the intercept added a constant that did not negate
+either. That left about 1.8e-03 of error, and identical teams scored 0.500130
+rather than 0.5.
+
+`fit_logistic` now fits with `with_mean=False` and `fit_intercept=False`, which
+removes both causes. The shipped model mirrors to machine precision: worst case
+across the whole 159-scenario catalog is **1.1e-16**, and identical teams score
+exactly **0.5000000000**. The test asserts `< 1e-12` rather than a loose
+tolerance, so a regression that reintroduced an intercept would fail it.
+
+The tolerance still matters for the other estimators. The gradient booster has
+no symmetry constraint and sits around 3.1e-02 -- see the finding below.
 
 ---
 
@@ -254,17 +264,22 @@ constraint, no monotonicity guarantee, and can express real interactions.
 
 Measured on identical teams:
 
-| Model | P(A) for two identical teams | typical mirror error |
+| Model | P(A) for two identical teams | worst mirror error over the catalog |
 |---|---|---|
-| logistic | 0.5001 | 0.0003 |
-| **gbm** | **0.5138** | **0.027** |
-| margin | 0.5077 | 0.015 |
+| **logistic (shipped)** | **0.500000** | **1.1e-16** |
+| gbm | 0.483064 | 1.2e-01 |
+| margin | 0.497335 | 5.3e-03 |
 
-The gradient booster is biased 1.4 points toward Team A on a perfectly
-symmetric match, and its mirror error is roughly a hundred times the linear
-model's. Since the raw features are exactly antisymmetric, that asymmetry is
-entirely the model. It is an independent argument for the linear model, beyond
-the one-standard-error rule that selected it.
+The gradient booster is biased 1.7 points toward Team B on a perfectly
+symmetric match, and its worst mirror error is fifteen orders of magnitude
+above the shipped model's. Since the raw features are exactly antisymmetric,
+that asymmetry is entirely the model.
+
+The direction is not stable, which is the point. An earlier bundle put the
+booster at 0.5138 -- 1.4 points toward Team *A*. Retraining on more data
+flipped the side it favours while leaving the magnitude intact, which is what
+a preference learned from noise looks like. It is an independent argument for
+the linear model, beyond the one-standard-error rule that selected it.
 
 ---
 
@@ -376,9 +391,8 @@ The map x agent interaction behaves better: `map_agent_specialist` predicts
 ### The gradient booster is not symmetric
 
 Two identical teams should be a coin flip. The shipped linear model says
-0.5001. The gradient booster says **0.5138**, with a mirror error of 0.027 --
-roughly a hundred times the linear model's 0.0003, and it fails the mirror
-check on every sanity scenario.
+exactly **0.5000000000**. The gradient booster says **0.483064**, with a mirror
+error of 0.034 -- and it fails the mirror check on every sanity scenario.
 
 Since the raw feature vector is exactly antisymmetric (measured `0.00e+00`),
 that asymmetry is entirely the model. Trees have no symmetry constraint, and

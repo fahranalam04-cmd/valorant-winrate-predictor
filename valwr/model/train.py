@@ -70,12 +70,27 @@ def feature_columns(df) -> list[str]:
 
 
 def fit_logistic(X, y):
+    """Logistic on the difference features, symmetric by construction.
+
+    No mean-centering and no intercept, which together make the mirror exact:
+    swapping the two teams negates the feature vector, so P(A) + P(B) == 1
+    holds to machine precision rather than to a documented tolerance.
+
+    Neither omission is free-floating. `StandardScaler()` subtracts a non-zero
+    training mean, so the *standardised* vector stops negating even though the
+    raw one negates exactly; the intercept then adds a constant that does not
+    negate either. Together they cost 1.8e-03 of mirror error. Removing both
+    measured 7.2e-18 at +0.0000 validation log loss -- free, because the
+    difference features are already centred near zero by their own
+    construction. Measured in docs/MODEL-CHOICE.md.
+    """
     from sklearn.linear_model import LogisticRegression
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
     model = make_pipeline(
-        StandardScaler(),
-        LogisticRegression(max_iter=2000, C=LOGISTIC_C, random_state=RANDOM_STATE),
+        StandardScaler(with_mean=False),
+        LogisticRegression(max_iter=2000, C=LOGISTIC_C, fit_intercept=False,
+                           random_state=RANDOM_STATE),
     )
     model.fit(X, y)
     return model
@@ -316,12 +331,33 @@ def main(argv=None) -> int:
     print(f"    {shuf['sigmas_from_chance']:.1f} sigma from chance, "
           f"{shuf['draws_over_threshold']}/{shuf['draws']} over 0.55 -> "
           f"{'OK' if clean else 'LEAK -- INVESTIGATE'}")
-    # --- 7. persist ---------------------------------------------------
+    # --- 7. choose what to ship, then persist -------------------------
+    # Ship the SIMPLEST model within one standard error of the best, not
+    # whichever happened to win. Consecutive runs crowned "logistic + margin
+    # blend" and then "gradient boosting" on the same data -- the ranking
+    # flips because the gaps are smaller than the noise, so selecting on the
+    # raw minimum is selecting on noise. The one-standard-error rule is the
+    # standard remedy and it also happens to ship the model that is easier to
+    # explain and cheaper to run live.
+    #
+    # Decided *before* results.json is written, because the report needs to
+    # mark which model actually ships. It is routinely not the top row, and a
+    # README that bolds the lowest log loss while the bundle serves something
+    # else is quietly telling the reader the wrong thing.
+    se = evaluate.log_loss_standard_error(yte, p_lr_te)
+    ranked = sorted(results, key=lambda r: r.log_loss)
+    threshold = ranked[0].log_loss + se
+    eligible = [r for r in ranked if r.log_loss <= threshold]
+    winner_name = min(eligible, key=lambda r: COMPLEXITY.get(r.name, 99)).name
+
     out = Path(s.database_path).parent.parent / "reports"
     out.mkdir(exist_ok=True)
     (out / "results.json").write_text(json.dumps({
         "n_train": len(tr), "n_val": len(va), "n_test": len(te),
         "n_features": len(cols),
+        "shipped": winner_name,
+        "log_loss_se": se,
+        "n_tied": len(eligible),
         "shuffled": shuf,
         "results": [r.__dict__ for r in results],
         "coverage_strata": [r.__dict__ for r in strata],
@@ -341,18 +377,6 @@ def main(argv=None) -> int:
     models = Path(s.database_path).parent.parent / "models"
     models.mkdir(exist_ok=True)
 
-    # Ship the SIMPLEST model within one standard error of the best, not
-    # whichever happened to win. Consecutive runs crowned "logistic + margin
-    # blend" and then "gradient boosting" on the same data -- the ranking
-    # flips because the gaps are smaller than the noise, so selecting on the
-    # raw minimum is selecting on noise. The one-standard-error rule is the
-    # standard remedy and it also happens to ship the model that is easier to
-    # explain and cheaper to run live.
-    se = evaluate.log_loss_standard_error(yte, p_lr_te)
-    ranked = sorted(results, key=lambda r: r.log_loss)
-    threshold = ranked[0].log_loss + se
-    eligible = [r for r in ranked if r.log_loss <= threshold]
-    winner_name = min(eligible, key=lambda r: COMPLEXITY.get(r.name, 99)).name
     print(f"\n  log-loss standard error {se:.4f}; "
           f"{len(eligible)} model(s) statistically tied")
     print(f"  shipping the simplest of them: {winner_name}")

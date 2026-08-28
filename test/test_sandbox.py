@@ -194,15 +194,21 @@ def test_mirroring_negates_the_feature_vector_exactly(bundle):
 
 
 def test_mirrored_probabilities_sum_to_one(bundle, model):
-    """Within a documented tolerance, not exactly.
+    """Exactly, for the shipped model -- not to a tolerance.
 
-    StandardScaler subtracts non-zero training means from all 52 columns, so
-    the standardised vector does not simply negate even though the raw one
-    does. Measured error is ~3e-4 for the shipped linear model.
+    This used to allow 1e-3, because `StandardScaler` subtracted non-zero
+    training means and the intercept did not negate, leaving ~3e-4 of error.
+    `fit_logistic` now drops both, so swapping the two teams mirrors the
+    prediction to machine precision. Measured worst case across the whole
+    catalog is 1.1e-16, and identical teams score exactly 0.5.
+
+    The bound is deliberately tight. A loose one would silently accept a
+    regression that reintroduced an intercept, which is precisely the change
+    this is here to catch.
     """
     for s in sample_scenarios():
         r = runner.run(s, model, bundle)
-        assert r.mirror_error < 1e-3, f"{s.name}: {r.mirror_error}"
+        assert r.mirror_error < 1e-12, f"{s.name}: {r.mirror_error}"
 
 
 def test_identical_teams_give_a_zero_difference_vector(bundle):

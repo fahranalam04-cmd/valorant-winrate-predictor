@@ -43,7 +43,12 @@ def ci95(accuracy: float, n: int) -> float:
 
 def render(res: dict) -> str:
     rows = sorted(res["results"], key=lambda r: r["log_loss"])
-    best = rows[0]
+    # Mark what actually ships, which is chosen by the one-standard-error rule
+    # and is routinely not the top row. Bolding the lowest log loss while the
+    # bundle serves something else tells the reader the wrong thing. Older
+    # results.json files predate the key, so fall back to the top row.
+    shipped_name = res.get("shipped")
+    best = next((r for r in rows if r["name"] == shipped_name), rows[0])
     shuf = res.get("shuffled", {})
 
     out = [
@@ -66,6 +71,22 @@ def render(res: dict) -> str:
             acc += f" ± {ci95(r['accuracy'], r['n']):.1f}%"
         out.append(f"| {mark}{label}{mark} | {mark}{r['log_loss']:.4f}{mark} | "
                    f"{r['auc']:.3f} | {mark}{acc}{mark} |")
+
+    # When the shipped model is not the lowest log loss, say so here rather
+    # than leaving a reader to wonder why the bold row is not the top one.
+    if shipped_name and rows and rows[0]["name"] != shipped_name:
+        se = res.get("log_loss_se")
+        tied = res.get("n_tied")
+        out += [
+            "",
+            f"**Bold is the shipped model.** {DISPLAY.get(shipped_name, shipped_name)} "
+            f"is not the lowest log loss"
+            + (f", but {tied} models finish within one standard error "
+               f"({se:.4f}) of the best" if se and tied else "")
+            + ", and among those the simplest one ships. The ranking at the top "
+              "of this table flips between runs, because the gaps are smaller "
+              "than the noise.",
+        ]
 
     if shuf:
         out += [
