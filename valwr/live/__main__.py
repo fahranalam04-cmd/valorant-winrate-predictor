@@ -8,6 +8,7 @@ locks an agent, and never touches process memory. See docs/ETHICS-AND-TOS.md
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 
 from valwr import config
@@ -15,9 +16,92 @@ from valwr.collect.client import HenrikClient
 from valwr.collect.limiter import TokenBucket
 from valwr.live import lockfile, predict as P, resolve as R, roster
 from valwr.live import session as S
+from valwr.rating import potential as pot
 from valwr.store import schema
 
 POLL_SECONDS = 5.0
+NAME_WIDTH = 20
+
+
+def _display_width(s: str) -> int:
+    """Terminal columns a string occupies, not its character count.
+
+    Korean and Japanese gamertags are common in this data and render two
+    columns per glyph, so `f"{name:<20}"` under-pads them and the table's
+    columns walk out of line.
+    """
+    import unicodedata
+    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1
+               for c in s)
+
+
+def _fit(s: str, width: int) -> str:
+    """Truncate to `width` display columns, then pad to exactly that."""
+    if _display_width(s) > width:
+        out = ""
+        for ch in s:
+            if _display_width(out + ch) > width - 1:
+                break
+            out += ch
+        s = out + "…"
+    return s + " " * max(0, width - _display_width(s))
+
+
+def gamertags(conn, puuids: list[str]) -> dict[str, str]:
+    """puuid -> "name#tag" for whoever we already hold.
+
+    Straight from the `players` table -- every player the crawler has ever
+    seen has one. The client exposes names through a PUT on its name-service
+    endpoint, which docs/ETHICS-AND-TOS.md rules out without exception, so an
+    unrecognised teammate keeps a short PUUID rather than being looked up.
+    """
+    if not puuids:
+        return {}
+    q = ",".join("?" * len(puuids))
+    out = {}
+    for r in conn.execute(
+            f"SELECT puuid, name, tag FROM players WHERE puuid IN ({q})",
+            puuids):
+        if r["name"]:
+            out[r["puuid"]] = f"{r['name']}#{r['tag']}" if r["tag"] else r["name"]
+    return out
+
+
+def team_table(conn, match, bundle, own_puuid: str, as_of: int, index) -> None:
+    """Your team, ranked by who is likely to play best."""
+    own_team = match.team_of(own_puuid)
+    mine = [p for p in match.players if p.team == own_team]
+    if not mine:
+        return
+
+    names = gamertags(conn, [p.puuid for p in mine])
+    rows = []
+    for p in mine:
+        who = names.get(p.puuid, p.puuid[:8])
+        pot_p = pot.evaluate(conn, p.puuid, as_of, match.map_name or "?",
+                             bundle["norms"], index)
+        rows.append((pot_p, who, p.agent, p.puuid == own_puuid))
+
+    # Unscored players sort last rather than being dropped: they are on the
+    # team whether or not we know anything about them, and saying so is the
+    # point.
+    rows.sort(key=lambda r: (r[0] is not None, r[0].score if r[0] else 0),
+              reverse=True)
+
+    print(f"  YOUR TEAM ({own_team})".ljust(NAME_WIDTH + 22) + "potential")
+    print("  " + "-" * (NAME_WIDTH + 30))
+    for i, (pot_p, who, agent, is_me) in enumerate(rows, 1):
+        mark = "*" if is_me else " "
+        label = _fit(who, NAME_WIDTH)
+        if pot_p is None:
+            print(f"  {i}{mark} {label} {agent:<10} {'--':>3}   no history")
+        else:
+            print(f"  {i}{mark} {label} {agent:<10} "
+                  f"{pot_p.score:>3}   {pot_p.reason}")
+    print(f"\n  * you. Score is a percentile: 70 means likely to outperform "
+          f"70% of players.\n  Ranks the top player correctly 30.5% of the "
+          f"time against 20% chance -- a\n  real edge, not a reliable one. "
+          f"See docs/MODEL-CHOICE.md.")
 
 
 def agents_by_id(conn) -> dict[str, str]:
@@ -32,7 +116,8 @@ def load_bundle(path):
     return joblib.load(path)
 
 
-def show(match, resolution, prediction) -> None:
+def show(match, resolution, prediction, conn=None, bundle=None,
+         own_puuid=None, as_of=None, index=None) -> None:
     print("\n" + "=" * 58)
     print(f"  {match.phase.upper()}  ·  {match.map_name or 'unknown map'}"
           f"  ·  {len(match.players)} players")
@@ -53,6 +138,12 @@ def show(match, resolution, prediction) -> None:
                 arrow = "+" if contribution > 0 else "-"
                 print(f"    {arrow} {name.replace('d_', ''):<26} "
                       f"{abs(contribution):.3f}")
+    if index is not None and conn is not None:
+        print()
+        try:
+            team_table(conn, match, bundle, own_puuid, as_of, index)
+        except Exception as e:          # never let the table kill the view
+            print(f"  (team table unavailable: {type(e).__name__}: {e})")
     print()
 
 
@@ -66,6 +157,14 @@ def main(argv=None) -> int:
                     help="seconds to spend resolving unknown players")
     args = ap.parse_args(argv)
 
+    # Real gamertags in this dataset include Japanese characters, and Windows'
+    # console defaults to cp1252 -- printing one raised UnicodeEncodeError in
+    # testing. A teammate's name must not be able to kill the live view.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
     print(f"client: {lockfile.describe()}")
     if not lockfile.game_is_running():
         print("VALORANT is not running -- start the game and try again.")
@@ -76,6 +175,13 @@ def main(argv=None) -> int:
     bundle = load_bundle(settings.database_path.parent.parent / "models" /
                          "model.joblib")
     print(f"model : {bundle['best']}  ({len(bundle['columns'])} features)")
+
+    # Optional: the live view still works without it, minus the team table.
+    try:
+        index = pot.PerfIndex.load()
+    except FileNotFoundError as e:
+        index = None
+        print(f"note  : {e}")
 
     session = S.build()
     print(f"account: {session.puuid[:8]}...  shard={session.shard}\n")
@@ -106,7 +212,9 @@ def main(argv=None) -> int:
                     region=settings.region, platform=settings.platform)
                 prediction = P.predict(conn, match, bundle, resolution,
                                        session.puuid, as_of=as_of)
-                show(match, resolution, prediction)
+                show(match, resolution, prediction, conn=conn,
+                     bundle=bundle, own_puuid=session.puuid,
+                     as_of=as_of, index=index)
 
             if args.once:
                 return 0

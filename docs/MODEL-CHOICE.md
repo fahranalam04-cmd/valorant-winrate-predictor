@@ -199,6 +199,62 @@ lengthen the results table without changing any conclusion.
 
 ---
 
+## The per-player potential score
+
+Separate question, separate model. The win model asks which team wins; this
+asks **who on your team is likely to play best**, and prints a 0-100 score per
+teammate during a live match (`valwr/rating/potential.py`).
+
+Four components, z-scored against the training population and blended:
+ACS, the existing composite rating, K/D, and `map_edge` -- how much better this
+player is *on this map* than they are in general. `map_edge` is deliberately a
+delta rather than a level: an absolute map rating would mostly restate overall
+skill, which `rating` already carries, and a player with no history on the map
+scores exactly 0 on it rather than being guessed at.
+
+The 0-100 number is a **percentile against the training period**, so 70 means
+"likely to outperform 70% of players".
+
+### Measured, because "likely to play best" is a prediction
+
+The claim the live table makes is precisely: *the player at the top of this
+list will have the best game*. So that is what gets measured -- inside real
+five-player teams from the **test** period, with chance at exactly 20%.
+
+| Ranked by | Picks the best of five | vs chance |
+|---|---|---|
+| Career ACS alone | **31.3%** | +11.3 |
+| **Potential score (shipped)** | **30.5%** | +10.5 |
+| Existing rating alone | 28.8% | +8.8 |
+| Shuffled control | 19.1% | -0.9 |
+
+1,500 teams, standard error 1.0 points. The score beats chance by **10.2
+standard errors**, and the shuffled control lands on 20% as it must.
+
+**The honest finding: ACS alone is as good.** The composite does not beat it --
+31.3% against 30.5%, well inside noise, and Spearman agrees (+0.180 against
++0.179). A first draft that led with `rating` instead scored 29.0% on
+validation, worse than the single feature it was built on top of.
+
+Weights were chosen on the **validation** period
+(`tools/validate_potential.py --sweep`, which refuses to run on test), and test
+was scored once afterwards. Every candidate weighting from "ACS only" down to
+"ACS + rating" landed within one standard error of the best, so the components
+are close to interchangeable for ranking.
+
+They are kept anyway, for a reason that is not accuracy: they are what turns a
+bare number into "wins duels" or "strong on this map". A single ACS figure
+cannot say why. That is a presentation argument, and it is labelled as one
+rather than dressed up as a modelling gain.
+
+### What it is not
+
+Ranking the top player correctly 30.5% of the time is a real edge over 20% and
+a long way from reliable. Individual performance is noisy and strongly
+mean-reverting. The live output says so on screen rather than only here.
+
+---
+
 ## The conclusion worth stating plainly
 
 **Model class is not the bottleneck.** Every candidate above is null, and the
