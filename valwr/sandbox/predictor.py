@@ -134,8 +134,16 @@ def linear_contributions(bundle: dict, features: dict[str, float],
     """Signed per-feature contributions from the linear model.
 
     Exact rather than approximated -- weight times standardised value is the
-    whole story for a linear model, which is a real benefit of shipping the
-    simple one. Returns [] for any estimator this does not apply to.
+    whole story for a linear model, and with no intercept these sum to the
+    logit exactly. That is a real benefit of shipping the simple one. Returns
+    [] for any estimator this does not apply to.
+
+    The scaler is *called*, never reimplemented. An earlier version inlined
+    `(raw - mean_) / scale_`, which silently became wrong the moment
+    `fit_logistic` switched to `with_mean=False`: the model stopped subtracting
+    a mean while the explanation kept subtracting one, so the attributions
+    described a model that was not running. Nothing raised, and no test caught
+    it -- the numbers merely stopped being true.
     """
     est = bundle["estimators"].get("logistic")
     if est is None or not hasattr(est, "named_steps"):
@@ -146,10 +154,10 @@ def linear_contributions(bundle: dict, features: dict[str, float],
     except (AttributeError, KeyError):
         return []
 
-    out = []
-    for i, col in enumerate(bundle["columns"]):
-        raw = features.get(col, 0.0)
-        scaled = (raw - scaler.mean_[i]) / (scaler.scale_[i] or 1.0)
-        out.append((col, float(clf.coef_[0][i] * scaled)))
+    cols = bundle["columns"]
+    row = [[features.get(c, 0.0) for c in cols]]
+    scaled = scaler.transform(row)[0]
+    out = [(col, float(clf.coef_[0][i] * scaled[i]))
+           for i, col in enumerate(cols)]
     out.sort(key=lambda kv: abs(kv[1]), reverse=True)
     return out[:n]

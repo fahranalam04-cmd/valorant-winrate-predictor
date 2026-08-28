@@ -211,6 +211,32 @@ def test_mirrored_probabilities_sum_to_one(bundle, model):
         assert r.mirror_error < 1e-12, f"{s.name}: {r.mirror_error}"
 
 
+def test_linear_contributions_reconstruct_the_logit(bundle):
+    """Every contribution summed must equal the model's own logit, exactly.
+
+    With no intercept the decomposition is complete, so this is an equality
+    rather than an approximation -- which makes it a sharp test of whether the
+    explanation matches the model.
+
+    It exists because it was missing. `linear_contributions` used to inline the
+    scaler as `(raw - mean_) / scale_`; when `fit_logistic` moved to
+    `with_mean=False` the model stopped subtracting a mean while the
+    explanation kept doing it. Nothing raised, every number still looked
+    plausible, and the whole suite stayed green while the reported factors
+    described a model that was not running.
+    """
+    logistic = pred.predictors(bundle, "logistic")[0]
+    for s in sample_scenarios():
+        feats = runner.features_for(s, bundle)
+        contribs = pred.linear_contributions(bundle, feats,
+                                             n=len(bundle["columns"]))
+        p = logistic.predict_proba(feats)
+        logit = math.log(p / (1 - p))
+        assert abs(sum(v for _, v in contribs) - logit) < 1e-8, (
+            f"{s.name}: contributions sum to "
+            f"{sum(v for _, v in contribs)}, model logit is {logit}")
+
+
 def test_identical_teams_give_a_zero_difference_vector(bundle):
     features = runner.features_for(scenarios.get("fair_match"), bundle)
     for key, value in features.items():

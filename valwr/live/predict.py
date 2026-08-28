@@ -118,8 +118,15 @@ def predict(conn: sqlite3.Connection, match: LiveMatch, bundle: dict,
 def top_factors(mf, bundle, n: int = 5) -> list[tuple[str, float]]:
     """The features pushing the prediction hardest, signed toward TEAM_A.
 
-    Contribution is weight x value for the linear model, which is exact rather
-    than an approximation -- a real advantage of shipping the simple model.
+    Contribution is weight x standardised value, which for a linear model with
+    no intercept sums to the logit exactly -- a real advantage of shipping the
+    simple model.
+
+    The scaler is *called*, never reimplemented. An earlier version inlined
+    `(raw - mean_) / scale_`, which silently became wrong when `fit_logistic`
+    switched to `with_mean=False`: the model stopped subtracting a mean while
+    this kept subtracting one, so the live "strongest factors" would have
+    explained a model that was not running. Nothing raised.
     """
     cols = bundle["columns"]
     est = bundle["estimators"].get("logistic")
@@ -131,10 +138,8 @@ def top_factors(mf, bundle, n: int = 5) -> list[tuple[str, float]]:
     except (AttributeError, KeyError):
         return []
 
-    contributions = []
-    for i, c in enumerate(cols):
-        raw = mf.values.get(c, 0.0)
-        scaled = (raw - scaler.mean_[i]) / (scaler.scale_[i] or 1.0)
-        contributions.append((c, float(clf.coef_[0][i] * scaled)))
+    scaled = scaler.transform([[mf.values.get(c, 0.0) for c in cols]])[0]
+    contributions = [(c, float(clf.coef_[0][i] * scaled[i]))
+                     for i, c in enumerate(cols)]
     contributions.sort(key=lambda kv: abs(kv[1]), reverse=True)
     return contributions[:n]
