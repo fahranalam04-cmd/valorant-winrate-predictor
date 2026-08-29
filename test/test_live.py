@@ -273,3 +273,27 @@ def test_a_spectator_has_no_team():
     m = _parse(_coregame([_player("p", "Blue"), _player("q", "Red")],
                          ProvisioningFlowID="CustomGame"))
     assert m.team_of("someone-else") is None
+
+
+def test_a_competitive_match_triggers_none_of_the_custom_warnings():
+    """The custom-game handling must not change what a queued match prints.
+
+    Pregame exposes only AllyTeam, so the enemy count is structurally zero.
+    That is not an uneven lobby and must not be reported as one -- the uneven
+    warning is gated on is_custom for exactly this reason.
+    """
+    m = _parse(_coregame([_player(f"p{i}", "Blue") for i in range(5)]
+                         + [_player(f"q{i}", "Red") for i in range(5)],
+                         ProvisioningFlowID="Matchmaking"))
+    assert not m.is_custom
+    assert m.is_standard_mode
+    assert m.is_even_5v5
+
+
+def test_competitive_pregame_is_not_mistaken_for_an_uneven_lobby():
+    from valwr.live.roster import LiveMatch, LivePlayer
+    ally = [LivePlayer(f"p{i}", "Blue", "x", "Jett") for i in range(5)]
+    m = LiveMatch("m", "pregame", "Ascent", "BombGameMode", ally,
+                  flow="Matchmaking")
+    assert not m.is_custom          # so the uneven-teams warning stays silent
+    assert m.team_size("Red") == 0  # structural, not a real 5v0

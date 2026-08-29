@@ -123,9 +123,15 @@ def show(match, resolution, prediction, conn=None, bundle=None,
          own_puuid=None, as_of=None, index=None) -> None:
     print("\n" + "=" * 58)
     kind = "CUSTOM" if match.is_custom else match.phase.upper()
+    # In pregame Riot exposes only AllyTeam, so the enemy count is structurally
+    # zero. Printing "5v0" there reads as if the other side vanished; say what
+    # is actually happening instead.
+    if match.phase == "pregame":
+        size = f"{len(match.players)} on your team, enemy hidden until the match starts"
+    else:
+        size = f"{match.team_size('Blue')}v{match.team_size('Red')}"
     print(f"  {kind}  ·  {match.map_name or 'unknown map'}"
-          f"  ·  {match.mode or 'unknown mode'}"
-          f"  ·  {match.team_size('Blue')}v{match.team_size('Red')}")
+          f"  ·  {match.mode or 'unknown mode'}  ·  {size}")
     print("=" * 58)
 
     # Custom lobbies are where the model's training distribution stops being a
