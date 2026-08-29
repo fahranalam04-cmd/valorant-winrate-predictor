@@ -1,11 +1,37 @@
 """Export the whole static catalog (plus light variance) for the dashboard."""
 import json, pathlib, sys
 sys.path.insert(0, ".")
+from valwr.rating import potential as RP
+from valwr.sandbox import potential as sp
 from valwr.sandbox import predictor as pred, report, runner, scenarios
 
 bundle = pred.load_bundle()
 models = {p.name: p for p in pred.predictors(bundle, "logistic,gbm")}
 lin, gbm = models["logistic"], models["gbm"]
+
+# The per-player 0-100 score, exported for every scenario rather than only the
+# `potential` category -- knowing who the model thinks will play best is worth
+# seeing next to any roster, not just the three built to test it.
+try:
+    index = RP.PerfIndex.load()
+except FileNotFoundError as e:
+    index = None
+    print(f"note: no potential scores ({e})")
+
+
+def roster(scored, team, players, agents_for):
+    """Roster entries, each carrying its potential score when one exists."""
+    by_slot = {p.slot: p for p in scored if p.team == team}
+    out = []
+    for i, p in enumerate(players):
+        entry = {"n": p.name, "a": agents_for(i)}
+        got = by_slot.get(i)
+        if got is not None:
+            entry["s"] = got.score          # None when there is no history
+            entry["why"] = got.reason
+            entry["role"] = got.role
+        out.append(entry)
+    return out
 
 out = {"model": bundle.get("best"), "scenarios": [], "categories": {}}
 CAT_BLURB = {
@@ -38,14 +64,13 @@ for s in scenarios.CATALOG:
     g = runner.run(s, gbm, bundle, with_mirror=True)
     v = runner.run_variance(s, lin, bundle, samples=24, seed=42)
     diffs = sorted(r.features.items(), key=lambda kv: -abs(kv[1]))[:6]
+    scored = sp.score_scenario(s, bundle, index) if index else []
     out["scenarios"].append({
         "name": s.name, "category": s.category, "description": s.description,
         "map": s.map_name, "expect": s.expect,
         "observational": "observational" in s.tags,
-        "teamA": [{"n": p.name, "a": s.team_a.agent_for(i)}
-                  for i, p in enumerate(s.team_a.players)],
-        "teamB": [{"n": p.name, "a": s.team_b.agent_for(i)}
-                  for i, p in enumerate(s.team_b.players)],
+        "teamA": roster(scored, "Blue", s.team_a.players, s.team_a.agent_for),
+        "teamB": roster(scored, "Red", s.team_b.players, s.team_b.agent_for),
         "p": round(r.probability, 4),
         "pGbm": round(g.probability, 4),
         "mirrorErr": round(r.mirror_error or 0, 6),
