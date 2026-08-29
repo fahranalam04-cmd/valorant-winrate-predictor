@@ -185,3 +185,91 @@ def test_rate_limiting_ends_fetching_without_raising(tmp_path):
                     client=Limited(), deadline_seconds=5.0)
     assert out.fetched == 0
     assert out.coverage == 0, "no quota means the cached answer ships"
+
+
+# --- custom games ------------------------------------------------------
+# Customs differ from queued matches in ways that break assumptions safe for
+# competitive: modes without bomb defusal, teams that are not 5v5, and a local
+# player who may not be on a team at all.
+
+def _coregame(players, **extra):
+    """A core-game payload in the shape the client actually returns."""
+    body = {"MatchID": "m1", "MapID": "/Game/Maps/Ascent/Ascent",
+            "ModeID": "/Game/GameModes/Bomb/BombGameMode", "Players": players}
+    body.update(extra)
+    return body
+
+
+def _player(puuid, team, **extra):
+    p = {"Subject": puuid, "TeamID": team, "CharacterID": "agent-uuid"}
+    p.update(extra)
+    return p
+
+
+class _StubSession:
+    """Just enough session for fetch() to build its URL."""
+    glz = "http://stub"
+    puuid = "me"
+
+
+def _parse(body):
+    """Run roster.fetch's coregame branch against a canned payload."""
+    import valwr.live.roster as mod
+    saved = mod._get
+    mod._get = lambda session, url: body
+    try:
+        return mod.fetch(session=_StubSession(), match_id="m1",
+                         phase="coregame")
+    finally:
+        mod._get = saved
+
+
+def test_a_custom_game_is_recognised_as_one():
+    m = _parse(_coregame([_player(f"p{i}", "Blue") for i in range(5)]
+                         + [_player(f"q{i}", "Red") for i in range(5)],
+                         ProvisioningFlowID="CustomGame"))
+    assert m.is_custom
+    assert m.is_even_5v5
+    assert m.team_size("Blue") == 5 and m.team_size("Red") == 5
+
+
+def test_a_queued_match_is_not_flagged_as_custom():
+    m = _parse(_coregame([_player("p", "Blue"), _player("q", "Red")],
+                         ProvisioningFlowID="Matchmaking"))
+    assert not m.is_custom
+
+
+def test_uneven_custom_teams_are_reported_not_rejected():
+    """3v5 still computes -- team features are averages -- but is not 5v5.
+
+    The output warns rather than refusing, because a scrim with uneven sides
+    is a real thing people run and the ranking is still informative.
+    """
+    m = _parse(_coregame([_player(f"p{i}", "Blue") for i in range(3)]
+                         + [_player(f"q{i}", "Red") for i in range(5)],
+                         ProvisioningFlowID="CustomGame"))
+    assert m.team_size("Blue") == 3
+    assert not m.is_even_5v5
+    assert len(m.players) == 8
+
+
+def test_non_bomb_modes_are_flagged_as_not_comparable():
+    """The model only ever saw bomb defusal; deathmatch has no teams to speak of."""
+    dm = _parse(_coregame([_player("p", "Blue")],
+                          ModeID="/Game/GameModes/Deathmatch/DeathmatchGameMode"))
+    assert not dm.is_standard_mode
+    bomb = _parse(_coregame([_player("p", "Blue")]))
+    assert bomb.is_standard_mode
+
+
+def test_a_missing_mode_is_treated_as_standard():
+    """Absent on some responses. Refusing to predict then would break ordinary
+    competitive matches to guard against an unusual one."""
+    m = _parse(_coregame([_player("p", "Blue")], ModeID=None))
+    assert m.is_standard_mode
+
+
+def test_a_spectator_has_no_team():
+    m = _parse(_coregame([_player("p", "Blue"), _player("q", "Red")],
+                         ProvisioningFlowID="CustomGame"))
+    assert m.team_of("someone-else") is None

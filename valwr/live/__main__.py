@@ -69,7 +69,10 @@ def gamertags(conn, puuids: list[str]) -> dict[str, str]:
 
 def team_table(conn, match, bundle, own_puuid: str, as_of: int, index) -> None:
     """Your team, ranked by who is likely to play best."""
-    own_team = match.team_of(own_puuid)
+    # Spectating or coaching a custom: there is no "your team", but the table
+    # is still the useful part of the output, so fall back to Blue rather than
+    # printing nothing.
+    own_team = match.team_of(own_puuid) or "Blue"
     mine = [p for p in match.players if p.team == own_team]
     if not mine:
         return
@@ -119,9 +122,28 @@ def load_bundle(path):
 def show(match, resolution, prediction, conn=None, bundle=None,
          own_puuid=None, as_of=None, index=None) -> None:
     print("\n" + "=" * 58)
-    print(f"  {match.phase.upper()}  ·  {match.map_name or 'unknown map'}"
-          f"  ·  {len(match.players)} players")
+    kind = "CUSTOM" if match.is_custom else match.phase.upper()
+    print(f"  {kind}  ·  {match.map_name or 'unknown map'}"
+          f"  ·  {match.mode or 'unknown mode'}"
+          f"  ·  {match.team_size('Blue')}v{match.team_size('Red')}")
     print("=" * 58)
+
+    # Custom lobbies are where the model's training distribution stops being a
+    # safe assumption, so say so rather than printing a confident number.
+    if not match.is_standard_mode:
+        print(f"  {match.mode} is not bomb defusal. The model only ever saw")
+        print("  standard 5v5, so a win probability here means nothing.")
+        print()
+    elif match.is_custom and not match.is_even_5v5:
+        print(f"  Uneven teams ({match.team_size('Blue')}v"
+              f"{match.team_size('Red')}). Team features are averages, so this")
+        print("  still computes -- but the model was only trained on 5v5.")
+        print()
+    if own_puuid and match.team_of(own_puuid) is None and match.players:
+        print("  You are not on either team (spectating or coaching);")
+        print("  percentages below are from Team Blue's side.")
+        print()
+
     if prediction is None:
         print("  not enough of the roster to predict yet")
     else:

@@ -33,6 +33,15 @@ class LivePlayer:
     agent: str = UNKNOWN_AGENT      # resolved name, filled by resolve_agents
 
 
+# The model is trained on standard 5v5 bomb-defusal matches. Every other mode
+# scores rounds differently or has no teams at all, so a prediction on one is
+# not wrong so much as meaningless.
+STANDARD_MODE = "bomb"
+
+# `ProvisioningFlowID` distinguishes a queued match from a hand-made lobby.
+CUSTOM_FLOWS = {"customgame"}
+
+
 @dataclass(frozen=True)
 class LiveMatch:
     match_id: str
@@ -40,6 +49,8 @@ class LiveMatch:
     map_name: str | None
     mode: str | None
     players: list[LivePlayer] = field(default_factory=list)
+    flow: str | None = None         # ProvisioningFlowID, when the client says
+    coaches: int = 0                # excluded from `players`, counted here
 
     @property
     def locked_in(self) -> int:
@@ -50,6 +61,27 @@ class LiveMatch:
             if p.puuid == puuid:
                 return p.team
         return None
+
+    @property
+    def is_custom(self) -> bool:
+        return (self.flow or "").lower() in CUSTOM_FLOWS
+
+    @property
+    def is_standard_mode(self) -> bool:
+        """Bomb defusal. Deathmatch and the rotating modes are not comparable.
+
+        Unknown modes are treated as standard: the field is absent on some
+        responses, and refusing to predict on a missing string would break
+        ordinary competitive matches to guard against an unusual one.
+        """
+        return STANDARD_MODE in (self.mode or STANDARD_MODE).lower()
+
+    def team_size(self, team: str) -> int:
+        return sum(1 for p in self.players if p.team == team)
+
+    @property
+    def is_even_5v5(self) -> bool:
+        return self.team_size("Blue") == self.team_size("Red") == 5
 
 
 def _get(session: Session, url: str) -> dict | None:
@@ -90,15 +122,22 @@ def fetch(session: Session, match_id: str, phase: str) -> LiveMatch | None:
         data = _get(session, f"{session.glz}/core-game/v1/matches/{match_id}")
         if not data:
             return None
+        entries = [p for p in data.get("Players", []) if p.get("Subject")]
+        # Custom games can seat a coach per side. They occupy a slot in this
+        # list but do not play, so counting them would invent a sixth player
+        # and skew every team aggregate.
+        coaches = [p for p in entries if p.get("IsCoach")]
         players = [
             LivePlayer(puuid=p["Subject"],
                        team="Blue" if p.get("TeamID") == "Blue" else "Red",
                        agent_id=p.get("CharacterID") or None)
-            for p in data.get("Players", []) if p.get("Subject")
+            for p in entries if not p.get("IsCoach")
         ]
         return LiveMatch(match_id=match_id, phase=phase,
                          map_name=_map_name(data.get("MapID")),
-                         mode=_map_name(data.get("ModeID")), players=players)
+                         mode=_map_name(data.get("ModeID")), players=players,
+                         flow=data.get("ProvisioningFlowID"),
+                         coaches=len(coaches))
 
     data = _get(session, f"{session.glz}/pregame/v1/matches/{match_id}")
     if not data:
@@ -109,15 +148,21 @@ def fetch(session: Session, match_id: str, phase: str) -> LiveMatch | None:
     # known players, not ten -- and the live path has to say so rather than
     # pretend otherwise.
     players: list[LivePlayer] = []
+    coaches = 0
     ally = data.get("AllyTeam") or {}
     ally_side = "Blue" if ally.get("TeamID") == "Blue" else "Red"
     for p in ally.get("Players", []):
-        if p.get("Subject"):
-            players.append(LivePlayer(puuid=p["Subject"], team=ally_side,
-                                      agent_id=p.get("CharacterID") or None))
+        if not p.get("Subject"):
+            continue
+        if p.get("IsCoach"):
+            coaches += 1
+            continue
+        players.append(LivePlayer(puuid=p["Subject"], team=ally_side,
+                                  agent_id=p.get("CharacterID") or None))
     return LiveMatch(match_id=match_id, phase=phase,
                      map_name=_map_name(data.get("MapID")),
-                     mode=_map_name(data.get("ModeID")), players=players)
+                     mode=_map_name(data.get("ModeID")), players=players,
+                     flow=data.get("ProvisioningFlowID"), coaches=coaches)
 
 
 def resolve_agents(match: LiveMatch, agents_by_id: dict[str, str]) -> LiveMatch:
