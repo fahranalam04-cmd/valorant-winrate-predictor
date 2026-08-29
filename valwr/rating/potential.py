@@ -71,6 +71,9 @@ PRIOR_N_MAP = 6.0
 
 RECENCY_HALFLIFE_DAYS = 30.0    # matches features/player.py
 POP_KD = 1.08                   # measured; only a fallback if norms lack it
+# Below this many standard deviations from the population, a component is
+# not worth naming -- see explain().
+NOTABLE_Z = 0.5
 
 INDEX_PATH = Path("models") / "perf_index.json"
 
@@ -233,6 +236,17 @@ def explain(index: PerfIndex, c: Components) -> str:
     """
     zs = {name: index.z(name, getattr(c, name)) for name in WEIGHTS}
     name = max(zs, key=lambda k: abs(zs[k]))
+
+    # A player who is unremarkable on every component should be described that
+    # way. Without this the largest |z| wins even when it is 0.05, so a
+    # perfectly average player was labelled "below par lately" on the strength
+    # of noise -- a confident-sounding claim about nothing.
+    if abs(zs[name]) < NOTABLE_Z:
+        if c.n_games < 5:
+            return f"middle of the pack, on only {c.n_games} game" + (
+                "s" if c.n_games != 1 else "")
+        return "middle of the pack"
+
     word = (_HIGH if zs[name] > 0 else _LOW)[name]
     if name == "map_edge" and c.n_map_games == 0:
         return "no history on this map"

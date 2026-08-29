@@ -48,7 +48,7 @@ python -m valwr.sandbox compare
 to probe* below.
 
 `--generated` includes the ~184 machine-generated sweep, grid and context
-scenarios alongside the 159 curated ones.
+scenarios alongside the 162 curated ones.
 
 **Cost.** The static catalog runs in about 19 seconds. Variance rebuilds the
 whole synthetic world for every sample, so 1,000 samples is roughly a minute
@@ -69,10 +69,10 @@ rest is production.
 | Module | Role |
 |---|---|
 | `schema.py` | `PlayerProfile`, `TeamProfile`, `MatchScenario`, `VarianceSpec`, results |
-| `profiles.py` | ~28 canonical archetypes |
+| `profiles.py` | 32 canonical archetypes |
 | `world.py` | profiles → synthetic history in an in-memory SQLite |
 | `predictor.py` | adapter over `models/model.joblib` |
-| `scenarios.py` | 159 curated scenarios in 21 categories |
+| `scenarios.py` | 162 curated scenarios in 22 categories |
 | `sweeps.py` | generated single-factor, pairwise and context scenarios |
 | `variance.py` | correlated stochastic realisations |
 | `runner.py` | execution, auto-mirroring |
@@ -111,7 +111,7 @@ assumptions, which is the opposite of a test.
 
 ## Scenario taxonomy
 
-159 curated scenarios across 21 categories:
+162 curated scenarios across 22 categories:
 
 | Category | n | Probes |
 |---|---|---|
@@ -125,7 +125,7 @@ assumptions, which is the opposite of a test.
 | `weak_link`, `distribution` | 6 each | liabilities; equal means with different spreads |
 | `skill`, `map_agent`, `experience`, `off_role`, `dominance` | 5 each | graded gaps, the interaction in isolation, level-vs-skill |
 | `cancellation` | 4 | deliberately offsetting advantages |
-| `sanity` | 3 | identical teams, equal-but-different, mirrors |
+| `sanity`, `potential` | 3 each | identical teams and mirrors; ground-truth checks for the 0-100 player score |
 
 Plus **184 generated** scenarios: 105 single-factor sweeps (21 features × 5
 levels), 72 pairwise grid cells (8 curated pairs × 3×3), and 7 context sweeps
@@ -330,6 +330,48 @@ follow.
 
 **When adding a scenario that sets a subset rate, check what the complement
 had to become.** `world._buckets` and `world._allocate_wins` will show you.
+
+---
+
+## The potential score, against known truth
+
+The sandbox also exercises the per-player 0-100 potential score
+(`valwr/rating/potential.py`), and this is where it earns its keep. Held-out
+real data can say *how often* the score picks the best player -- 30.5% against
+20% chance -- but never *whether it is behaving sensibly*, because a real
+player has no declared skill to check against.
+
+Synthetic players do. Every archetype comes from `_ladder(name, ability)`, one
+parameter, so the correct ordering is known before the score runs.
+
+```bash
+python -m valwr.sandbox potential
+```
+
+Three scenarios, all in the `potential` category:
+
+**`potential_skill_ladder`** -- five rungs on one team. The score ranks them
+`elite 99 > strong 94 > above_average 80 > below_average 13 > weak 3`:
+monotone, and asserted rather than eyeballed.
+
+**`potential_role_bias`** -- four role mains of identical ability, carrying the
+ACS and K/D each role actually averages in the collected data. They score
+**72 / 50 / 37 / 20**, a 52-point spread from role alone. The test asserts the
+gap stays between 30 and 70 -- two-sided, so the bias can neither be quietly
+papered over nor silently grow. See docs/MODEL-CHOICE.md for the measurement.
+
+**`potential_thin_history`** -- a three-game player on a 100% win rate next to
+a 600-game veteran. They land mid-table with a four-point spread across the
+whole team, because the score ignores win rate outright and shrinks thin
+history toward the population.
+
+### A gap this closed
+
+Adding these found that `world.py` wrote `kills` and `deaths` as the same
+fixed number, so **every synthetic player had a K/D of exactly 1.0** and the
+score's K/D component could not be exercised at all. `PlayerProfile` now
+declares `kd`, defaulting to 1.0 -- which reproduces the old pair byte for
+byte, so no existing archetype moved and no frozen benchmark shifted.
 
 ---
 

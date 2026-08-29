@@ -128,3 +128,100 @@ def _one_player(map_played: str):
     world.write_player(conn, "p", profiles.get("average"), as_of,
                        map_played, "Jett")
     return conn, as_of, _norms(conn)
+
+
+# --- against synthetic ground truth ------------------------------------
+# These need the fitted index and the model bundle, so they skip rather than
+# fail on a fresh clone where models/ has not been built.
+
+def _bundle_and_index():
+    from valwr.rating import potential as RP
+    from valwr.sandbox import predictor as pred
+    try:
+        bundle = pred.load_bundle()
+        index = RP.PerfIndex.load()
+    except (pred.MissingModel, FileNotFoundError) as e:
+        pytest.skip(str(e))
+    return bundle, index
+
+
+def test_the_score_ranks_the_ability_ladder_correctly():
+    """The one check real data cannot supply.
+
+    Every archetype is derived from a single ability parameter, so the correct
+    order is known before the score runs. On live matches there is no such
+    truth to compare against -- only how often the ranking happens to be right.
+    """
+    from valwr.sandbox import potential as sp, scenarios
+    bundle, index = _bundle_and_index()
+    scored = sp.score_scenario(scenarios.get("potential_skill_ladder"),
+                               bundle, index, team="Blue")
+    assert sp.ordering_matches(scored, [
+        "elite", "strong", "above_average", "below_average", "weak"])
+
+
+def test_thin_history_does_not_win_on_a_perfect_win_rate():
+    """Three games at 100% must not outrank a 600-game veteran.
+
+    Shrinkage is the guard, and the score ignores win rate outright -- so the
+    gap across the whole team stays small rather than crowning the small
+    sample.
+    """
+    from valwr.sandbox import potential as sp, scenarios
+    bundle, index = _bundle_and_index()
+    scored = sp.score_scenario(scenarios.get("potential_thin_history"),
+                               bundle, index, team="Blue")
+    assert sp.spread(scored) < 15
+
+
+def test_role_bias_is_present_and_bounded():
+    """A known defect, pinned so it cannot drift unnoticed.
+
+    Four archetypes of identical ability, differing only by the ACS and K/D
+    their role actually averages, score 52 points apart. The assertion is
+    deliberately two-sided: the gap is real and must not be papered over, and
+    it must not silently grow either. If a future change genuinely removes the
+    bias, this test should fail and be deleted on purpose.
+    """
+    from valwr.sandbox import potential as sp, scenarios
+    bundle, index = _bundle_and_index()
+    scored = sp.score_scenario(scenarios.get("potential_role_bias"),
+                               bundle, index, team="Blue")
+    by_name = {p.profile: p.score for p in scored}
+    assert by_name["duelist_main"] > by_name["initiator_main"]
+    gap = by_name["duelist_main"] - by_name["initiator_main"]
+    assert 30 <= gap <= 70, f"role gap moved to {gap} points"
+
+
+def test_unknown_players_are_ranked_last_not_dropped():
+    from valwr.sandbox import potential as sp, scenarios
+    bundle, index = _bundle_and_index()
+    scored = sp.score_scenario(scenarios.get("coverage_a_0_of_5"),
+                               bundle, index, team="Blue")
+    assert len(scored) == 5
+    ranked = sp.ranked(scored)
+    known = [p.known for p in ranked]
+    assert known == sorted(known, reverse=True)
+
+
+def test_kd_reaches_the_synthetic_world():
+    """world.py used to pin kills and deaths equal, so K/D was always 1.0.
+
+    That left the K/D component of the score untestable. The profile now
+    declares it; this asserts it actually survives into the database.
+    """
+    from valwr.sandbox import world
+    as_of = 1_800_000_000
+    conn = world.new_connection()
+    world.write_player(conn, "hi", profiles.get("duelist_main"), as_of,
+                       "Ascent", "Reyna")
+    world.write_player(conn, "lo", profiles.get("average"), as_of,
+                       "Ascent", "Jett")
+    got = {}
+    for puuid in ("hi", "lo"):
+        k, d = conn.execute(
+            "SELECT SUM(kills), SUM(deaths) FROM match_players WHERE puuid=?",
+            (puuid,)).fetchone()
+        got[puuid] = k / d
+    assert got["hi"] > got["lo"]
+    assert got["lo"] == pytest.approx(1.0, abs=0.01)

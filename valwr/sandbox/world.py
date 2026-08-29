@@ -28,6 +28,7 @@ ROUNDS = 21
 # Damage taken is not a modelled feature, so it is held at the population
 # average rather than varied -- a constant is honest here, noise would not be.
 POP_DAMAGE_TAKEN = 141.0 * ROUNDS
+DEATHS_PER_MATCH = int(round(0.75 * ROUNDS))
 
 # Days between consecutive history matches. A 60-game history therefore spans
 # ~4 months, which puts it on a realistic footing against the 90-day recency
@@ -263,8 +264,10 @@ def write_player(conn: sqlite3.Connection, puuid: str, p: PlayerProfile,
             "agent": m["agent"], "party_id": None, "tier": p.tier,
             "account_level": p.account_level,
             "score": int(round(m["acs"] * ROUNDS)),
-            "kills": int(round(0.75 * ROUNDS)),
-            "deaths": int(round(0.75 * ROUNDS)),
+            # Deaths stay where they were; kills carry the ratio, so kd=1.0
+            # reproduces the previous fixed pair exactly.
+            "kills": int(round(p.kd * DEATHS_PER_MATCH)),
+            "deaths": DEATHS_PER_MATCH,
             "assists": int(round(0.30 * ROUNDS)),
             "headshots": 20, "bodyshots": 60, "legshots": 5,
             "damage_dealt": int(round(m["adr"] * ROUNDS)),

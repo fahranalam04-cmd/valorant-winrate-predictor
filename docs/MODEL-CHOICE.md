@@ -247,6 +247,38 @@ bare number into "wins duels" or "strong on this map". A single ACS figure
 cannot say why. That is a presentation argument, and it is labelled as one
 rather than dressed up as a modelling gain.
 
+### It is biased by role, and that is measured
+
+The score is ACS-led, and ACS depends heavily on which role a player mains.
+Measured across 484,520 player-rows:
+
+| Role | Mean ACS | Mean K/D | Rows |
+|---|---|---|---|
+| Duelist | **225.3** | 1.12 | 182,648 |
+| Controller | 215.8 | 1.03 | 101,758 |
+| Sentinel | 200.3 | 1.10 | 106,805 |
+| Initiator | **194.2** | 1.03 | 93,309 |
+
+A 31-point ACS spread against a population standard deviation of 20.8 -- one
+and a half standard deviations of pure role.
+
+What that does to the score, two ways:
+
+- **In the wild**, grouping 4,000 test-period players by the role they main:
+  duelist mains average **54.1**, initiator mains **41.3**. A 12.8-point gap.
+- **In isolation**, holding ability exactly fixed and varying only the
+  measured per-role ACS and K/D (`potential_role_bias` in the sandbox):
+  **52 points**, duelist 72 against initiator 20.
+
+Both numbers are real and they measure different things. 52 is the pure effect
+at identical skill; 12.8 is what survives once individual variation is mixed
+back in. Either way a strong Sova main will often rank below a mediocre Reyna
+main, and the score should not be read as "who is better at the game".
+
+The sandbox scenario asserts the gap stays between 30 and 70 points -- two-
+sided on purpose. The bias must not be quietly papered over, and it must not
+silently grow either.
+
 ### What it is not
 
 Ranking the top player correctly 30.5% of the time is a real edge over 20% and

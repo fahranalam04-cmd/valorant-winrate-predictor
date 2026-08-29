@@ -10,6 +10,7 @@ lin, gbm = models["logistic"], models["gbm"]
 out = {"model": bundle.get("best"), "scenarios": [], "categories": {}}
 CAT_BLURB = {
  "sanity": "Controls. If these look wrong, nothing else can be trusted.",
+ "potential": "For the per-player 0-100 score, not the win model. The archetype names are ground truth, so the ranking can be checked rather than trusted.",
  "skill": "One side is simply better, by graded amounts.",
  "carry": "One outstanding player among ordinary ones -- smurfs and hard carries.",
  "weak_link": "One liability dragging an otherwise fine team down.",

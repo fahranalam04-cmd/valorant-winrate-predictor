@@ -257,3 +257,34 @@ def highlights(results: list[ScenarioResult],
     if len(warned) > 12:
         out.append(f"    ... and {len(warned) - 12} more")
     return "\n".join(out)
+
+
+def potential_table(scenario, scored, team: str = "Blue") -> str:
+    """Who the potential score thinks will play best, next to the truth.
+
+    The archetype name is the ground truth: `profiles._ladder` derives each one
+    from a single ability parameter, so a reader can check the ordering against
+    what the scenario was built to contain rather than taking the ranking on
+    faith.
+    """
+    from valwr.sandbox import potential as sp
+
+    rows = sp.ranked([p for p in scored if p.team == team])
+    if not rows:
+        return ""
+
+    out = [f"Likely to play best (team {team}):",
+           f"  {'#':<3}{'archetype':<24}{'agent':<10}{'role':<12}"
+           f"{'score':>6}   why"]
+    for i, p in enumerate(rows, 1):
+        score = f"{p.score:>3}" if p.known else " --"
+        out.append(f"  {i:<3}{p.profile:<24}{p.agent:<10}"
+                   f"{(p.role or '?'):<12}{score:>6}   {p.reason}")
+
+    got = sp.spread(rows)
+    out += ["",
+            f"  spread {got} points between best and worst.",
+            "  Archetype names are the ground truth -- an ordering that "
+            "disagrees with",
+            "  the ability ladder is a finding, not a rendering quirk.", ""]
+    return "\n".join(out)

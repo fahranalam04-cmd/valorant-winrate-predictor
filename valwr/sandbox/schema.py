@@ -64,6 +64,11 @@ class PlayerProfile:
     kast: float = 0.71
     fb_rate: float = 0.10
     fd_rate: float = 0.10
+    # Kills per death. Defaults to 1.0, which is exactly what `world` produced
+    # before this field existed -- every pre-existing archetype is unchanged,
+    # and no frozen benchmark moves. Set it explicitly to exercise the K/D
+    # component of the potential score, which is otherwise pinned flat.
+    kd: float = 1.0
 
     # --- identity / context -------------------------------------------
     tier: int = 15                             # Platinum 1
@@ -102,6 +107,10 @@ class PlayerProfile:
                       "fb_rate", "fd_rate"):
             bounded(label, getattr(self, label), *RATE_BOUNDS)
         bounded("acs", self.acs, *ACS_BOUNDS)
+        # 0.2 to 3.0 spans everything from a player who dies five times per
+        # kill to a hard carry. Zero is excluded: it would mean never getting
+        # a kill across an entire history, which is not a player.
+        bounded("kd", self.kd, 0.2, 3.0)
         bounded("adr", self.adr, *ADR_BOUNDS)
         bounded("days_since_last", self.days_since_last, *DAYS_BOUNDS)
         bounded("trend", self.trend, -1.0, 1.0)

@@ -4,6 +4,7 @@
     run    --mode static|variance|both --scenario NAME|all
     sweep  --feature rating           single-factor curve
     grid   --pair rating,wr_map       pairwise interaction grid
+    potential --scenario NAME         rank players by potential score
     benchmark                         freeze the static catalog
     compare [path]                    diff a saved benchmark against now
 
@@ -153,6 +154,27 @@ def cmd_grid(args) -> int:
     return 0
 
 
+def cmd_potential(args) -> int:
+    """Rank synthetic players by the 0-100 potential score."""
+    from valwr.rating import potential as pot
+    from valwr.sandbox import potential as sp
+
+    bundle = pred.load_bundle()
+    try:
+        index = pot.PerfIndex.load()
+    except FileNotFoundError as e:
+        raise SystemExit(f"error: {e}")
+
+    for s in _select(args.scenario, args.generated):
+        scored = sp.score_scenario(s, bundle, index)
+        print()
+        print("=" * 70)
+        print(f"{s.name}  --  {s.description}")
+        print("=" * 70)
+        print(report.potential_table(s, scored, team=args.team))
+    return 0
+
+
 def cmd_benchmark(args) -> int:
     bundle = pred.load_bundle()
     p = pred.shipped(bundle)
@@ -205,6 +227,13 @@ def main(argv=None) -> int:
     p_grid = sub.add_parser("grid", help="pairwise interaction grid")
     p_grid.add_argument("--pair", required=True, help="e.g. rating,wr_map")
     p_grid.set_defaults(func=cmd_grid)
+
+    p_pot = sub.add_parser("potential",
+                           help="rank synthetic players by potential score")
+    p_pot.add_argument("--scenario", default="potential")
+    p_pot.add_argument("--team", default="Blue", choices=("Blue", "Red"))
+    p_pot.add_argument("--generated", action="store_true")
+    p_pot.set_defaults(func=cmd_potential)
 
     p_bench = sub.add_parser("benchmark", help="freeze the static catalog")
     p_bench.add_argument("--out")

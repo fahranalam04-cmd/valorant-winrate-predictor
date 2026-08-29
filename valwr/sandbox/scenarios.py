@@ -653,6 +653,39 @@ def build() -> list[MatchScenario]:
                  tags=("observational",)),
     ]
 
+    # --- 23. per-player potential ------------------------------------
+    # These exist for the 0-100 potential score, not the win model. Their
+    # value is ground truth: `_ladder` derives every archetype from one
+    # ability parameter, so the correct ranking is known in advance -- which
+    # is exactly what held-out real data cannot supply.
+    s += [
+        scenario("potential_skill_ladder", "potential",
+                 "Five rungs of the ability ladder on one team. The potential "
+                 "score should rank them in that order.",
+                 TeamProfile(players=(elite, strong, above, below, weak),
+                             agents=BALANCED),
+                 team(avg), tags=("observational",)),
+        scenario("potential_role_bias", "potential",
+                 "Four role mains of identical ability, at the ACS and K/D "
+                 "each role actually averages. Any gap the score reports is "
+                 "role, not skill -- a known defect, pinned down here.",
+                 TeamProfile(players=(P.DUELIST_MAIN, P.CONTROLLER_MAIN,
+                                      P.SENTINEL_MAIN, P.INITIATOR_MAIN, avg),
+                             agents=("Reyna", "Omen", "Killjoy", "Sova",
+                                     "Jett")),
+                 team(avg), tags=("observational",)),
+        scenario("potential_thin_history", "potential",
+                 "A three-game player on a 100% win rate, alongside "
+                 "veterans. The score ignores win rate entirely and shrinks "
+                 "their thin history, so they land mid-table rather than "
+                 "first.",
+                 TeamProfile(players=(P.LOW_SAMPLE_HIGH_WR, avg, avg, avg,
+                                      P.EXPERIENCED_AVERAGE),
+                             agents=BALANCED),
+                 team(avg), tags=("observational",)),
+    ]
+
+
     return s
 
 

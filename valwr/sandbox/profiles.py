@@ -177,6 +177,38 @@ BIG_SAMPLE_GOOD_WR = _ladder(
 HIGH_VARIANCE = _ladder("high_variance", 1.4, kast=0.60, fd_rate=0.19,
                         win_rate=0.50)
 
+# --- role mains, for pinning down a known bias -------------------------
+# The potential score is ACS-led, and ACS depends heavily on the role a player
+# mains. Measured on the collected data, over 484,520 player-rows:
+#
+#     Duelist     225.3 ACS   1.12 K/D   (182,648 rows)
+#     Controller  215.8 ACS   1.03 K/D   (101,758 rows)
+#     Sentinel    200.3 ACS   1.10 K/D   (106,805 rows)
+#     Initiator   194.2 ACS   1.03 K/D    (93,309 rows)
+#
+# A 31-point ACS spread against a population standard deviation of 20.8 -- one
+# and a half standard deviations of pure role. These four archetypes hold
+# ability fixed at the population average and vary only those measured values,
+# so a scenario can demonstrate that a Sova main scores below a Reyna main of
+# identical skill. The bias is real and shipped; this makes it a test rather
+# than a paragraph nobody reads.
+#
+# `kd` is declared directly on the profile; world.py holds deaths fixed and
+# carries the ratio in kills, so kd=1.0 reproduces the old fixed pair exactly.
+def _role_main(name: str, acs: float, kd: float) -> PlayerProfile:
+    return _ladder(name, 0.0, acs=acs, adr=POP_ADR * (acs / POP_ACS), kd=kd,
+                   games=120, map_games=24, agent_games=48,
+                   map_agent_games=12)
+
+
+DUELIST_MAIN = _role_main("duelist_main", 225.3, 1.12)
+CONTROLLER_MAIN = _role_main("controller_main", 215.8, 1.03)
+SENTINEL_MAIN = _role_main("sentinel_main", 200.3, 1.10)
+INITIATOR_MAIN = _role_main("initiator_main", 194.2, 1.03)
+
+ROLE_MAINS = (DUELIST_MAIN, CONTROLLER_MAIN, SENTINEL_MAIN, INITIATOR_MAIN)
+
+
 ALL: dict[str, PlayerProfile] = {
     p.name: p for p in (
         UNKNOWN, NEW_PLAYER, WEAK, BELOW_AVERAGE, AVERAGE, ABOVE_AVERAGE,
@@ -185,7 +217,7 @@ ALL: dict[str, PlayerProfile] = {
         MAP_AGENT_SPECIALIST, MAP_AGENT_WEAK, OFF_ROLE, RUSTY, ACTIVE,
         EXPERIENCED_AVERAGE, HIGH_LEVEL_MEDIOCRE, LOW_LEVEL_STRONG,
         LOW_SAMPLE_HIGH_WR, LOW_SAMPLE_LOW_WR, BIG_SAMPLE_GOOD_WR,
-        HIGH_VARIANCE,
+        HIGH_VARIANCE, *ROLE_MAINS,
     )
 }
 
