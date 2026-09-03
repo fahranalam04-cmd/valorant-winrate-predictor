@@ -4,10 +4,12 @@ Predicts each team's win probability the moment you load into a VALORANT match,
 using only what is knowable before the first round — then explains the
 prediction in plain English.
 
-> **Status: Phases 0–6 complete**, except that the live path has not yet been
-> run against a real agent-select — it is built and unit-tested, not verified
-> end to end. The results below are measured on a held-out test set, not
-> estimated. The dashboard and coaching layer (Phases 7–8) are not built yet.
+> **Status: Phases 0–6 and 9 complete.** The live path has been run against
+> real matches and replayed end to end over 2,500 held-out ones, where it
+> tracks the training path to within about one standard error
+> ([docs/MODEL-CHOICE.md](docs/MODEL-CHOICE.md)). The results below are
+> measured on a held-out test set, not estimated. The browser dashboard and
+> coaching layer (Phases 7–8) are not built yet.
 
 ---
 
