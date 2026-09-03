@@ -235,58 +235,52 @@ def _flag_index(cut=1.0):
                        as_of=0, n=201, flag_cut=cut)
 
 
-def _comp(rating, level, games=60):
+def _comp(rating, dominance=0.8, n_dom=20, level=25):
     return P.Components(rating=rating, acs=212.0, kd=1.05, map_edge=0.0,
-                        n_games=games, n_map_games=10, tier=10,
-                        account_level=level)
+                        n_games=60, n_map_games=10, tier=10,
+                        account_level=level, dominance=dominance,
+                        n_dominance=n_dom)
 
 
-def test_a_young_account_playing_above_its_rank_is_flagged():
+def test_dominating_the_lobby_above_your_rank_is_flagged():
     idx = _flag_index()
-    f = P.above_rank(idx, _comp(rating=1.12, level=22))   # z = +2.0
-    assert f.flagged and "above their rank" in f.note
+    f = P.above_rank(idx, _comp(rating=1.12))          # z = +2.0, dom 0.80
+    assert f.flagged
+    assert "tops the lobby" in f.note and "80%" in f.note
 
 
-def test_an_established_account_is_not_flagged_however_good():
-    """The discriminating case, and the reason the second condition exists.
+def test_performing_above_rank_without_dominating_is_not_flagged():
+    """The condition that carries the signal.
 
-    `elite` scores a higher band-relative z than `smurf_like` -- measured
-    +2.56 against +2.36 -- and must still not flag. A very good player on a
-    mature account is not an anomaly, they are just good.
+    Raced on held-out data against a 29.7% base rate: band-relative
+    performance alone lifts the top-third rate by 9.3 points, dominance alone
+    by 14.4, and the two together by 16.5. Either half on its own is weaker.
     """
     idx = _flag_index()
-    assert not P.above_rank(idx, _comp(rating=1.30, level=400)).flagged
+    assert not P.above_rank(idx, _comp(rating=1.12, dominance=0.20)).flagged
 
 
-def test_high_rank_with_ordinary_output_is_not_flagged():
-    """rank_only_smurf: the rank says a lot, the performance says nothing."""
+def test_dominating_without_performing_above_rank_is_not_flagged():
     idx = _flag_index()
-    assert not P.above_rank(idx, _comp(rating=1.00, level=20)).flagged
+    assert not P.above_rank(idx, _comp(rating=0.98, dominance=0.90)).flagged
 
 
-def test_a_young_account_playing_badly_is_not_flagged():
-    idx = _flag_index()
-    assert not P.above_rank(idx, _comp(rating=0.90, level=14)).flagged
+def test_account_level_no_longer_gates_the_flag():
+    """It was the first version's second condition, and it does nothing.
 
-
-def test_games_played_does_not_gate_the_flag():
-    """n_games counts what the crawler collected, not what the player played.
-
-    Measured on the training period, 99.8% of players fall under 40 games and
-    the median is 3, so gating on it fired for 9,033 of 9,067 accounts and
-    made the second condition inert. Only account level gates now.
+    Measured lift over the base rate: -0.2 points. A mature account that
+    dominates its lobbies above its rank is exactly as interesting as a fresh
+    one, so level is carried for display and not used as a gate.
     """
     idx = _flag_index()
-    thin = P.above_rank(idx, _comp(rating=1.12, level=400, games=2))
-    assert not thin.flagged, "a mature account must not flag on thin history"
+    assert P.above_rank(idx, _comp(rating=1.12, level=900)).flagged
 
 
-def test_a_missing_account_level_never_flags():
-    """Absent level means we cannot judge the account is young."""
+def test_a_dominance_rate_from_too_few_lobbies_is_ignored():
+    """Two games at 100% is not a pattern."""
     idx = _flag_index()
-    c = P.Components(rating=1.30, acs=212.0, kd=1.05, map_edge=0.0,
-                     n_games=5, n_map_games=1, tier=10, account_level=None)
-    assert not P.above_rank(idx, c).flagged
+    assert not P.above_rank(idx, _comp(rating=1.12, dominance=1.0,
+                                       n_dom=2)).flagged
 
 
 def test_the_flag_survives_a_json_round_trip():
@@ -295,19 +289,28 @@ def test_the_flag_survives_a_json_round_trip():
     assert back.flag_cut == 1.7
 
 
-def test_smurf_archetype_flags_and_rank_only_smurf_does_not():
-    """Against the real calibrated index, on synthetic ground truth."""
+def test_the_sandbox_cannot_measure_dominance_and_says_so():
+    """Synthetic history has no lobby-mates, so dominance is undefined there.
+
+    `world.write_player` materialises each historical match with only that one
+    player in it. Finishing "top of the lobby" in a lobby of one is
+    meaningless, so `temporal.lobby_dominance` requires MIN_LOBBY players
+    before it counts a match. Without that guard every synthetic player scored
+    a perfect 1.00 and `elite` flagged as a smurf.
+
+    This asserts the honest outcome: the sandbox reports no dominance data,
+    and therefore no synthetic player is flagged. The dominance half of the
+    flag is verified on held-out real lobbies instead --
+    `tools/validate_potential.py --flag`.
+    """
     from valwr.sandbox import world
     bundle, index = _bundle_and_index()
     as_of = 1_800_000_000
-    got = {}
-    for name in ("smurf_like", "rank_only_smurf", "elite", "new_player"):
+    for name in ("smurf_like", "elite", "average"):
         conn = world.new_connection()
-        world.write_player(conn, "p", profiles.get(name), as_of, "Ascent", "Jett")
+        world.write_player(conn, "p", profiles.get(name), as_of, "Ascent",
+                           "Jett")
         p = P.evaluate(conn, "p", as_of, "Ascent", bundle["norms"], index)
-        got[name] = p.flag.flagged
         conn.close()
-    assert got["smurf_like"], "the designed smurf must flag"
-    assert not got["rank_only_smurf"], "high rank, ordinary output is not a smurf"
-    assert not got["elite"], "an established strong player is not an anomaly"
-    assert not got["new_player"], "young but not performing above rank"
+        assert p.components.n_dominance == 0, name
+        assert not p.flag.flagged, name

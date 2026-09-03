@@ -289,58 +289,81 @@ mean-reverting. The live output says so on screen rather than only here.
 
 ## The "playing above their rank" flag
 
-Alongside the 0-100 score, the live view marks players whose band-relative
-performance is high **and** whose account is young. Two conditions, because
-either alone is noise.
+Alongside the 0-100 score, the live view marks players who are **both**
+performing above their own rank band **and** topping their lobbies far more
+often than chance. Two conditions, because either alone is weaker.
 
-The first is free: `rate_performance` already z-scores every component within
-`band_of(tier)`, so a high `rating` literally means "better than others at this
-rank". The second is what separates a smurf pattern from a good player.
+The first is free: `rate_performance` already z-scores within `band_of(tier)`,
+so a high `rating` literally means "better than others at this rank".
 
-### Why account level, and why not games played
+### The second condition was wrong the first time
 
-Measured over 484,520 player-rows, mean ACS barely moves with account level --
-209.6 under level 40 against 213.5 at level 300+ -- while mean tier moves a
-lot: **6.7 against 19.9**. New accounts frag like veterans while ranked far
-below them. That gap is the signal.
+The first version gated on account level, on the intuition that smurfs play on
+fresh accounts. Raced on held-out data against a 29.7% base top-third rate:
 
-Games played looked like it belonged in the same test and does not.
-`n_games` counts matches *this crawler has collected*, not matches the player
-has played: on the training period **99.8% of players fall under 40 games and
-the median is 3**. Including it made the second condition inert -- 9,033 of
-9,067 accounts qualified -- which would have quietly reduced the flag to "top
-5% of band-relative performance" and lost the distinction it exists to draw.
-Only account level gates now.
+| Signal | Fires on | Top-third rate | Lift |
+|---|---|---|---|
+| Account level < 100 | 1,103 | 29.6% | **−0.2** |
+| Band-relative z ≥ 0.90 | 1,077 | 39.0% | +9.3 |
+| z ≥ 0.90 AND level < 100 *(first version)* | 234 | 39.7% | +10.0 |
+| Lobby dominance ≥ 0.50 | 444 | 44.1% | +14.4 |
+| **z ≥ 0.90 AND dominance ≥ 0.50** *(shipped)* | 337 | 46.3% | **+16.5** |
+| Headshot % ≥ 0.30 | 1,999 | 33.3% | +3.5 |
+| Rank climb ≥ 3 tiers | 135 | 31.1% | +1.4 |
+| Performance consistency | 700 | 31.1% | +1.4 |
+
+**Account level does nothing on its own — −0.2 points.** The intuition it was
+built on is simply wrong for this data. What an irregular account actually
+looks like is in the *match history*: finishing top-2 of a ten-player lobby far
+more often than one game in five. Rank climb and headshot percentage, both
+plausible-sounding, are noise.
+
+`temporal.lobby_dominance` computes it, time-gated like everything else in that
+module. Population mean is 0.20 exactly — the 2-in-10 chance rate — which is
+the sanity check that it is computed correctly.
+
+### One guard that matters
+
+A match only counts toward dominance if we hold at least `MIN_LOBBY` players
+from it. Without that, a partially-scraped match counts as a win by default,
+and a *synthetic* solo match scores a perfect 1.00 — you cannot top a lobby of
+one. It costs nothing on real data, where 100% of collected matches have all
+ten players, and it is the difference between `elite` correctly not flagging
+and `elite` being reported as a smurf.
+
+A consequence worth stating: **the sandbox cannot exercise this half of the
+flag.** Synthetic players have no lobby-mates, so dominance is undefined for
+them and no synthetic player flags. `test_the_sandbox_cannot_measure_dominance_and_says_so`
+asserts exactly that rather than pretending otherwise; the dominance half is
+verified on held-out real lobbies.
 
 ### Calibrated, not guessed
 
-`tools/build_perf_index.py` picks the cut that fires on 5% of the training
-period -- about one player per two lobbies -- and stores it in
-`models/perf_index.json`. It currently lands at **z >= 0.90**. Controlling the
-*rate* is what matters; a hand-picked z-score would drift every time the
-population shifted.
+`tools/build_perf_index.py` picks the cut firing on 5% of the training period
+— about one player per two lobbies — and stores it in the index. It currently
+lands at **z ≥ 0.68**. Controlling the *rate* is what matters; a hand-picked
+z-score drifts as the population shifts.
 
 ### Does it mean anything? Yes
 
 No smurf label exists, so the flag cannot be checked against ground truth. The
 nearest honest proxy: inside a complete ten-player lobby, how often does a
-flagged player finish in the **top third** by actual performance? The base rate
-is 33.3% by construction.
+flagged player finish in the **top third** by actual performance? Base rate is
+33.3% by construction.
 
 | | n | Top-third rate |
 |---|---|---|
-| **Flagged players** | 400 | **40.2%** |
-| Everyone else | 8,245 | 29.4% |
+| **Flagged players** | 400 | **46.8%** |
+| Everyone else | 8,109 | 29.1% |
 
-**+10.9 points, 4.6 standard errors**, on the test period. The flag identifies
-players who really do outperform their lobby.
-
-Reproduce with `python tools/validate_potential.py --flag`.
+**+17.7 points, 7.5 standard errors** on the test period — up from +10.9 at
+4.6 for the account-level version. Reproduce with
+`python tools/validate_potential.py --flag`.
 
 ### It does not help the win model
 
-Two team-level features -- count of flagged players, and the largest
-band-relative rating per side -- added to the 52 and scored on validation:
+Two team-level features — count of flagged players, and the largest
+band-relative rating per side — added to the 52 and scored on validation:
 
 | | Log loss | AUC | delta |
 |---|---|---|---|
@@ -348,17 +371,14 @@ band-relative rating per side -- added to the 52 and scored on validation:
 | + flag features | 0.6888 | 0.553 | −0.0001 |
 
 Standard error 0.0016, so **null**, as expected in advance: the model already
-carries `d_rating_max`, and a carry on either side is partly captured by it.
-The flag is shipped as information for the reader, not as a model input.
+carries `d_rating_max`. The flag is information for the reader, not a model
+input — it tells you a carry is in the lobby, it does not make the win
+prediction better.
 
 ### What it is not
 
 It cannot distinguish a smurf from a returning player or someone mid-climb, and
-the wording says so on screen: *"performing well above their rank -- possible
-smurf"*, followed by a line making the ambiguity explicit. `rank_only_smurf`
--- high rank, ordinary output -- correctly does not fire, and neither does
-`elite`, whose band-relative z of +2.56 is *higher* than the designed smurf's
-+2.36 but sits on a mature account.
+the output says so on screen rather than only here.
 
 ---
 

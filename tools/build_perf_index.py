@@ -76,19 +76,19 @@ def main(argv=None) -> int:
 
     # Calibrate the above-rank cut so the flag fires on FLAG_TARGET of players
     # rather than on whatever a hand-picked z-score happens to catch. Only
-    # young accounts can flag, so the cut is chosen over that subset:
-    # the target is a fraction of ALL players, which makes it the number
-    # actually worth controlling.
-    young = [index.z("rating", c.rating) for c in collected
-             if (c.account_level is not None
-                 and c.account_level < P.YOUNG_LEVEL)]
+    # players who dominate their lobbies can flag, so the cut is chosen over
+    # that subset -- but the target is a fraction of ALL players, which is the
+    # number actually worth controlling.
+    eligible = [index.z("rating", c.rating) for c in collected
+                if c.n_dominance >= P.MIN_DOMINANCE_GAMES
+                and c.dominance >= P.DOMINANT]
     want = int(round(P.FLAG_TARGET * len(collected)))
-    if young and 0 < want <= len(young):
-        flag_cut = sorted(young, reverse=True)[want - 1]
+    if eligible and 0 < want <= len(eligible):
+        flag_cut = sorted(eligible, reverse=True)[want - 1]
     else:
         flag_cut = P.DEFAULT_FLAG_CUT
-        print(f"  (could not calibrate the flag: {len(young)} young of "
-              f"{len(collected)}; keeping {flag_cut})")
+        print(f"  (could not calibrate: only {len(eligible)} of "
+              f"{len(collected)} dominate their lobbies; keeping {flag_cut})")
 
     index = P.PerfIndex(means=means, stds=stds, quantiles=quantiles,
                         as_of=b.train_end, n=len(collected),
@@ -97,7 +97,7 @@ def main(argv=None) -> int:
     print()
     print(f"  above-rank flag: cut z>={flag_cut:.2f}, fires on "
           f"{fires:,}/{len(collected):,} ({fires / len(collected) * 100:.1f}%)"
-          f"  -- {len(young):,} accounts were young enough to qualify")
+          f"  -- {len(eligible):,} players dominated enough to qualify")
 
     P.INDEX_PATH.parent.mkdir(exist_ok=True)
     P.INDEX_PATH.write_text(index.to_json(), encoding="utf-8")

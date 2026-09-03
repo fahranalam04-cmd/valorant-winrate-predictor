@@ -80,16 +80,26 @@ NOTABLE_Z = 0.5
 # on a level-400 account with 600 games is a good player, not an anomaly --
 # that is `rank_only_smurf`, and it must not fire.
 FLAG_TARGET = 0.05          # calibrated to fire on ~1 player in 20
-YOUNG_LEVEL = 100           # account level below which the account is young
+DOMINANT = 0.50             # tops the lobby in half their games or more
+MIN_DOMINANCE_GAMES = 3     # below this the rate is noise
 DEFAULT_FLAG_CUT = 2.0      # used only if the index predates calibration
 
-# `n_games` is deliberately NOT part of the young test, though it looks like it
-# should be. It counts matches *this crawler has collected*, not matches the
-# player has played: measured on the training period, 99.8% of players fall
-# under 40 games and the median is 3. Including it made the second condition
-# inert -- 9,033 of 9,067 accounts qualified -- which would have quietly
-# reduced the flag to "top 5% of band-relative performance" and lost the
-# distinction from a simply good player.
+# The second condition is match-history dominance, not account level. Raced on
+# held-out data against a 29.7% base rate, by lift in the top-third rate:
+#
+#     account level < 100                     -0.2   <- does nothing at all
+#     band-relative z >= 0.90                 +9.3
+#     z >= 0.90 AND level < 100               +10.0  <- the first version
+#     dominance >= 0.50                       +14.4
+#     z >= 0.90 AND dominance >= 0.50         +16.5  <- shipped
+#     headshot pct >= 0.30                     +3.5
+#     tier climb >= 3                          +1.4
+#     performance consistency >= 6             +1.4
+#
+# Account level on its own is worthless as a smurf signal, which is the
+# opposite of the intuition it was built on. What an irregular account
+# actually looks like is topping the lobby far more often than one in five --
+# and that is visible in the match history rather than on the profile.
 
 INDEX_PATH = Path("models") / "perf_index.json"
 
@@ -108,6 +118,10 @@ class Components:
     # badge, and `rating` is already normalised within band.
     tier: int | None = None
     account_level: int | None = None
+    # Fraction of prior matches finishing top-2 of the ten-player lobby, and
+    # how many matches that is over. Chance is 0.20.
+    dominance: float = 0.0
+    n_dominance: int = 0
 
 
 def _decay(as_of: int, started_at: int | None) -> float:
@@ -177,10 +191,12 @@ def measure(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
 
     # Newest first, so history[0] is the most recent thing we know about them.
     newest = dict(history[0])
+    dom, dom_n = temporal.lobby_dominance(conn, puuid, as_of)
     return Components(rating=rating, acs=acs, kd=kd, map_edge=map_edge,
                       n_games=len(history), n_map_games=n_map,
                       tier=newest.get("tier"),
-                      account_level=newest.get("account_level"))
+                      account_level=newest.get("account_level"),
+                      dominance=dom, n_dominance=dom_n)
 
 
 @dataclass(frozen=True)
@@ -292,7 +308,7 @@ class AboveRank:
     """Whether a player looks like they are playing below their real rank."""
     flagged: bool
     z: float                    # band-relative rating, in population sd
-    young: bool                 # young account or thin history
+    dominant: bool              # tops their lobby far more than one game in five
     note: str
 
     def __bool__(self) -> bool:
@@ -317,15 +333,16 @@ def above_rank(index: "PerfIndex", c: Components) -> AboveRank:
     player or someone mid-climb, and the wording should not pretend otherwise.
     """
     z = index.z("rating", c.rating)
-    level = c.account_level
-    young = level is not None and level < YOUNG_LEVEL
-    flagged = bool(z >= index.flag_cut and young)
+    dominant = (c.n_dominance >= MIN_DOMINANCE_GAMES
+                and c.dominance >= DOMINANT)
+    flagged = bool(z >= index.flag_cut and dominant)
 
     if not flagged:
-        return AboveRank(False, z, young, "")
-    return AboveRank(True, z, young,
-                     f"performing well above their rank (level {level})"
-                     f" -- possible smurf")
+        return AboveRank(False, z, dominant, "")
+    return AboveRank(
+        True, z, dominant,
+        f"tops the lobby in {c.dominance:.0%} of their {c.n_dominance} "
+        f"tracked games (1 in 5 is normal) -- possible smurf")
 
 
 def evaluate(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,

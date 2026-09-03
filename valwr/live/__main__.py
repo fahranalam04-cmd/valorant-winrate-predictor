@@ -142,10 +142,11 @@ def team_table(conn, match, bundle, own_puuid: str, as_of: int, index) -> None:
           f"chance -- a\n  real edge, not a reliable one. "
           f"See docs/MODEL-CHOICE.md.")
     if flagged:
-        print(f"\n  ! {flagged} player(s) performing well above their rank on a "
-              f"young account.\n    That is what a smurf looks like, but it "
-              f"also fits a returning player\n    or someone mid-climb -- it "
-              f"is a flag, not an accusation.")
+        print(f"\n  ! {flagged} player(s) performing above their rank AND "
+              f"topping their lobbies\n    far more often than one game in "
+              f"five. That is what a smurf looks like,\n    but it also fits a "
+              f"returning player or someone mid-climb -- it is a\n    flag, "
+              f"not an accusation.")
 
 
 def agents_by_id(conn) -> dict[str, str]:
