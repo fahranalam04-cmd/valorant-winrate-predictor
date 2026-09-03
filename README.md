@@ -96,24 +96,24 @@ Countermeasures, enforced in tests rather than by discipline:
 ## Results
 
 <!-- results:start -->
-Measured on a held-out, time-ordered test set of **6,132 matches** never touched during training or tuning. 22,020 training matches; 52 features.
+Measured on a held-out, time-ordered test set of **7,677 matches** never touched during training or tuning. 29,040 training matches; 52 features.
 
 | Model | Log loss | AUC | Accuracy |
 |---|---|---|---|
-| Margin regression | 0.6878 | 0.559 | 54.4% |
-| Logistic + margin blend | 0.6879 | 0.559 | 54.7% |
-| **Logistic regression (52 features)** | **0.6883** | 0.558 | **54.3% ± 1.2%** |
-| Gradient boosting | 0.6885 | 0.557 | 54.1% |
-| Player rating alone (1 feature) | 0.6904 | 0.543 | 52.2% |
-| Best player's rank (1 feature) | 0.6925 | 0.517 | 51.2% |
-| Average rank — *the baseline to beat* | 0.6929 | 0.507 | 50.3% |
-| Coin flip | 0.6931 | 0.500 | 50.4% |
+| Logistic + margin blend | 0.6875 | 0.557 | 53.3% |
+| **Logistic regression (52 features)** | **0.6875** | 0.557 | **53.4% ± 1.1%** |
+| Margin regression | 0.6876 | 0.556 | 53.4% |
+| Gradient boosting | 0.6884 | 0.554 | 53.8% |
+| Best player's rank (1 feature) | 0.6916 | 0.533 | 52.5% |
+| Player rating alone (1 feature) | 0.6921 | 0.527 | 51.9% |
+| Average rank — *the baseline to beat* | 0.6926 | 0.519 | 51.7% |
+| Coin flip | 0.6931 | 0.500 | 50.5% |
 
-**Bold is the shipped model.** Logistic regression (52 features) is not the lowest log loss, but 4 models finish within one standard error (0.0015) of the best, and among those the simplest one ships. The ranking at the top of this table flips between runs, because the gaps are smaller than the noise.
+**Bold is the shipped model.** Logistic regression (52 features) is not the lowest log loss, but 5 models finish within one standard error (0.0013) of the best, and among those the simplest one ships. The ranking at the top of this table flips between runs, because the gaps are smaller than the noise.
 
-**Leakage check: 25 independent label shuffles, mean AUC 0.5006 ± 0.0148, 0 of 25 above the 0.55 alarm threshold.** One draw is not a test — a single shuffle has a standard deviation near 0.015, so any one of them can land anywhere and mean nothing.
+**Leakage check: 25 independent label shuffles, mean AUC 0.5008 ± 0.0121, 0 of 25 above the 0.55 alarm threshold.** One draw is not a test — a single shuffle has a standard deviation near 0.012, so any one of them can land anywhere and mean nothing.
 
-Split by how many of the ten players had prior history: **5-6** 0.533, **7-8** 0.562, **9-10** 0.563. Rising with coverage, as expected.
+Split by how many of the ten players had prior history: **5-6** 0.551, **7-8** 0.543, **9-10** 0.572. Not monotonic — see the retraction below.
 <!-- results:end -->
 
 Why the linear model rather than the gradient booster, and what else was tried

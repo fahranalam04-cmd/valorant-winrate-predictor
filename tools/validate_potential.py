@@ -155,6 +155,9 @@ def main(argv=None) -> int:
                     help="tune on val; touch test once, at the end")
     ap.add_argument("--sweep", action="store_true",
                     help="compare candidate weightings (validation only)")
+    ap.add_argument("--write-index", action="store_true",
+                    help="store the measured top-1 rate in the index, so the "
+                         "live view can state it without a hardcoded literal")
     ap.add_argument("--flag", action="store_true",
                     help="measure whether the above-rank flag predicts "
                          "outperformance")
@@ -283,6 +286,16 @@ def main(argv=None) -> int:
     print(f"\n  standard error on {n:,} teams: +/-{se:.1f} points")
     print(f"  potential beats chance by "
           f"{(acc - 0.2) * 100 / se:.1f} standard errors")
+
+    if args.write_index:
+        # The live view used to print "30.5%" as a literal, which went silently
+        # wrong at the next retrain with nothing to catch it. The number now
+        # travels with the index that produced it.
+        import dataclasses
+        updated = dataclasses.replace(index, top1_rate=round(acc, 4))
+        P.INDEX_PATH.write_text(updated.to_json(), encoding="utf-8")
+        print()
+        print(f"  wrote top1_rate={acc:.4f} to {P.INDEX_PATH}")
 
     rho = spearman([p["raw"] for p in flat], [p["actual"] for p in flat])
     rho_r = spearman([p["c"].rating for p in flat], [p["actual"] for p in flat])

@@ -10,7 +10,7 @@ import json
 
 import pytest
 
-from valwr.live.__main__ import _display_width, _fit
+from valwr.live.render import display_width as _display_width, fit as _fit
 from valwr.rating import potential as P
 from valwr.sandbox import profiles, world
 

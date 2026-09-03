@@ -207,10 +207,16 @@ class PerfIndex:
     quantiles: list[float]      # sorted composite values
     as_of: int
     n: int
-    # z-score of `rating` above which a young account is flagged. Calibrated
+    # z-score of `rating` above which a dominant player is flagged. Calibrated
     # on the training period by tools/build_perf_index.py to hit FLAG_TARGET,
     # rather than guessed -- the rate is the thing worth controlling.
     flag_cut: float = DEFAULT_FLAG_CUT
+    # How often this index picks the best player out of five, measured on
+    # held-out data by tools/validate_potential.py --write-index. Carried here
+    # so the live view can state it without hardcoding a literal that goes
+    # silently wrong at the next retrain. None means "not measured yet", and
+    # the renderers then say nothing rather than guessing.
+    top1_rate: float | None = None
 
     def z(self, name: str, value: float) -> float:
         std = self.stds.get(name) or 0.0
@@ -234,7 +240,7 @@ class PerfIndex:
         return json.dumps({
             "means": self.means, "stds": self.stds,
             "quantiles": self.quantiles, "as_of": self.as_of, "n": self.n,
-            "flag_cut": self.flag_cut,
+            "flag_cut": self.flag_cut, "top1_rate": self.top1_rate,
         })
 
     @classmethod
@@ -247,7 +253,8 @@ class PerfIndex:
         d = json.loads(path.read_text(encoding="utf-8"))
         return cls(means=d["means"], stds=d["stds"], quantiles=d["quantiles"],
                    as_of=d["as_of"], n=d["n"],
-                   flag_cut=d.get("flag_cut", DEFAULT_FLAG_CUT))
+                   flag_cut=d.get("flag_cut", DEFAULT_FLAG_CUT),
+                   top1_rate=d.get("top1_rate"))
 
 
 @dataclass(frozen=True)

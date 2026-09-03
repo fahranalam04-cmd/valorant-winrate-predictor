@@ -436,6 +436,52 @@ feature set ever changes; not worth a retrain today.
 
 ---
 
+## Does more data help? Measured, and no
+
+Every null result here concluded the same thing: the ceiling is the data and
+the domain, not the estimator. That claim went untested until the crawler ran
+long enough to grow the dataset **24%** — 45,854 resolved matches to 56,825 —
+and the model was refitted on it.
+
+| | Before | After |
+|---|---|---|
+| Training matches | 22,020 | **29,040** |
+| Test matches | 6,132 | **7,677** |
+| Log loss | 0.6883 | **0.6875** |
+| AUC | 0.558 | **0.557** |
+| Accuracy | 54.3% ± 1.2% | **53.4% ± 1.1%** |
+
+Log loss improved by 0.0008 against a standard error of **0.0013**. AUC moved
+−0.001. **Null.** A quarter more data did not move the model.
+
+That is the strongest evidence yet that the limit is the problem, not the
+pipeline: matchmaking exists to make these games close, and it succeeds. More
+of the same data buys precision on the estimate, not a better estimate.
+
+Two things worth noting from the run. The one-standard-error rule still ships
+logistic regression, now with **5 models tied** rather than 4. And the coverage
+gradient came back **non-monotonic again** (5-6: 0.551, 7-8: 0.543, 9-10:
+0.572) after being monotonic on the previous bundle — the flip-flop across
+retrains is itself the evidence that the earlier retraction of that finding was
+right.
+
+### The live-path gap is not stable either
+
+Re-running the Phase 9 replay on the new bundle:
+
+| Path | Log loss | AUC | Accuracy |
+|---|---|---|---|
+| Training | 0.6885 | 0.547 | 52.3% |
+| Live | 0.6941 | 0.535 | 52.2% |
+
+That is +0.0056 log loss, about **two standard errors**, where the previous
+bundle showed +0.0029 and no AUC gap. The gap moves between retrains, which is
+consistent with it being small and noisy rather than a fixed penalty — but it
+is not zero, and it is not shrinking. Recorded in both directions rather than
+settling on whichever run flattered the conclusion.
+
+---
+
 ## The conclusion worth stating plainly
 
 **Model class is not the bottleneck.** Every candidate above is null, and the

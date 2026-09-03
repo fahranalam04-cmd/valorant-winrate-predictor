@@ -335,3 +335,58 @@ def test_the_roster_read_is_time_gated(tmp_path):
     # As of 200 only the tier-5 row exists; the tier-25 row is in the future.
     assert LP._roster_rows(match, conn, 200)[0]["tier"] == 5
     assert LP._roster_rows(match, conn, 400)[0]["tier"] == 25
+
+
+# --- the dashboard -----------------------------------------------------
+
+def test_the_dashboard_websocket_accepts_a_connection():
+    """It did not, and nothing short of connecting would have shown it.
+
+    `server.py` uses `from __future__ import annotations`, which turns every
+    annotation into a string. FastAPI resolves those against the *module*
+    namespace, so with `WebSocket` imported inside `build_app` the name was not
+    there to resolve -- FastAPI fell back to treating the `socket` parameter as
+    a query parameter and rejected every handshake with 403 Forbidden and
+    "loc: ['query', 'socket'], Field required".
+
+    The page loaded fine, the route was registered, `build_app` succeeded and
+    the unit tests passed. Only an actual handshake failed.
+    """
+    from fastapi.testclient import TestClient
+    from valwr.dash.server import build_app
+
+    with TestClient(build_app(no_fetch=True)) as client:
+        with client.websocket_connect("/ws") as ws:
+            msg = ws.receive_json()
+            # With VALORANT closed this is the error branch, which is fine --
+            # the point is that the handshake completed at all.
+            assert msg["status"] in ("error", "lobby", "match")
+
+
+def test_the_dashboard_serves_its_page():
+    from fastapi.testclient import TestClient
+    from valwr.dash.server import build_app
+
+    with TestClient(build_app(no_fetch=True)) as client:
+        r = client.get("/")
+        assert r.status_code == 200
+        assert "valwr live" in r.text
+
+
+def test_the_dashboard_binds_localhost_only():
+    """docs/ETHICS-AND-TOS.md: never expose an endpoint that looks up players.
+
+    Binding 0.0.0.0 would put the live view on the local network. The constant
+    is asserted rather than trusted because it is one character from being
+    wrong and nothing else would catch it.
+    """
+    from valwr.dash import server
+    assert server.HOST == "127.0.0.1"
+
+
+def test_the_dashboard_exposes_no_other_routes():
+    """Two routes, and no schema endpoint. Minimal surface by construction."""
+    from valwr.dash.server import build_app
+    paths = {r.path for r in build_app(no_fetch=True).routes
+             if hasattr(r, "path")}
+    assert paths == {"/", "/ws"}
