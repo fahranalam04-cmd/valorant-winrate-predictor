@@ -38,19 +38,28 @@ class Prediction:
                 f"({self.confidence} confidence, {self.coverage}/10 known)")
 
 
-def _roster_rows(match: LiveMatch, conn: sqlite3.Connection) -> list[dict]:
+def _roster_rows(match: LiveMatch, conn: sqlite3.Connection,
+                 as_of: int) -> list[dict]:
     """Roster in the shape build_match expects.
 
-    Tier and account level come from whatever the store last saw for each
-    player. Live, the client does not hand them over, and fetching them would
-    cost requests the deadline cannot spare -- so a player we have never seen
-    contributes neutral values, which is what shrinkage would produce anyway.
+    Tier and account level come from the most recent row the store held
+    *before* `as_of`. Live, the client does not hand them over, and fetching
+    them would cost requests the deadline cannot spare -- so a player we have
+    never seen contributes neutral values, which is what shrinkage would
+    produce anyway.
+
+    The `as_of` filter is a no-op live, where nothing later than now exists.
+    It exists for replay: without it a backtest reads each player's *future*
+    rank and quietly flatters itself. Every other read in this project goes
+    through the temporal layer for exactly this reason; this one did not,
+    which is the kind of gap an end-to-end replay is meant to expose.
     """
     rows = []
     for p in match.players:
         seen = conn.execute(
             "SELECT tier, account_level FROM match_players WHERE puuid = ? "
-            "ORDER BY started_at DESC LIMIT 1", (p.puuid,)).fetchone()
+            "AND started_at < ? ORDER BY started_at DESC LIMIT 1",
+            (p.puuid, as_of)).fetchone()
         rows.append({
             "match_id": match.match_id,
             "puuid": p.puuid,
@@ -82,7 +91,7 @@ def predict(conn: sqlite3.Connection, match: LiveMatch, bundle: dict,
         "rounds_red": None,
     }
 
-    mf = fb.build_match(conn, live_match, _roster_rows(match, conn),
+    mf = fb.build_match(conn, live_match, _roster_rows(match, conn, as_of),
                         bundle["norms"], bundle["prior_rate"], bundle["roles"],
                         require_outcome=False)
     if mf is None:

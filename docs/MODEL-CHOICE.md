@@ -382,6 +382,60 @@ the output says so on screen rather than only here.
 
 ---
 
+## Replaying the live path (Phase 9)
+
+Everything else here exercises the *training* path. That left the code that
+actually runs in a match verified by whatever games got played -- five, at the
+time this was written. `tools/backtest_live.py` replays real matches exactly as
+the client would deliver them: ten puuids, teams and agents, nothing else.
+
+### It found a leak before it produced a single number
+
+`live/predict._roster_rows` read each player's most recent rank and account
+level with **no `as_of` filter**. Live that is harmless, because nothing later
+than now exists -- which is why it survived review. In a replay it reads the
+player's *future* rank, so the backtest would have quietly flattered itself.
+Every other read in this project goes through the temporal layer for exactly
+this reason; this one did not. Now time-gated, with a regression test.
+
+### The two paths disagree on inputs, and here is why
+
+Replaying 2,500 held-out matches, **2,487 produced a different probability**
+from the training path, the largest gap being 28 percentage points. The cause
+is precise: seven of the fifty-two features cannot be observed correctly at
+inference.
+
+| Feature | Why the live path cannot have it |
+|---|---|
+| `d_tier_mean/max/min/std` | the client does not expose rank; we substitute the last rank seen, or nothing |
+| `d_account_level_mean` | same |
+| `d_max_party`, `d_n_grouped` | party is not exposed pre-match **at all** -- every player is sent as unpartied, always |
+
+### But it costs almost nothing, which was the surprise
+
+| Path | Log loss | AUC | Accuracy |
+|---|---|---|---|
+| Training | 0.6893 | 0.549 | 53.6% |
+| Live | 0.6922 | 0.548 | **53.8%** |
+
+On 2,500 matches: **+0.0029 log loss (about one standard error), no AUC gap,
+and marginally better accuracy.** A smaller 800-match run suggested a large
+AUC penalty (0.573 against 0.584); that was sampling noise and does not
+survive the bigger sample.
+
+The reason the inputs can diverge so much while the outputs barely move is
+that those seven features carry almost no weight -- dropping them from
+training costs +0.0007 log loss, itself null against a 0.0016 standard error.
+
+### A train/serve-parity model is not better either
+
+Retraining on the 45 live-available features and scoring **through the live
+path** gives 0.6899 against the shipped model's 0.6923 -- directionally right,
+but −0.0024 against a 0.0029 standard error, so null. Worth revisiting if the
+feature set ever changes; not worth a retrain today.
+
+---
+
 ## The conclusion worth stating plainly
 
 **Model class is not the bottleneck.** Every candidate above is null, and the

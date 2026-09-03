@@ -297,3 +297,41 @@ def test_competitive_pregame_is_not_mistaken_for_an_uneven_lobby():
                   flow="Matchmaking")
     assert not m.is_custom          # so the uneven-teams warning stays silent
     assert m.team_size("Red") == 0  # structural, not a real 5v0
+
+
+def test_the_roster_read_is_time_gated(tmp_path):
+    """Rank and level must come from before the match, not after it.
+
+    `_roster_rows` took each player's most recent row with no `as_of` filter.
+    Live that is harmless -- nothing later than now exists -- so it survived.
+    In a replay it reads the player's *future* rank, which would let a backtest
+    quietly flatter itself. Found by building the end-to-end replay, which is
+    what that harness is for.
+    """
+    from valwr.live import predict as LP
+    from valwr.live.roster import LiveMatch, LivePlayer
+    from valwr.store import schema
+
+    conn = schema.connect(tmp_path / "t.db")
+    schema.create_all(conn)
+    for mid, ts in (("m1", 100), ("m2", 300)):
+        conn.execute(
+            "INSERT INTO matches (match_id, started_at, map, mode, queue, "
+            "region, season, rounds_red, rounds_blue, winner, data_quality, "
+            f"ingested_at) VALUES ('{mid}', {ts}, 'Ascent', 'competitive', "
+            "'Standard', 'na', 's', 9, 13, 'Blue', NULL, 0)")
+    for mid, ts, tier in (("m1", 100, 5), ("m2", 300, 25)):
+        conn.execute(
+            "INSERT INTO match_players (match_id, puuid, team, agent, "
+            "party_id, tier, account_level, score, kills, deaths, assists, "
+            "headshots, bodyshots, legshots, damage_dealt, damage_taken, "
+            "started_at, map, won, rounds_played) VALUES "
+            f"('{mid}', 'p', 'Blue', 'Jett', NULL, {tier}, {tier * 10}, "
+            f"1, 1, 1, 1, 1, 1, 1, 1, 1, {ts}, 'Ascent', 1, 20)")
+    conn.commit()
+
+    match = LiveMatch("live", "coregame", "Ascent", "BombGameMode",
+                      [LivePlayer("p", "Blue", "x", "Jett")])
+    # As of 200 only the tier-5 row exists; the tier-25 row is in the future.
+    assert LP._roster_rows(match, conn, 200)[0]["tier"] == 5
+    assert LP._roster_rows(match, conn, 400)[0]["tier"] == 25
