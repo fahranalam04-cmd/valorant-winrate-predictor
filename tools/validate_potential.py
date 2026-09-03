@@ -77,6 +77,76 @@ def top1(teams, key) -> tuple[float, int]:
     return hits / len(teams), hits
 
 
+def flag_check(conn, b, index, norms, seed: int = 42) -> int:
+    """Do flagged players actually outperform their lobby?
+
+    There is no smurf label in this data, so the flag cannot be validated
+    against ground truth. This measures the nearest honest proxy: within a
+    complete ten-player lobby, how often does a flagged player finish in the
+    top third by actual performance? The base rate is 33.3% by construction,
+    so anything at or below that means the flag is decoration.
+    """
+    import random
+    from collections import defaultdict
+    from valwr.rating.rating import rate_performance
+
+    print(f"flag cut z>={index.flag_cut:.2f}   (test period, after {b.val_end})")
+    rows = conn.execute("SELECT * FROM match_players WHERE started_at >= ? "
+                        "AND rounds_played > 0", (b.val_end,)).fetchall()
+    lobbies = defaultdict(list)
+    for r in rows:
+        lobbies[r["match_id"]].append(dict(r))
+    full = [v for v in lobbies.values() if len(v) == 10]
+    random.Random(seed).shuffle(full)
+    print(f"{len(full):,} complete ten-player lobbies in the test period")
+
+    flag_hits = flag_n = plain_hits = plain_n = scanned = 0
+    for squad in full:
+        as_of = squad[0]["started_at"]
+        scored = []
+        for r in squad:
+            c = P.measure(conn, r["puuid"], as_of, r["map"], norms)
+            actual = rate_performance(r, norms)
+            if c is None or actual is None:
+                continue
+            scored.append((P.above_rank(index, c).flagged, actual.value))
+        if len(scored) < 6:
+            continue
+        cut = sorted((v for _, v in scored),
+                     reverse=True)[: max(1, len(scored) // 3)][-1]
+        for flagged, v in scored:
+            top = v >= cut
+            if flagged:
+                flag_n += 1
+                flag_hits += top
+            else:
+                plain_n += 1
+                plain_hits += top
+        scanned += 1
+        if flag_n >= 400 or scanned >= 4000:
+            break
+
+    if flag_n < 50:
+        print(f"only {flag_n} flagged players found; not enough to measure")
+        return 1
+
+    def pct(h, n):
+        return 100.0 * h / n if n else float("nan")
+
+    se = (0.33 * 0.67 / max(flag_n, 1)) ** 0.5 * 100
+    delta = pct(flag_hits, flag_n) - pct(plain_hits, plain_n)
+    print()
+    print(f"  scanned {scanned:,} lobbies")
+    print(f"  flagged players : {flag_n:>6,}   top-third rate "
+          f"{pct(flag_hits, flag_n):5.1f}%")
+    print(f"  everyone else   : {plain_n:>6,}   top-third rate "
+          f"{pct(plain_hits, plain_n):5.1f}%")
+    print(f"  base rate 33.3% by construction; SE on the flagged group "
+          f"~{se:.1f} points")
+    print(f"  difference      : {delta:+.1f} points  ({delta / se:+.1f} SE)")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="validate_potential")
     ap.add_argument("--teams", type=int, default=1500)
@@ -85,6 +155,9 @@ def main(argv=None) -> int:
                     help="tune on val; touch test once, at the end")
     ap.add_argument("--sweep", action="store_true",
                     help="compare candidate weightings (validation only)")
+    ap.add_argument("--flag", action="store_true",
+                    help="measure whether the above-rank flag predicts "
+                         "outperformance")
     args = ap.parse_args(argv)
 
     if args.sweep and args.period == "test":
@@ -98,6 +171,9 @@ def main(argv=None) -> int:
     index = P.PerfIndex.load()
     norms = build_norms(conn, b.train_end)
     print(f"index fitted on {index.n:,} training samples")
+
+    if args.flag:
+        return flag_check(conn, b, index, norms)
 
     if args.period == "val":
         window = "started_at >= ? AND started_at < ?"

@@ -23,6 +23,10 @@ from dataclasses import dataclass
 # is one index range scan rather than a join fanning out per match.
 _SELECT = """
 SELECT mp.match_id, mp.started_at, mp.puuid, mp.team, mp.agent, mp.tier,
+       -- Pre-match identity, same class as tier: known before the first round
+       -- and carrying no outcome information. Read by the above-rank flag in
+       -- rating/potential.py.
+       mp.account_level,
        mp.party_id, mp.score, mp.kills, mp.deaths, mp.assists,
        mp.headshots, mp.bodyshots, mp.legshots,
        mp.damage_dealt, mp.damage_taken,

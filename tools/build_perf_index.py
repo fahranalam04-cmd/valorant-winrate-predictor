@@ -73,8 +73,31 @@ def main(argv=None) -> int:
     index = P.PerfIndex(means=means, stds=stds, quantiles=[],
                         as_of=b.train_end, n=len(collected))
     quantiles = sorted(index.composite(c) for c in collected)
+
+    # Calibrate the above-rank cut so the flag fires on FLAG_TARGET of players
+    # rather than on whatever a hand-picked z-score happens to catch. Only
+    # young accounts can flag, so the cut is chosen over that subset:
+    # the target is a fraction of ALL players, which makes it the number
+    # actually worth controlling.
+    young = [index.z("rating", c.rating) for c in collected
+             if (c.account_level is not None
+                 and c.account_level < P.YOUNG_LEVEL)]
+    want = int(round(P.FLAG_TARGET * len(collected)))
+    if young and 0 < want <= len(young):
+        flag_cut = sorted(young, reverse=True)[want - 1]
+    else:
+        flag_cut = P.DEFAULT_FLAG_CUT
+        print(f"  (could not calibrate the flag: {len(young)} young of "
+              f"{len(collected)}; keeping {flag_cut})")
+
     index = P.PerfIndex(means=means, stds=stds, quantiles=quantiles,
-                        as_of=b.train_end, n=len(collected))
+                        as_of=b.train_end, n=len(collected),
+                        flag_cut=flag_cut)
+    fires = sum(1 for c in collected if P.above_rank(index, c).flagged)
+    print()
+    print(f"  above-rank flag: cut z>={flag_cut:.2f}, fires on "
+          f"{fires:,}/{len(collected):,} ({fires / len(collected) * 100:.1f}%)"
+          f"  -- {len(young):,} accounts were young enough to qualify")
 
     P.INDEX_PATH.parent.mkdir(exist_ok=True)
     P.INDEX_PATH.write_text(index.to_json(), encoding="utf-8")

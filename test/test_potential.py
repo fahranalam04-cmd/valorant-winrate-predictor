@@ -225,3 +225,89 @@ def test_kd_reaches_the_synthetic_world():
         got[puuid] = k / d
     assert got["hi"] > got["lo"]
     assert got["lo"] == pytest.approx(1.0, abs=0.01)
+
+
+# --- the above-rank flag -----------------------------------------------
+
+def _flag_index(cut=1.0):
+    idx = an_index()
+    return P.PerfIndex(means=idx.means, stds=idx.stds, quantiles=idx.quantiles,
+                       as_of=0, n=201, flag_cut=cut)
+
+
+def _comp(rating, level, games=60):
+    return P.Components(rating=rating, acs=212.0, kd=1.05, map_edge=0.0,
+                        n_games=games, n_map_games=10, tier=10,
+                        account_level=level)
+
+
+def test_a_young_account_playing_above_its_rank_is_flagged():
+    idx = _flag_index()
+    f = P.above_rank(idx, _comp(rating=1.12, level=22))   # z = +2.0
+    assert f.flagged and "above their rank" in f.note
+
+
+def test_an_established_account_is_not_flagged_however_good():
+    """The discriminating case, and the reason the second condition exists.
+
+    `elite` scores a higher band-relative z than `smurf_like` -- measured
+    +2.56 against +2.36 -- and must still not flag. A very good player on a
+    mature account is not an anomaly, they are just good.
+    """
+    idx = _flag_index()
+    assert not P.above_rank(idx, _comp(rating=1.30, level=400)).flagged
+
+
+def test_high_rank_with_ordinary_output_is_not_flagged():
+    """rank_only_smurf: the rank says a lot, the performance says nothing."""
+    idx = _flag_index()
+    assert not P.above_rank(idx, _comp(rating=1.00, level=20)).flagged
+
+
+def test_a_young_account_playing_badly_is_not_flagged():
+    idx = _flag_index()
+    assert not P.above_rank(idx, _comp(rating=0.90, level=14)).flagged
+
+
+def test_games_played_does_not_gate_the_flag():
+    """n_games counts what the crawler collected, not what the player played.
+
+    Measured on the training period, 99.8% of players fall under 40 games and
+    the median is 3, so gating on it fired for 9,033 of 9,067 accounts and
+    made the second condition inert. Only account level gates now.
+    """
+    idx = _flag_index()
+    thin = P.above_rank(idx, _comp(rating=1.12, level=400, games=2))
+    assert not thin.flagged, "a mature account must not flag on thin history"
+
+
+def test_a_missing_account_level_never_flags():
+    """Absent level means we cannot judge the account is young."""
+    idx = _flag_index()
+    c = P.Components(rating=1.30, acs=212.0, kd=1.05, map_edge=0.0,
+                     n_games=5, n_map_games=1, tier=10, account_level=None)
+    assert not P.above_rank(idx, c).flagged
+
+
+def test_the_flag_survives_a_json_round_trip():
+    idx = _flag_index(cut=1.7)
+    back = P.PerfIndex(**{**json.loads(idx.to_json())})
+    assert back.flag_cut == 1.7
+
+
+def test_smurf_archetype_flags_and_rank_only_smurf_does_not():
+    """Against the real calibrated index, on synthetic ground truth."""
+    from valwr.sandbox import world
+    bundle, index = _bundle_and_index()
+    as_of = 1_800_000_000
+    got = {}
+    for name in ("smurf_like", "rank_only_smurf", "elite", "new_player"):
+        conn = world.new_connection()
+        world.write_player(conn, "p", profiles.get(name), as_of, "Ascent", "Jett")
+        p = P.evaluate(conn, "p", as_of, "Ascent", bundle["norms"], index)
+        got[name] = p.flag.flagged
+        conn.close()
+    assert got["smurf_like"], "the designed smurf must flag"
+    assert not got["rank_only_smurf"], "high rank, ordinary output is not a smurf"
+    assert not got["elite"], "an established strong player is not an anomaly"
+    assert not got["new_player"], "young but not performing above rank"

@@ -75,6 +75,22 @@ POP_KD = 1.08                   # measured; only a fallback if norms lack it
 # not worth naming -- see explain().
 NOTABLE_Z = 0.5
 
+# --- the "playing above their rank" flag ------------------------------
+# Two conditions, because either alone is noise. A high band-relative rating
+# on a level-400 account with 600 games is a good player, not an anomaly --
+# that is `rank_only_smurf`, and it must not fire.
+FLAG_TARGET = 0.05          # calibrated to fire on ~1 player in 20
+YOUNG_LEVEL = 100           # account level below which the account is young
+DEFAULT_FLAG_CUT = 2.0      # used only if the index predates calibration
+
+# `n_games` is deliberately NOT part of the young test, though it looks like it
+# should be. It counts matches *this crawler has collected*, not matches the
+# player has played: measured on the training period, 99.8% of players fall
+# under 40 games and the median is 3. Including it made the second condition
+# inert -- 9,033 of 9,067 accounts qualified -- which would have quietly
+# reduced the flag to "top 5% of band-relative performance" and lost the
+# distinction from a simply good player.
+
 INDEX_PATH = Path("models") / "perf_index.json"
 
 
@@ -87,6 +103,11 @@ class Components:
     map_edge: float
     n_games: int
     n_map_games: int
+    # Carried for the above-rank flag, not for the score. The score is
+    # deliberately blind to rank: a player is good or not regardless of the
+    # badge, and `rating` is already normalised within band.
+    tier: int | None = None
+    account_level: int | None = None
 
 
 def _decay(as_of: int, started_at: int | None) -> float:
@@ -154,8 +175,12 @@ def measure(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
     map_mean = _weighted(map_ratings, map_weights)
     map_edge = _shrink(map_mean, n_map, rating, PRIOR_N_MAP) - rating
 
+    # Newest first, so history[0] is the most recent thing we know about them.
+    newest = dict(history[0])
     return Components(rating=rating, acs=acs, kd=kd, map_edge=map_edge,
-                      n_games=len(history), n_map_games=n_map)
+                      n_games=len(history), n_map_games=n_map,
+                      tier=newest.get("tier"),
+                      account_level=newest.get("account_level"))
 
 
 @dataclass(frozen=True)
@@ -166,6 +191,10 @@ class PerfIndex:
     quantiles: list[float]      # sorted composite values
     as_of: int
     n: int
+    # z-score of `rating` above which a young account is flagged. Calibrated
+    # on the training period by tools/build_perf_index.py to hit FLAG_TARGET,
+    # rather than guessed -- the rate is the thing worth controlling.
+    flag_cut: float = DEFAULT_FLAG_CUT
 
     def z(self, name: str, value: float) -> float:
         std = self.stds.get(name) or 0.0
@@ -189,6 +218,7 @@ class PerfIndex:
         return json.dumps({
             "means": self.means, "stds": self.stds,
             "quantiles": self.quantiles, "as_of": self.as_of, "n": self.n,
+            "flag_cut": self.flag_cut,
         })
 
     @classmethod
@@ -200,7 +230,8 @@ class PerfIndex:
                 f"python tools/build_perf_index.py")
         d = json.loads(path.read_text(encoding="utf-8"))
         return cls(means=d["means"], stds=d["stds"], quantiles=d["quantiles"],
-                   as_of=d["as_of"], n=d["n"])
+                   as_of=d["as_of"], n=d["n"],
+                   flag_cut=d.get("flag_cut", DEFAULT_FLAG_CUT))
 
 
 @dataclass(frozen=True)
@@ -210,6 +241,7 @@ class Potential:
     raw: float                  # composite before the percentile mapping
     components: Components
     reason: str
+    flag: "AboveRank | None" = None     # set by evaluate()
 
     @property
     def thin(self) -> bool:
@@ -255,6 +287,47 @@ def explain(index: PerfIndex, c: Components) -> str:
     return word
 
 
+@dataclass(frozen=True)
+class AboveRank:
+    """Whether a player looks like they are playing below their real rank."""
+    flagged: bool
+    z: float                    # band-relative rating, in population sd
+    young: bool                 # young account or thin history
+    note: str
+
+    def __bool__(self) -> bool:
+        return self.flagged
+
+
+def above_rank(index: "PerfIndex", c: Components) -> AboveRank:
+    """Is this player performing well above their own rank band?
+
+    `rating` is already z-scored within `band_of(tier)` by `rate_performance`,
+    so a high value literally means "better than others at this rank". That is
+    the whole signal; this adds the second condition and the calibrated cut.
+
+    The second condition matters. Measured on the collected data, mean ACS is
+    almost identical across account levels -- 209.6 under level 40 against
+    213.5 at level 300+ -- while mean tier is 6.7 against 19.9. New accounts
+    frag like veterans but are ranked far below them. Requiring a young or
+    thin account is what separates that pattern from a well-established player
+    who is simply good.
+
+    Deliberately NOT called "smurf". This cannot tell a smurf from a returning
+    player or someone mid-climb, and the wording should not pretend otherwise.
+    """
+    z = index.z("rating", c.rating)
+    level = c.account_level
+    young = level is not None and level < YOUNG_LEVEL
+    flagged = bool(z >= index.flag_cut and young)
+
+    if not flagged:
+        return AboveRank(False, z, young, "")
+    return AboveRank(True, z, young,
+                     f"performing well above their rank (level {level})"
+                     f" -- possible smurf")
+
+
 def evaluate(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
              norms: Norms, index: PerfIndex) -> Potential | None:
     """Score one player for one match, or None if we know nothing about them."""
@@ -263,4 +336,4 @@ def evaluate(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
         return None
     raw = index.composite(c)
     return Potential(score=index.percentile(raw), raw=raw, components=c,
-                     reason=explain(index, c))
+                     reason=explain(index, c), flag=above_rank(index, c))

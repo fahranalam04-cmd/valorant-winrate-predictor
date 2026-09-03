@@ -287,6 +287,81 @@ mean-reverting. The live output says so on screen rather than only here.
 
 ---
 
+## The "playing above their rank" flag
+
+Alongside the 0-100 score, the live view marks players whose band-relative
+performance is high **and** whose account is young. Two conditions, because
+either alone is noise.
+
+The first is free: `rate_performance` already z-scores every component within
+`band_of(tier)`, so a high `rating` literally means "better than others at this
+rank". The second is what separates a smurf pattern from a good player.
+
+### Why account level, and why not games played
+
+Measured over 484,520 player-rows, mean ACS barely moves with account level --
+209.6 under level 40 against 213.5 at level 300+ -- while mean tier moves a
+lot: **6.7 against 19.9**. New accounts frag like veterans while ranked far
+below them. That gap is the signal.
+
+Games played looked like it belonged in the same test and does not.
+`n_games` counts matches *this crawler has collected*, not matches the player
+has played: on the training period **99.8% of players fall under 40 games and
+the median is 3**. Including it made the second condition inert -- 9,033 of
+9,067 accounts qualified -- which would have quietly reduced the flag to "top
+5% of band-relative performance" and lost the distinction it exists to draw.
+Only account level gates now.
+
+### Calibrated, not guessed
+
+`tools/build_perf_index.py` picks the cut that fires on 5% of the training
+period -- about one player per two lobbies -- and stores it in
+`models/perf_index.json`. It currently lands at **z >= 0.90**. Controlling the
+*rate* is what matters; a hand-picked z-score would drift every time the
+population shifted.
+
+### Does it mean anything? Yes
+
+No smurf label exists, so the flag cannot be checked against ground truth. The
+nearest honest proxy: inside a complete ten-player lobby, how often does a
+flagged player finish in the **top third** by actual performance? The base rate
+is 33.3% by construction.
+
+| | n | Top-third rate |
+|---|---|---|
+| **Flagged players** | 400 | **40.2%** |
+| Everyone else | 8,245 | 29.4% |
+
+**+10.9 points, 4.6 standard errors**, on the test period. The flag identifies
+players who really do outperform their lobby.
+
+Reproduce with `python tools/validate_potential.py --flag`.
+
+### It does not help the win model
+
+Two team-level features -- count of flagged players, and the largest
+band-relative rating per side -- added to the 52 and scored on validation:
+
+| | Log loss | AUC | delta |
+|---|---|---|---|
+| Incumbent | 0.6889 | 0.553 | — |
+| + flag features | 0.6888 | 0.553 | −0.0001 |
+
+Standard error 0.0016, so **null**, as expected in advance: the model already
+carries `d_rating_max`, and a carry on either side is partly captured by it.
+The flag is shipped as information for the reader, not as a model input.
+
+### What it is not
+
+It cannot distinguish a smurf from a returning player or someone mid-climb, and
+the wording says so on screen: *"performing well above their rank -- possible
+smurf"*, followed by a line making the ambiguity explicit. `rank_only_smurf`
+-- high rank, ordinary output -- correctly does not fire, and neither does
+`elite`, whose band-relative z of +2.56 is *higher* than the designed smurf's
++2.36 but sits on a mature account.
+
+---
+
 ## The conclusion worth stating plainly
 
 **Model class is not the bottleneck.** Every candidate above is null, and the

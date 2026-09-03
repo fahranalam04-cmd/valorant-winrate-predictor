@@ -67,44 +67,85 @@ def gamertags(conn, puuids: list[str]) -> dict[str, str]:
     return out
 
 
-def team_table(conn, match, bundle, own_puuid: str, as_of: int, index) -> None:
-    """Your team, ranked by who is likely to play best."""
-    # Spectating or coaching a custom: there is no "your team", but the table
-    # is still the useful part of the output, so fall back to Blue rather than
-    # printing nothing.
-    own_team = match.team_of(own_puuid) or "Blue"
-    mine = [p for p in match.players if p.team == own_team]
-    if not mine:
-        return
-
-    names = gamertags(conn, [p.puuid for p in mine])
+def _score_side(conn, match, bundle, own_puuid, as_of, index, team):
+    """Rows for one side, best first, unscored last."""
+    side = [p for p in match.players if p.team == team]
+    if not side:
+        return []
+    names = gamertags(conn, [p.puuid for p in side])
     rows = []
-    for p in mine:
-        who = names.get(p.puuid, p.puuid[:8])
-        pot_p = pot.evaluate(conn, p.puuid, as_of, match.map_name or "?",
-                             bundle["norms"], index)
-        rows.append((pot_p, who, p.agent, p.puuid == own_puuid))
-
-    # Unscored players sort last rather than being dropped: they are on the
-    # team whether or not we know anything about them, and saying so is the
+    for p in side:
+        rows.append((
+            pot.evaluate(conn, p.puuid, as_of, match.map_name or "?",
+                         bundle["norms"], index),
+            names.get(p.puuid, p.puuid[:8]), p.agent, p.puuid == own_puuid))
+    # Unscored players sort last rather than being dropped: they are in the
+    # lobby whether or not we know anything about them, and saying so is the
     # point.
     rows.sort(key=lambda r: (r[0] is not None, r[0].score if r[0] else 0),
               reverse=True)
+    return rows
 
-    print(f"  YOUR TEAM ({own_team})".ljust(NAME_WIDTH + 22) + "potential")
-    print("  " + "-" * (NAME_WIDTH + 30))
+
+def _print_side(title: str, rows) -> int:
+    """Render one side. Returns how many players were flagged."""
+    print(f"  {title}".ljust(NAME_WIDTH + 22) + "potential")
+    print("  " + "-" * (NAME_WIDTH + 34))
+    flagged = 0
     for i, (pot_p, who, agent, is_me) in enumerate(rows, 1):
         mark = "*" if is_me else " "
         label = _fit(who, NAME_WIDTH)
         if pot_p is None:
             print(f"  {i}{mark} {label} {agent:<10} {'--':>3}   no history")
-        else:
-            print(f"  {i}{mark} {label} {agent:<10} "
-                  f"{pot_p.score:>3}   {pot_p.reason}")
+            continue
+        flag = pot_p.flag
+        bang = " !" if flag and flag.flagged else "  "
+        print(f"  {i}{mark} {label} {agent:<10} "
+              f"{pot_p.score:>3}{bang}  {pot_p.reason}")
+        if flag and flag.flagged:
+            flagged += 1
+            print(f"       {' ' * NAME_WIDTH} {'':<10}      ^ {flag.note}")
+    return flagged
+
+
+def team_table(conn, match, bundle, own_puuid: str, as_of: int, index) -> None:
+    """Both teams, each ranked by who is likely to play best.
+
+    The enemy side is the reason this exists: a carry on the other team is
+    exactly what you want warning about, and `resolve` already fetches them.
+    """
+    # Spectating or coaching a custom: there is no "your team", so anchor on
+    # Blue rather than printing nothing.
+    own_team = match.team_of(own_puuid) or "Blue"
+    other = "Red" if own_team == "Blue" else "Blue"
+
+    mine = _score_side(conn, match, bundle, own_puuid, as_of, index, own_team)
+    theirs = _score_side(conn, match, bundle, own_puuid, as_of, index, other)
+    if not mine and not theirs:
+        return
+
+    flagged = 0
+    if mine:
+        flagged += _print_side(f"YOUR TEAM ({own_team})", mine)
+    if theirs:
+        print()
+        flagged += _print_side(f"ENEMY ({other})", theirs)
+    elif match.phase == "pregame":
+        # Structural, not a fetch failure: Riot's pregame endpoint returns
+        # AllyTeam only. The enemy appears when the match starts.
+        print("\n  Enemy team is hidden during agent select. It will fill in")
+        print("  once the match starts.")
+
     print(f"\n  * you. Score is a percentile: 70 means likely to outperform "
-          f"70% of players.\n  Ranks the top player correctly 30.5% of the "
-          f"time against 20% chance -- a\n  real edge, not a reliable one. "
+          f"70% of players.")
+    print(f"  Ranks the top player correctly 30.5% of the time against 20% "
+          f"chance -- a\n  real edge, not a reliable one. "
           f"See docs/MODEL-CHOICE.md.")
+    if flagged:
+        print(f"\n  ! {flagged} player(s) performing well above their rank on a "
+              f"young account.\n    That is what a smurf looks like, but it "
+              f"also fits a returning player\n    or someone mid-climb -- it "
+              f"is a flag, not an accusation.")
 
 
 def agents_by_id(conn) -> dict[str, str]:
