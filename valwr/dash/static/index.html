@@ -88,7 +88,7 @@
 const $ = id => document.getElementById(id);
 const esc = t => String(t).replace(/[&<>"]/g, c =>
   ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-let top1 = null;
+let top1 = null, tries = 0;
 
 function verdict(p){
   const e = Math.abs(p - .5);
@@ -181,11 +181,23 @@ function render(msg){
 
 function connect(){
   const ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => { $("live").className = "dot"; };
+  ws.onopen = () => { $("live").className = "dot"; tries = 0; };
   ws.onmessage = e => render(JSON.parse(e.data));
   ws.onclose = () => {
     $("live").className = "dot off";
-    $("sub").textContent = "disconnected — retrying…";
+    tries++;
+    // "disconnected" on its own is the least useful thing this can say. After
+    // a couple of failed attempts the likely cause is that the server is not
+    // running at all -- the page having been restored from cache -- so say so.
+    $("sub").textContent = tries < 2
+      ? "disconnected — retrying…"
+      : "Cannot reach the dashboard server.";
+    if (tries >= 2) $("main").innerHTML = `<div class="idle">
+      <b>The dashboard server is not running.</b><br><br>
+      This page is still open, but nothing is listening on this port —
+      most likely the window running it was closed, or it never started.<br><br>
+      Start it again by double-clicking <b>dashboard.bat</b>, and keep that
+      window open while you use this page.</div>`;
     setTimeout(connect, 3000);
   };
 }

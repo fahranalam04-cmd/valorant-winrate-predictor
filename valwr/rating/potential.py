@@ -275,9 +275,28 @@ class Potential:
 # Phrasing for whichever component stands out most. Deliberately plain: this
 # prints mid-match, where nobody is going to parse a z-score.
 _HIGH = {"rating": "consistently strong", "acs": "high combat score",
-         "kd": "wins duels", "map_edge": "strong on this map"}
+         "kd": "wins duels"}
 _LOW = {"rating": "below par lately", "acs": "low combat score",
-        "kd": "loses duels", "map_edge": "weak on this map"}
+        "kd": "loses duels"}
+
+# `map_edge` is deliberately absent from both, so `explain()` never narrates it.
+# It stays in the *score* -- 0.15 is its measured optimum -- but saying "strong
+# on this map" asserts something the data does not support. Measured on 12,000
+# held-out player-matches, a player's map-specific history has no relationship
+# with how they then perform on that map:
+#
+#     map games in history   n       spearman
+#     0                      4,931    +0.000
+#     1                      2,971    -0.036
+#     3                      1,000    -0.057
+#     5                        349    +0.065
+#     6+                       488    +0.017
+#     all                   12,000    -0.010
+#
+# Signs flip at random and the magnitudes are noise, flat even at 6+ games. A
+# confident sentence on top of that is exactly the kind of plausible-sounding
+# claim this project keeps catching, so the reason column names only the
+# components that carry signal.
 
 
 def explain(index: PerfIndex, c: Components) -> str:
@@ -289,7 +308,11 @@ def explain(index: PerfIndex, c: Components) -> str:
     and useless. The unusual thing about a player is what a teammate wants to
     know, even when it is not what moved the score most.
     """
-    zs = {name: index.z(name, getattr(c, name)) for name in WEIGHTS}
+    # Only components we can honestly narrate are candidates. Ranging over
+    # WEIGHTS instead let `map_edge` win the max and then raise KeyError on the
+    # phrase lookup -- a crash in the live view, caught by the test that
+    # asserts the map is never named.
+    zs = {name: index.z(name, getattr(c, name)) for name in _HIGH}
     name = max(zs, key=lambda k: abs(zs[k]))
 
     # A player who is unremarkable on every component should be described that

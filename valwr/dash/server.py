@@ -63,7 +63,13 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE):
 
     @app.get("/")
     def index():
-        return FileResponse(STATIC / "index.html")
+        # no-store, deliberately. Cached, the page outlives the server that
+        # served it: with the dashboard stopped the browser happily renders a
+        # stale copy whose websocket can never connect, so it reads as "the app
+        # is broken" rather than "nothing is running". That cost a real
+        # debugging session.
+        return FileResponse(STATIC / "index.html",
+                            headers={"Cache-Control": "no-store, max-age=0"})
 
     @app.websocket("/ws")
     async def ws(socket: WebSocket):
@@ -82,7 +88,17 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE):
 
                 # poll_once blocks on HTTP and SQLite, so keep it off the event
                 # loop or the socket stops responding while it resolves players.
-                state = await asyncio.to_thread(st.poll_once, ctx)
+                # Any failure is reported to the page rather than closing the
+                # socket: a dropped connection renders as "disconnected" with
+                # no cause, which is the least useful thing it could say.
+                try:
+                    state = await asyncio.to_thread(st.poll_once, ctx)
+                except Exception as e:                  # noqa: BLE001
+                    await socket.send_text(json.dumps(
+                        {"status": "error",
+                         "message": f"{type(e).__name__}: {e}"}))
+                    await asyncio.sleep(POLL_SECONDS)
+                    continue
                 if state is None:
                     await socket.send_text(json.dumps({"status": "lobby"}))
                     last = None
@@ -114,12 +130,26 @@ def main(argv=None) -> int:
     url = f"http://{HOST}:{args.port}/"
     print(f"  dashboard on {url}")
     print("  bound to localhost only -- not reachable from your network.")
-    print("  Ctrl+C to stop.\n")
-    if not args.no_browser:
-        webbrowser.open(url)
+    print("  Keep this window open. Ctrl+C to stop.\n")
 
-    uvicorn.run(build_app(no_fetch=args.no_fetch, deadline=args.deadline),
-                host=HOST, port=args.port, log_level="warning")
+    server = uvicorn.Server(uvicorn.Config(
+        build_app(no_fetch=args.no_fetch, deadline=args.deadline),
+        host=HOST, port=args.port, log_level="warning"))
+
+    if not args.no_browser:
+        # Opened only once the port is accepting. Firing it before
+        # `uvicorn.run` raced the bind: the browser hit a closed port, and if
+        # it happened to hold a cached copy of the page it rendered that
+        # instead -- a live-looking dashboard with a websocket to nowhere.
+        def open_when_up():
+            for _ in range(100):
+                if getattr(server, "started", False):
+                    webbrowser.open(url)
+                    return
+                time.sleep(0.1)
+        threading.Thread(target=open_when_up, daemon=True).start()
+
+    server.run()
     return 0
 
 

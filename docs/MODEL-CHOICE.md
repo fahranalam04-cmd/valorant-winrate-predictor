@@ -482,6 +482,64 @@ settling on whichever run flattered the conclusion.
 
 ---
 
+## The map barely moves the score, and that is correct
+
+Noticed in use: the per-player score "feels consistent rather than adapting to
+the specific map". It is, and measurement says it should be.
+
+**Map history does not predict map performance.** For 12,000 held-out
+player-matches, comparing a player's map-specific history against how much
+better or worse they then did than their overall history predicts:
+
+| Map games in history | n | Spearman |
+|---|---|---|
+| 0 | 4,931 | +0.000 |
+| 1 | 2,971 | −0.036 |
+| 2 | 1,677 | +0.031 |
+| 3 | 1,000 | −0.057 |
+| 5 | 349 | +0.065 |
+| 6+ | 488 | +0.017 |
+| **all** | **12,000** | **−0.010** |
+
+Signs flip at random, magnitudes are noise, and it stays flat even at six or
+more games — so this is not merely thin history at the low end.
+
+Two further facts explain what a user sees. **39.6% of players have zero games
+on the current map** and the median is **one**, so shrinkage toward no-opinion
+(`PRIOR_N_MAP = 6`) correctly erases most of what little is there: the median
+contribution to the composite is 0.049 against a span of about 2.0, roughly two
+percentile points.
+
+### Turning it up makes the score worse
+
+| `map_edge` weight | Picks the best of five |
+|---|---|
+| 0.00 | 29.4% |
+| **0.15 (shipped)** | **29.9%** |
+| 0.30 | 29.2% |
+| 0.50 | 27.3% |
+| 0.75 | 23.4% |
+
+The shipped weight is already at its optimum, and at 0.75 the score is barely
+above the 20% chance line. Dropping the component entirely is null (−0.3
+against a 1.0 standard error), so it stays — but it earns its place by costing
+nothing, not by contributing.
+
+### What did change: the score no longer claims a map effect
+
+`explain()` used to be able to print **"strong on this map"**. On a component
+with no measurable predictive content that is a confident sentence the data
+does not support, so `map_edge` was removed from the phrasing entirely. It
+still contributes to the number; it is simply never given as the reason.
+
+Removing it from the phrase table alone was not enough — `explain()` still
+ranged over every weight when picking the largest deviation, so a map-dominated
+player hit a `KeyError` in the live view. The candidate set is now the
+narratable components, and a test asserts the map is never named even when
+`map_edge` is the single largest deviation.
+
+---
+
 ## The conclusion worth stating plainly
 
 **Model class is not the bottleneck.** Every candidate above is null, and the

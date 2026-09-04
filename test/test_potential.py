@@ -78,9 +78,27 @@ def test_explain_picks_the_most_unusual_component():
     column read "high combat score" for four players out of five.
     """
     idx = an_index()
+    c = P.Components(rating=1.30, acs=212.0, kd=1.05, map_edge=0.0,
+                     n_games=50, n_map_games=20)      # rating is +5 sd
+    assert "consistently strong" == P.explain(idx, c)
+
+
+def test_explain_never_claims_a_map_effect():
+    """`map_edge` stays in the score but is never narrated.
+
+    Measured on 12,000 held-out player-matches, map-specific history has no
+    relationship with how a player then performs on that map: Spearman
+    -0.010 overall, and flat at every history depth including 6+ games.
+    Printing "strong on this map" on top of that is a confident sentence the
+    data does not support.
+
+    Here map_edge is a full +5 sd -- the largest deviation of any component --
+    and it still must not be the reason given.
+    """
+    idx = an_index()
     c = P.Components(rating=1.0, acs=212.0, kd=1.05, map_edge=0.10,
-                     n_games=50, n_map_games=20)      # map_edge is +5 sd
-    assert "map" in P.explain(idx, c)
+                     n_games=50, n_map_games=20)
+    assert "map" not in P.explain(idx, c)
 
 
 def test_thin_history_is_called_out():
