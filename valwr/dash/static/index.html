@@ -51,6 +51,14 @@
   .meter{height:3px;border-radius:2px;background:var(--sunk);margin-top:5px;
     margin-left:2.2em;overflow:hidden}
   .meter i{display:block;height:100%}
+  .card{margin:4px 0 2px 2.2em;font-size:11.5px;color:var(--soft)}
+  .card .row{display:flex;gap:6px;padding:1px 0}
+  .card .k{color:var(--faint);min-width:9.5em}
+  .card .stale{color:var(--warn)}
+  .card .ag{color:var(--soft);font-family:inherit;font-size:11.5px}
+  .comp{display:flex;flex-wrap:wrap;gap:4px 10px;margin-bottom:3px}
+  .comp span{white-space:nowrap}
+  .comp b{font-weight:600;color:var(--ink)}
   .flag{margin:5px 0 2px 2.2em;padding:5px 8px;border-radius:4px;
     background:#2a1f14;border-left:2px solid var(--warn);
     color:var(--warn);font-size:11.5px}
@@ -115,8 +123,46 @@ function side(state, team, label, cls){
       </div>
       <div class="meter"><i style="width:${p.score || 0}%;background:${tint}"></i></div>
       <div class="why">${esc(p.reason)}</div>
+      ${card(p.detail)}
       ${p.flag ? `<div class="flag">${esc(p.flag.note)}</div>` : ""}
     </div>`).join("") + "</div>";
+}
+
+function card(d){
+  if (!d) return "";
+  const m = d.map, f = d.freshness;
+  // map_edge is reported on the map line instead, where the game count that
+  // gates it is visible -- a bare "map adjustment not counted" says nothing.
+  const comps = d.components
+    .filter(c => !(c.key === "map_edge" && !m.counts_toward_score))
+    .map(c => `<span>${esc(c.label)} <b>${esc(c.note)}</b></span>`).join("");
+
+  let mapLine;
+  if (!m.games){
+    mapLine = `never played`;
+  } else {
+    const g = `${m.games} game${m.games === 1 ? "" : "s"}`;
+    const un = m.wins + m.losses < m.games
+      ? ` (${m.games - m.wins - m.losses} unresolved)` : "";
+    const acs = m.acs == null ? "" : `, acs ${m.acs}`;
+    const gate = m.counts_toward_score ? ""
+      : ` &mdash; under ${m.gate} games, not counted toward the score`;
+    mapLine = `${g}, ${m.wins}W-${m.losses}L${un}${acs}${gate}`;
+  }
+  const agents = m.agents && m.agents.length
+    ? `<div class="row"><span class="k">usually plays</span>
+       <span class="ag">${m.agents.slice(0,4)
+         .map(a => `${esc(a.agent)} &times;${a.games}`).join(", ")}</span></div>`
+    : "";
+
+  return `<div class="card">
+    <div class="comp">${comps}</div>
+    <div class="row"><span class="k">on ${esc(m.name)}</span><span>${mapLine}</span></div>
+    ${agents}
+    <div class="row"><span class="k">data</span>
+      <span class="${f.stale ? "stale" : ""}">${esc(f.label)},
+      ${f.games_known} games on record${f.stale ? " &mdash; out of date" : ""}</span></div>
+  </div>`;
 }
 
 function render(msg){

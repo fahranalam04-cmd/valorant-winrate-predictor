@@ -196,6 +196,38 @@ def iter_matches(conn: sqlite3.Connection) -> Iterator[dict]:
 COMMIT_EVERY = 200
 
 
+def ingest(conn: sqlite3.Connection, payload: dict) -> dict[str, int]:
+    """Parse and store one matchlist response, immediately.
+
+    `normalize_all` reparses every response ever cached, which is the right
+    tool for a backfill and far too heavy for a live fetch -- it would walk
+    thousands of blobs to store ten matches.
+
+    This exists because the live path silently did not store anything at all.
+    `HenrikClient.matches()` fetches and caches the raw body; it does *not*
+    normalise. `resolve` called it and then asked whether the player had
+    history, on the strength of a comment claiming "the crawler normalises
+    inline" -- true of the crawler, false of the client. So every live fetch
+    spent an API call, wrote a blob nothing read, and left the player exactly
+    as unknown as before. Local history sat frozen for twelve days while
+    looking live.
+    """
+    stats = {"matches": 0, "players": 0, "errors": 0}
+    for m in (payload or {}).get("data") or []:
+        try:
+            match_row, player_rows, _ = parse_match(m)
+        except ParseError:
+            stats["errors"] += 1
+            continue
+        upsert_match(conn, match_row)          # matches before their players
+        if player_rows:
+            upsert_players(conn, player_rows)
+        stats["matches"] += 1
+        stats["players"] += len(player_rows)
+    conn.commit()
+    return stats
+
+
 def normalize_all(conn: sqlite3.Connection, verbose: bool = True) -> dict[str, int]:
     stats = {"matches": 0, "players": 0, "flagged": 0, "errors": 0}
     for m in iter_matches(conn):

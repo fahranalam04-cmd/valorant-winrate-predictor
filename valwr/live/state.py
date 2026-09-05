@@ -147,14 +147,17 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
             "score": None, "reason": "no history", "flag": None,
         }
         if ctx.index is not None:
-            got = pot.evaluate(ctx.conn, p.puuid, as_of, match.map_name or "?",
-                               ctx.bundle["norms"], ctx.index)
+            got = pot.detail(ctx.conn, p.puuid, as_of, match.map_name or "?",
+                             ctx.bundle["norms"], ctx.index)
             if got is not None:
-                entry["score"] = got.score
-                entry["reason"] = got.reason
-                if got.flag is not None and got.flag.flagged:
-                    entry["flag"] = {"note": got.flag.note,
-                                     "z": round(got.flag.z, 3)}
+                entry["score"] = got["score"]
+                entry["reason"] = got["reason"]
+                entry["flag"] = got["flag"]
+                # The whole card, so a reader can audit the number rather than
+                # take it on trust -- and so the freshness line is always
+                # available. A score computed from two-week-old history looked
+                # identical to a live one before this.
+                entry["detail"] = got
         rows.append(entry)
     # Best first; unscored last rather than dropped -- they are in the lobby
     # whether or not we know anything about them, and saying so is the point.

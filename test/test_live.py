@@ -390,3 +390,118 @@ def test_the_dashboard_exposes_no_other_routes():
     paths = {r.path for r in build_app(no_fetch=True).routes
              if hasattr(r, "path")}
     assert paths == {"/", "/ws"}
+
+
+# --- freshness ---------------------------------------------------------
+
+def _tiny_db(tmp_path, rows):
+    """A store holding `rows` of (match_id, puuid, started_at)."""
+    from valwr.store import schema
+    conn = schema.connect(tmp_path / "t.db")
+    schema.create_all(conn)
+    seen = set()
+    for mid, puuid, ts in rows:
+        if mid not in seen:
+            conn.execute(
+                "INSERT INTO matches (match_id, started_at, map, mode, queue, "
+                "region, season, rounds_red, rounds_blue, winner, "
+                "data_quality, ingested_at) VALUES "
+                f"('{mid}', {ts}, 'Ascent', 'competitive', 'Standard', 'na', "
+                "'s', 9, 13, 'Blue', NULL, 0)")
+            seen.add(mid)
+        conn.execute(
+            "INSERT INTO match_players (match_id, puuid, team, agent, "
+            "party_id, tier, account_level, score, kills, deaths, assists, "
+            "headshots, bodyshots, legshots, damage_dealt, damage_taken, "
+            "started_at, map, won, rounds_played) VALUES "
+            f"('{mid}', '{puuid}', 'Blue', 'Jett', NULL, 15, 100, 4000, 15, "
+            f"15, 5, 5, 5, 5, 3000, 3000, {ts}, 'Ascent', 1, 20)")
+    conn.commit()
+    return conn
+
+
+def test_a_two_week_old_account_is_stale(tmp_path):
+    """The reported bug: a score frozen for twelve days while looking live.
+
+    `has_history` was the only test, and it is true of a single August row, so
+    the account was marked known and never refetched.
+    """
+    from valwr.live import resolve as R
+    now = 2_000_000_000
+    old = now - 12 * 86400
+    conn = _tiny_db(tmp_path, [(f"m{i}", "p", old - i * 3600) for i in range(8)])
+    assert R.has_history(conn, "p", now), "still known -- that was never wrong"
+    assert R.is_stale(conn, "p", now), "but two weeks old must count as stale"
+
+
+def test_an_account_played_an_hour_ago_is_not_stale(tmp_path):
+    from valwr.live import resolve as R
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path,
+                    [(f"m{i}", "p", now - 3600 - i * 3600) for i in range(8)])
+    assert not R.is_stale(conn, "p", now)
+
+
+def test_thin_history_counts_as_stale(tmp_path):
+    """Two stored matches is mostly prior, so it is worth a refresh."""
+    from valwr.live import resolve as R
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [("m0", "p", now - 600), ("m1", "p", now - 1200)])
+    assert R.is_stale(conn, "p", now)
+
+
+def test_a_player_with_no_history_is_unknown_not_stale(tmp_path):
+    """They cost the same fetch but mean different things on screen."""
+    from valwr.live import resolve as R
+    conn = _tiny_db(tmp_path, [("m0", "other", 1_999_000_000)])
+    assert not R.has_history(conn, "nobody", 2_000_000_000)
+    assert not R.is_stale(conn, "nobody", 2_000_000_000)
+
+
+def test_fetching_actually_stores_what_it_fetched(tmp_path):
+    """The bug that made every live fetch pointless.
+
+    `HenrikClient.matches()` fetches and caches the raw body; it does not
+    normalise. `resolve` called it and then asked whether the player now had
+    history, trusting a comment that said "the crawler normalises inline" --
+    true of the crawler, false of the client. So a fetch spent an API call,
+    wrote a blob nothing read, and left the player exactly as unknown.
+
+    Nothing caught it: the call succeeded, the response was stored, no
+    exception was raised, and coverage still looked plausible because the
+    crawler had independently collected most players.
+    """
+    from valwr.live import resolve as R
+    from valwr.live.roster import LiveMatch, LivePlayer
+
+    conn = _tiny_db(tmp_path, [("seed", "me", 1_999_000_000)])
+    payload = {"data": [{
+        "metadata": {"match_id": "new1", "started_at": "2026-09-01T00:00:00Z",
+                     "map": {"name": "Ascent"}, "queue": {"id": "competitive"},
+                     "region": "na", "cluster": "na", "rounds_played": 20,
+                     "season": {"short": "e1a1"}},
+        "players": [{"puuid": "stranger", "team_id": "Blue", "name": "S",
+                     "tag": "1", "account_level": 100,
+                     "agent": {"name": "Jett"},
+                     "tier": {"id": 15},
+                     "stats": {"score": 4000, "kills": 15, "deaths": 15,
+                               "assists": 5, "headshots": 5, "bodyshots": 5,
+                               "legshots": 5, "damage": {"dealt": 3000,
+                                                         "received": 3000}}}],
+        "teams": [{"team_id": "Blue", "won": True, "rounds": {"won": 13, "lost": 7}},
+                  {"team_id": "Red", "won": False, "rounds": {"won": 7, "lost": 13}}],
+    }]}
+
+    class Stub:
+        def matches(self, *a, **k):
+            return payload
+
+    match = LiveMatch("live", "coregame", "Ascent", "BombGameMode",
+                      [LivePlayer("me", "Blue", "x", "Jett"),
+                       LivePlayer("stranger", "Red", "x", "Jett")])
+    before = R.has_history(conn, "stranger", 2_000_000_000)
+    R.resolve(conn, match, "me", 2_000_000_000, client=Stub(),
+              deadline_seconds=5)
+    after = R.has_history(conn, "stranger", 2_000_000_000)
+    assert not before
+    assert after, "a fetched player must be queryable afterwards"

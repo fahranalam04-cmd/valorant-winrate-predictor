@@ -540,6 +540,72 @@ narratable components, and a test asserts the map is never named even when
 
 ---
 
+## Why the live score was frozen
+
+Reported as "the rating is stagnant, the same 67-68 every map and every game".
+It was not stagnant so much as **frozen**, and the cause was two bugs stacked
+on each other, neither of which raised anything.
+
+### The live path never stored what it fetched
+
+`HenrikClient.matches()` fetches a matchlist and caches the raw body. It does
+**not** normalise. `resolve` called it and then asked whether the player now
+had history, on the strength of a comment reading *"the crawler normalises
+inline, so a fetched player is queryable immediately"* -- true of
+`collect/crawl.py`, false of the client.
+
+So every live fetch spent an API call, wrote a blob nothing ever read, and left
+the player exactly as unknown as before. Nothing caught it: the request
+returned 200, the response was stored, no exception was raised, and lobby
+coverage still looked plausible because the crawler had independently collected
+most of those players by other means.
+
+`normalize.ingest(conn, payload)` now parses one response in place, and
+`resolve` calls it. Verified against the real cached response: 10 matches, 100
+players, 0 errors, from a body that had been sitting unparsed.
+
+### "Known" meant known *ever*, not known *recently*
+
+`has_history` returns true for any stored row, so an account last seen in
+August counted as known and was never refetched. The local account is the worst
+case: crawled players sit at a median staleness of 0.6 days because the crawl
+follows them, but nothing follows the person running the tool.
+
+Measured on the reported account, score over time **before** the fix:
+
+| | today | 7 days ago | 14 days | 21 days |
+|---|---|---|---|---|
+| Score | 77 | 77 | 27 | 40 |
+
+It moved whenever data arrived and had not moved since 24 August. **After**
+both fixes, with 28 matches instead of 18: 45, 67, 30, 40 -- and the current
+value dropped from 77 to 45, because the frozen number had been flattering.
+
+`resolve` now refreshes the local account unconditionally before any deadline
+accounting, then stale others within the budget.
+
+### The map gate
+
+The same investigation found the score swinging 20 points across maps off 0-5
+games -- 57 on Ascent from a single 9/17 game, 77 on Lotus from three. Since
+map history has no measured predictive power, that movement was noise
+presented as insight.
+
+`MIN_MAP_GAMES = 4`: below it `map_edge` is exactly zero, no opinion rather
+than a shrunk guess. The aggregate top-1 rate is unchanged at 29.9%, so this
+removes noise without costing signal.
+
+### The card
+
+A single repeated phrase was the whole explanation -- asked for a score on all
+eight maps, the reason came back `"consistently strong"` eight times.
+`potential.detail()` now returns the components with how far each sits from
+average, the record and agents played on this map, recent form, and **how old
+the data is**. That last line is the one whose absence hid all of the above: a
+score computed from two-week-old history looked identical to a live one.
+
+---
+
 ## The conclusion worth stating plainly
 
 **Model class is not the bottleneck.** Every candidate above is null, and the

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import unicodedata
 
+from valwr.rating import potential as POT
+
 NAME_WIDTH = 20
 
 
@@ -94,10 +96,53 @@ def _side(state: dict, team: str, title: str) -> int:
         bang = " !" if p["flag"] else "  "
         print(f"  {i}{mark} {label} {p['agent']:<10} "
               f"{p['score']:>3}{bang}  {p['reason']}")
+        _card(p.get("detail"))
         if p["flag"]:
             flagged += 1
             print(f"       {' ' * NAME_WIDTH} {'':<10}      ^ {p['flag']['note']}")
     return flagged
+
+
+def _card(d: dict | None) -> None:
+    """The breakdown under a player, indented.
+
+    Printed for everyone rather than on request: the number is not auditable
+    without it, and the freshness line in particular is what tells you whether
+    a score reflects tonight's games or a fortnight-old snapshot.
+    """
+    if not d:
+        return
+    pad = " " * 6
+    parts = []
+    for c in d["components"]:
+        if c["key"] == "map_edge" and not d["map"]["counts_toward_score"]:
+            continue        # reported on the map line instead
+        parts.append(f"{c['label']} {c['note']}")
+    if parts:
+        print(f"{pad}{'; '.join(parts)}")
+
+    m = d["map"]
+    if m["games"]:
+        agents = ", ".join(f"{a['agent']} x{a['games']}" for a in m["agents"][:4])
+        counted = ("" if m["counts_toward_score"]
+                   else f" -- under {POT.MIN_MAP_GAMES} games, not counted")
+        games = f"{m['games']} game" + ("s" if m["games"] != 1 else "")
+        # wins + losses can fall short of games: a match whose winner we never
+        # resolved counts as neither, and printing "1 game 0W-0L" reads as a
+        # bug rather than as missing data.
+        record = f", {m['wins']}W-{m['losses']}L"
+        if m["wins"] + m["losses"] < m["games"]:
+            record += f" ({m['games'] - m['wins'] - m['losses']} unresolved)"
+        acs = f", acs {m['acs']}" if m["acs"] is not None else ""
+        print(f"{pad}on {m['name']}: {games}{record}{acs}{counted}")
+        if agents:
+            print(f"{pad}  usually plays here: {agents}")
+    else:
+        print(f"{pad}on {m['name']}: never played")
+
+    f = d["freshness"]
+    warn = "  <-- data is old" if f["stale"] else ""
+    print(f"{pad}{f['label']}, {f['games_known']} games on record{warn}")
 
 
 def _teams(state: dict, top1_rate: float | None) -> None:

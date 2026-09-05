@@ -332,3 +332,84 @@ def test_the_sandbox_cannot_measure_dominance_and_says_so():
         conn.close()
         assert p.components.n_dominance == 0, name
         assert not p.flag.flagged, name
+
+
+# --- the map gate ------------------------------------------------------
+
+def test_map_edge_is_zero_below_the_gate():
+    """Shrinkage alone let one game swing a real score 20 points.
+
+    On the reported account, a single 9/17 game on Ascent pulled the score from
+    68 to 57 while three games on Lotus pushed it to 77 -- a 20-point spread
+    across maps, from a component measured to have no predictive power at all.
+    Below the gate there is no opinion, not a shrunk guess.
+    """
+    from valwr.sandbox import world
+    as_of = 1_800_000_000
+    conn = world.new_connection()
+    # `average` carries fewer than MIN_MAP_GAMES on any single map by default.
+    world.write_player(conn, "p", profiles.get("average"), as_of, "Ascent",
+                       "Jett")
+    norms = _norms(conn)
+    c = P.measure(conn, "p", as_of, "Ascent", norms)
+    if c.n_map_games < P.MIN_MAP_GAMES:
+        assert c.map_edge == 0.0, "below the gate the map must not move anything"
+
+
+def test_the_gate_threshold_is_reported_not_hardcoded_twice():
+    """Both views name the threshold; only the model should own the number."""
+    conn, as_of, norms = _one_player(map_played="Ascent")
+    from valwr.rating.potential import PerfIndex
+    d = P.detail(conn, "p", as_of, "Ascent", norms, an_index())
+    assert d["map"]["gate"] == P.MIN_MAP_GAMES
+
+
+# --- the expanded card -------------------------------------------------
+
+def test_detail_reports_freshness():
+    """The line whose absence hid a two-week-old score behind a live-looking one."""
+    conn, as_of, norms = _one_player(map_played="Ascent")
+    d = P.detail(conn, "p", as_of, "Ascent", norms, an_index())
+    assert "seconds_old" in d["freshness"]
+    assert d["freshness"]["games_known"] > 0
+    assert isinstance(d["freshness"]["stale"], bool)
+    assert d["freshness"]["label"]
+
+
+def test_detail_names_agents_played_on_this_map():
+    """Most-played first, which is the useful ordering when reading a lobby.
+
+    Deliberately not asserting *which* agent leads: the synthetic world writes
+    filler picks alongside the requested one, so a fixed name would be testing
+    the fixture rather than the contract.
+    """
+    conn, as_of, norms = _one_player(map_played="Ascent")
+    d = P.detail(conn, "p", as_of, "Ascent", norms, an_index())
+    agents = d["map"]["agents"]
+    assert agents, "the player has Ascent history, so agents must show"
+    counts = [a["games"] for a in agents]
+    assert counts == sorted(counts, reverse=True), "most-played must come first"
+    assert sum(counts) == d["map"]["games"]
+
+
+def test_detail_is_honest_about_a_map_never_played():
+    conn, as_of, norms = _one_player(map_played="Ascent")
+    d = P.detail(conn, "p", as_of, "Icebox", norms, an_index())
+    assert d["map"]["games"] == 0
+    assert d["map"]["agents"] == []
+    assert d["map"]["counts_toward_score"] is False
+    edge = next(c for c in d["components"] if c["key"] == "map_edge")
+    assert "not counted" in edge["note"]
+
+
+def test_detail_components_cover_every_weight():
+    """A component missing from the card is a number with no explanation."""
+    conn, as_of, norms = _one_player(map_played="Ascent")
+    d = P.detail(conn, "p", as_of, "Ascent", norms, an_index())
+    assert {c["key"] for c in d["components"]} == set(P.WEIGHTS)
+
+
+def test_detail_returns_none_without_history():
+    conn = world.new_connection()
+    assert P.detail(conn, "nobody", 1_800_000_000, "Ascent", _norms(conn),
+                    an_index()) is None

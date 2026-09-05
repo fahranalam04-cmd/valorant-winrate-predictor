@@ -69,6 +69,15 @@ PRIOR_N_ACS = 4.0
 PRIOR_N_KD = 4.0
 PRIOR_N_MAP = 6.0
 
+# Below this many games on the map, `map_edge` is exactly zero -- no opinion,
+# rather than a shrunk guess. Shrinkage alone was not enough: one 9/17 game on
+# Ascent pulled a real account from 68 to 57, and three games on Lotus pushed
+# it to 77, a 20-point swing across maps on a component measured to have no
+# predictive power at all (Spearman -0.010 over 12,000 held-out
+# player-matches). A number that moves that far on one game is worse than one
+# that does not move, because the movement reads as insight.
+MIN_MAP_GAMES = 4
+
 RECENCY_HALFLIFE_DAYS = 30.0    # matches features/player.py
 POP_KD = 1.08                   # measured; only a fallback if norms lack it
 # Below this many standard deviations from the population, a component is
@@ -185,9 +194,13 @@ def measure(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
                  PRIOR_N_KD)
 
     # Shrunk toward *this player's own* rating, so "no history here" means
-    # "no opinion" rather than "average player".
-    map_mean = _weighted(map_ratings, map_weights)
-    map_edge = _shrink(map_mean, n_map, rating, PRIOR_N_MAP) - rating
+    # "no opinion" rather than "average player" -- and gated, so a handful of
+    # games cannot swing the score at all.
+    if n_map >= MIN_MAP_GAMES:
+        map_mean = _weighted(map_ratings, map_weights)
+        map_edge = _shrink(map_mean, n_map, rating, PRIOR_N_MAP) - rating
+    else:
+        map_edge = 0.0
 
     # Newest first, so history[0] is the most recent thing we know about them.
     newest = dict(history[0])
@@ -384,3 +397,145 @@ def evaluate(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
     raw = index.composite(c)
     return Potential(score=index.percentile(raw), raw=raw, components=c,
                      reason=explain(index, c), flag=above_rank(index, c))
+
+
+# --- the expanded card -------------------------------------------------
+
+COMPONENT_LABELS = {
+    "acs": "combat score",
+    "rating": "overall rating",
+    "kd": "kills per death",
+    "map_edge": "map adjustment",
+}
+
+
+def _band(z: float) -> str:
+    """A z-score in words. Blunt on purpose: nobody reads sigmas mid-match."""
+    a = abs(z)
+    if a < 0.35:
+        return "about average"
+    if a < 1.0:
+        return "above average" if z > 0 else "below average"
+    if a < 2.0:
+        return "well above average" if z > 0 else "well below average"
+    return "exceptional" if z > 0 else "very poor"
+
+
+def _ago(seconds: float) -> str:
+    days = seconds / 86400.0
+    if days < 1:
+        hours = max(1, int(seconds // 3600))
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    if days < 2:
+        return "yesterday"
+    return f"{int(days)} days ago"
+
+
+def detail(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
+           norms: Norms, index: PerfIndex, form_games: int = 5) -> dict | None:
+    """Everything behind one player's score, as plain data.
+
+    The score on its own is unauditable -- a reader cannot tell whether 68 came
+    from consistent play or from three good games and no data. This returns the
+    parts, so the number can be checked rather than believed.
+
+    `freshness` is the field that matters most and the one whose absence hid a
+    real bug: history for a known player was never refreshed, so a score could
+    sit unchanged for twelve days while looking live. If the data is old, the
+    card has to say so.
+    """
+    c = measure(conn, puuid, as_of, map_name, norms)
+    if c is None:
+        return None
+
+    raw = index.composite(c)
+    flag = above_rank(index, c)
+
+    components = []
+    for name in WEIGHTS:
+        z = index.z(name, getattr(c, name))
+        entry = {
+            "key": name,
+            "label": COMPONENT_LABELS.get(name, name),
+            "value": round(getattr(c, name), 3),
+            "z": round(z, 2),
+            "note": _band(z),
+            "weight": WEIGHTS[name],
+            "contribution": round(WEIGHTS[name] * z, 3),
+        }
+        if name == "map_edge" and c.n_map_games < MIN_MAP_GAMES:
+            # Say why it is zero rather than letting a reader assume the player
+            # is simply average here. Below the gate we have no opinion at all.
+            entry["note"] = (f"not counted -- {c.n_map_games} game"
+                             f"{'s' if c.n_map_games != 1 else ''} on this map, "
+                             f"{MIN_MAP_GAMES} needed")
+        components.append(entry)
+
+    # --- this map ------------------------------------------------------
+    on_map = [dict(r) for r in
+              temporal.player_history_on_map(conn, puuid, as_of, map_name)]
+    agents: dict[str, int] = {}
+    for r in on_map:
+        if r.get("agent"):
+            agents[r["agent"]] = agents.get(r["agent"], 0) + 1
+    map_acs = [r["score"] / r["rounds_played"] for r in on_map
+               if r.get("rounds_played")]
+    map_block = {
+        "name": map_name,
+        "games": len(on_map),
+        "counts_toward_score": len(on_map) >= MIN_MAP_GAMES,
+        "wins": sum(1 for r in on_map if r.get("won")),
+        "losses": sum(1 for r in on_map if r.get("won") is not None
+                      and not r["won"]),
+        "acs": round(sum(map_acs) / len(map_acs), 1) if map_acs else None,
+        # Emitted so the views can name the threshold without hardcoding it;
+        # two copies of a constant drift the moment one is tuned.
+        "gate": MIN_MAP_GAMES,
+        "agents": [{"agent": a, "games": n}
+                   for a, n in sorted(agents.items(), key=lambda kv: -kv[1])],
+    }
+
+    # --- recent form ---------------------------------------------------
+    history = temporal.player_history(conn, puuid, as_of, limit=form_games)
+    form = []
+    for r in history:
+        d = dict(r)
+        rp = d.get("rounds_played") or 0
+        form.append({
+            "map": d.get("map"),
+            "agent": d.get("agent"),
+            "acs": round(d["score"] / rp, 1) if rp else None,
+            "kills": d.get("kills"), "deaths": d.get("deaths"),
+            "won": bool(d["won"]) if d.get("won") is not None else None,
+            "ago": _ago(as_of - (d.get("started_at") or as_of)),
+        })
+
+    newest = dict(history[0]).get("started_at") if history else None
+    age = (as_of - newest) if newest else None
+    return {
+        "score": index.percentile(raw),
+        "raw": round(raw, 4),
+        "reason": explain(index, c),
+        "components": components,
+        "map": map_block,
+        "form": form,
+        "freshness": {
+            "games_known": c.n_games,
+            "seconds_old": age,
+            "label": (f"last match {_ago(age)}" if age is not None
+                      else "no matches on record"),
+            # Anything past a day is worth flagging: the score cannot reflect
+            # games we have not collected.
+            "stale": age is not None and age > 86400,
+        },
+        "dominance": {
+            "rate": round(c.dominance, 3),
+            "games": c.n_dominance,
+            "note": (f"top 2 of the lobby in {c.dominance:.0%} of "
+                     f"{c.n_dominance} games (1 in 5 is normal)"
+                     if c.n_dominance >= MIN_DOMINANCE_GAMES else
+                     "not enough games to judge"),
+        },
+        "flag": ({"note": flag.note, "z": round(flag.z, 2)}
+                 if flag.flagged else None),
+    }

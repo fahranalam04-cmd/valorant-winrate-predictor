@@ -28,7 +28,23 @@ from dataclasses import dataclass, field
 
 from valwr.collect.client import HenrikError, RateLimited, TransientError
 from valwr.live.roster import LiveMatch
-from valwr.store import temporal
+from valwr.store import normalize, temporal
+
+
+# "Known" has to mean known *recently*. Treating any stored row as sufficient
+# froze the local player's score for twelve days: `has_history` found an
+# August match, marked the account known, and nothing ever refetched it. The
+# score was recomputed every game from identical history and never moved.
+#
+# Twelve hours is chosen so a session's earlier games count as current while
+# yesterday's do not. Crawled players sit at a median staleness of 0.6 days
+# because the crawl follows them; the local account is the one nothing else
+# keeps current, which is why it is refreshed unconditionally below.
+STALE_AFTER_SECONDS = 12 * 3600
+
+# Below this many stored matches the score is mostly prior anyway, so it is
+# worth a fetch even if the newest row is recent.
+THIN_HISTORY = 5
 
 
 @dataclass
@@ -36,7 +52,9 @@ class Resolution:
     """Which players we can build features for, and which we cannot."""
     known: set[str] = field(default_factory=set)
     unknown: set[str] = field(default_factory=set)
+    stale: set[str] = field(default_factory=set)
     fetched: int = 0
+    refreshed: int = 0
     seconds: float = 0.0
 
     @property
@@ -60,14 +78,43 @@ class Resolution:
         return "very low"
 
     def summary(self) -> str:
-        return (f"{self.coverage}/10 players known "
-                f"({self.fetched} fetched live, {self.seconds:.0f}s) "
-                f"-- confidence {self.confidence}")
+        got = f"{self.coverage}/10 players known"
+        how = [f"{self.fetched} fetched"] if self.fetched else []
+        if self.refreshed:
+            how.append(f"{self.refreshed} refreshed")
+        if self.stale:
+            how.append(f"{len(self.stale)} still stale")
+        detail = f" ({', '.join(how)}, {self.seconds:.0f}s)" if how else ""
+        return f"{got}{detail} -- confidence {self.confidence}"
 
 
 def has_history(conn: sqlite3.Connection, puuid: str, as_of: int) -> bool:
     """Do we already hold anything about this player from before `as_of`?"""
     return bool(temporal.player_history(conn, puuid, as_of, limit=1))
+
+
+def newest_match(conn: sqlite3.Connection, puuid: str, as_of: int) -> int | None:
+    """Start time of the most recent stored match before `as_of`, if any."""
+    row = conn.execute(
+        "SELECT MAX(started_at) FROM match_players "
+        "WHERE puuid = ? AND started_at < ?", (puuid, as_of)).fetchone()
+    return row[0] if row and row[0] else None
+
+
+def is_stale(conn: sqlite3.Connection, puuid: str, as_of: int) -> bool:
+    """Is what we hold too old, or too little, to describe this player now?
+
+    A player with no history at all is *unknown*, not stale -- the caller
+    distinguishes them because they cost the same fetch but mean different
+    things on screen.
+    """
+    newest = newest_match(conn, puuid, as_of)
+    if newest is None:
+        return False
+    if as_of - newest > STALE_AFTER_SECONDS:
+        return True
+    return len(temporal.player_history(conn, puuid, as_of,
+                                       limit=THIN_HISTORY)) < THIN_HISTORY
 
 
 def order_for_fetching(match: LiveMatch, own_puuid: str) -> list[str]:
@@ -98,36 +145,69 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
     for puuid in ordered:
         if has_history(conn, puuid, as_of):
             out.known.add(puuid)
+            if is_stale(conn, puuid, as_of):
+                out.stale.add(puuid)
         else:
             out.unknown.add(puuid)
 
     if on_progress:
         on_progress(out)
 
-    if client is None or not out.unknown:
+    if client is None or not (out.unknown or out.stale):
         out.seconds = time.monotonic() - started
         return out
 
-    # Fetch the unknowns in priority order until the deadline.
-    for puuid in [p for p in ordered if p in out.unknown]:
-        if time.monotonic() - started >= deadline_seconds:
-            break
+    def fetch(puuid: str) -> bool:
+        """One matchlist call. True if it landed, False to stop fetching."""
         try:
-            client.matches(region, platform, puuid, size=10, mode="competitive")
-            out.fetched += 1
-            # The crawler normalises inline, so a fetched player is queryable
-            # immediately -- no separate parse step to wait on.
+            payload = client.matches(region, platform, puuid, size=10,
+                                     mode="competitive")
+            # The client only fetches and caches the raw body -- it does not
+            # normalise. Without this the fetch stored a blob nothing read and
+            # the player stayed exactly as unknown as before, which is why the
+            # live path appeared to work while never actually learning
+            # anything. Storing here is what makes the next line true.
+            normalize.ingest(conn, payload)
             if has_history(conn, puuid, as_of):
                 out.known.add(puuid)
                 out.unknown.discard(puuid)
+            out.stale.discard(puuid)
             if on_progress:
                 on_progress(out)
+            return True
         except (RateLimited, TransientError):
             # Out of quota or off the network. Neither is worth waiting on
             # inside agent select; the cached answer is what ships.
-            break
+            return False
         except HenrikError:
-            continue        # this player is unfetchable; the rest are not
+            out.stale.discard(puuid)    # unfetchable; do not keep retrying it
+            return True                 # the rest of the lobby still can be
+
+    # The local account first, unconditionally, before any deadline accounting.
+    # It is the score actually read every game, it costs one call, and it is
+    # the one account nothing else keeps current -- the crawl follows the
+    # players it discovers, not the person running this. Skipping it is what
+    # left the reported score frozen for twelve days.
+    keep_going = True
+    if own_puuid in out.stale or own_puuid in out.unknown:
+        was_unknown = own_puuid in out.unknown
+        keep_going = fetch(own_puuid)
+        if keep_going:
+            out.fetched += was_unknown
+            out.refreshed += not was_unknown
+
+    # Then everyone else: genuinely unknown players before merely stale ones,
+    # because a missing player costs the prediction more than an old one.
+    rest = ([p for p in ordered if p in out.unknown and p != own_puuid]
+            + [p for p in ordered if p in out.stale and p != own_puuid])
+    for puuid in rest:
+        if not keep_going or time.monotonic() - started >= deadline_seconds:
+            break
+        was_unknown = puuid in out.unknown
+        keep_going = fetch(puuid)
+        if keep_going:
+            out.fetched += was_unknown
+            out.refreshed += not was_unknown
 
     out.seconds = time.monotonic() - started
     return out
