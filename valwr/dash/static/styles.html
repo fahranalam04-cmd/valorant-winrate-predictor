@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>valwr live — design samples</title>
+<style>
+  :root{
+    --paper:#0b0e13; --ink:#e9edf3; --soft:#a4aebc; --faint:#6f7987;
+    --dim:#4d5560; --rule:#242a34;
+    --red:#e5484d; --blue:#4f9ddb; --you:#f0c674; --good:#5fbf9f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+  .page{max-width:1180px;margin:0 auto;padding:22px 20px 70px}
+  .num{font-variant-numeric:tabular-nums}
+  h1{font-size:20px;margin:0 0 3px}
+  .lede{color:var(--faint);font-size:13px;margin-bottom:18px;max-width:70ch}
+
+  .tabs{display:flex;gap:6px;margin-bottom:6px;flex-wrap:wrap}
+  .tabs button{background:#161a21;border:1px solid var(--rule);color:var(--soft);
+    padding:8px 15px;border-radius:5px;cursor:pointer;font:inherit;font-size:13px}
+  .tabs button:hover{background:#1d222c;color:var(--ink)}
+  .tabs button.on{background:var(--ink);color:#0b0e13;border-color:var(--ink);
+    font-weight:600}
+  .blurb{color:var(--faint);font-size:12.5px;margin:10px 0 16px;
+    border-left:2px solid var(--rule);padding-left:11px;max-width:74ch}
+  .stage{min-height:340px}
+  .status{color:var(--faint);font-size:13px;padding:50px 0;text-align:center}
+
+/* ============ A · TERMINAL ============================================ */
+  .A{--card:#12161c;--raised:#181d25;--sunk:#0e1116}
+  .A .hd{display:flex;align-items:baseline;gap:12px;margin-bottom:14px}
+  .A .mp{font-size:27px;font-weight:700;letter-spacing:-.02em}
+  .A .mt{color:var(--faint);font-size:12px}
+  .A .team{border:1px solid var(--rule);border-radius:5px;overflow:hidden;
+    margin-bottom:12px;background:var(--card)}
+  .A .th{padding:7px 12px;font-size:10px;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;display:flex;justify-content:space-between}
+  .A .red .th{color:var(--red);background:#1c1315;border-bottom:1px solid #6d2529}
+  .A .blue .th{color:var(--blue);background:#101d28;border-bottom:1px solid #27536f}
+  .A table{width:100%;border-collapse:collapse}
+  .A th{font-size:9px;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--dim);font-weight:600;text-align:right;padding:5px 10px;
+    border-bottom:1px solid var(--rule)}
+  .A th.l{text-align:left}
+  .A td{padding:5px 10px;text-align:right;font-size:13px;
+    border-bottom:1px solid var(--sunk)}
+  .A td.l{text-align:left}
+  .A tr.k{background:var(--raised)}
+  .A tr.u td{color:var(--dim)}
+  .A .ico{width:26px;height:26px;border-radius:3px;object-fit:cover;display:block}
+  .A .nm{font-size:13px}
+  .A .rs{color:var(--faint);font-size:10.5px}
+  .A .sc{font-weight:700}
+
+/* ============ B · BROADCAST ========================================== */
+  .B .hero{text-align:center;padding:6px 0 16px}
+  .B .hero .mp{font-size:40px;font-weight:800;letter-spacing:-.03em;
+    line-height:1}
+  .B .hero .mt{color:var(--faint);font-size:11.5px;letter-spacing:.16em;
+    text-transform:uppercase;margin-top:5px}
+  .B .odds{display:flex;height:34px;border-radius:3px;overflow:hidden;
+    margin:14px 0 20px;font-weight:800;font-size:14px}
+  .B .odds div{display:flex;align-items:center;padding:0 12px;color:#0b0e13}
+  .B .odds .r{background:var(--red)} .B .odds .b{background:var(--blue);
+    justify-content:flex-end}
+  .B .side{margin-bottom:16px}
+  .B .sh{display:flex;align-items:center;gap:10px;margin-bottom:7px;
+    font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}
+  .B .sh .ln{flex:1;height:2px}
+  .B .red .sh{color:var(--red)} .B .red .sh .ln{background:linear-gradient(90deg,var(--red),transparent)}
+  .B .blue .sh{color:var(--blue)} .B .blue .sh .ln{background:linear-gradient(90deg,var(--blue),transparent)}
+  .B .pl{position:relative;display:grid;
+    grid-template-columns:64px minmax(0,1fr) repeat(4,58px);
+    align-items:center;gap:10px;height:62px;margin-bottom:4px;
+    border-radius:4px;overflow:hidden;background:#12161c;
+    border-left:3px solid var(--dim)}
+  .B .red .pl.k{border-left-color:var(--red)}
+  .B .blue .pl.k{border-left-color:var(--blue)}
+  .B .pl.u{opacity:.45}
+  .B .pl .art{position:absolute;left:0;top:0;height:100%;width:190px;
+    object-fit:cover;object-position:top center;
+    -webkit-mask-image:linear-gradient(90deg,#000 0,#000 34%,transparent 92%);
+    mask-image:linear-gradient(90deg,#000 0,#000 34%,transparent 92%);opacity:.5}
+  .B .pl .sc{position:relative;font-size:25px;font-weight:800;text-align:center;
+    grid-column:1}
+  .B .pl .who{position:relative;min-width:0}
+  .B .pl .nm{font-weight:700;font-size:15px;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .B .pl .rs{color:var(--soft);font-size:11px}
+  .B .pl .st{position:relative;text-align:center}
+  .B .pl .st b{display:block;font-size:15px;font-weight:700}
+  .B .pl .st span{font-size:8.5px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--dim)}
+
+/* ============ C · CARDS ============================================== */
+  .C .hd{display:flex;justify-content:space-between;align-items:flex-end;
+    margin-bottom:16px}
+  .C .mp{font-size:26px;font-weight:700}
+  .C .mt{color:var(--faint);font-size:12px}
+  .C .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:860px){.C .cols{grid-template-columns:1fr}}
+  .C .sh{font-size:10px;font-weight:800;letter-spacing:.15em;
+    text-transform:uppercase;margin-bottom:8px;padding-bottom:5px}
+  .C .red .sh{color:var(--red);border-bottom:1px solid #6d2529}
+  .C .blue .sh{color:var(--blue);border-bottom:1px solid #27536f}
+  .C .card{position:relative;border-radius:7px;overflow:hidden;margin-bottom:9px;
+    background:linear-gradient(135deg,#161b23,#11151b);
+    border:1px solid var(--rule);padding:11px 12px;min-height:84px}
+  .C .card.u{opacity:.5}
+  .C .card .art{position:absolute;right:-14px;bottom:-10px;height:118px;
+    opacity:.22;object-fit:contain}
+  .C .top{position:relative;display:flex;justify-content:space-between;
+    align-items:flex-start;gap:8px}
+  .C .nm{font-weight:700;font-size:14.5px;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis}
+  .C .ag{color:var(--faint);font-size:11px}
+  .C .ring{width:44px;height:44px;border-radius:50%;display:grid;
+    place-items:center;font-weight:800;font-size:16px;flex:none}
+  .C .chips{position:relative;display:flex;gap:5px;margin-top:9px;flex-wrap:wrap}
+  .C .chip{background:#0d1116;border:1px solid var(--rule);border-radius:3px;
+    padding:2px 7px;font-size:11px;color:var(--soft)}
+  .C .chip b{color:var(--ink);font-weight:700}
+  .C .rs{position:relative;color:var(--faint);font-size:11px;margin-top:7px}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Three directions for the dashboard</h1>
+  <div class="lede">Same live data, same agent art, three visual treatments.
+    Pick one and I will build it out properly — detail panel, responsive
+    behaviour and all. Numbers here are the demo match.</div>
+
+  <div class="tabs">
+    <button data-v="A" class="on">A · Terminal</button>
+    <button data-v="B">B · Broadcast</button>
+    <button data-v="C">C · Cards</button>
+  </div>
+  <div class="blurb" id="blurb"></div>
+  <div class="stage" id="stage"><div class="status">connecting…</div></div>
+</div>
+
+<script>
+"use strict";
+const esc = t => String(t == null ? "" : t).replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const n1 = v => v == null ? "--" : v.toFixed(1);
+const n2 = v => v == null ? "--" : v.toFixed(2);
+const pc = v => v == null ? "--" : (v * 100).toFixed(1) + "%";
+
+const BLURB = {
+  A: "Dense and quiet. Hairline rules, tabular numerals, colour used only to "
+   + "separate the two teams. Reads like an instrument panel — fastest to scan "
+   + "when you are loading in and have fifteen seconds. Closest to what exists "
+   + "now, but tightened.",
+  B: "Broadcast overlay. Agent art bleeds across each row behind the numbers, "
+   + "score is the biggest thing on the line, teams announced by weight rather "
+   + "than boxes. Most striking, least dense — five players per side is about "
+   + "its limit before it needs scrolling.",
+  C: "Cards. Each player is an object with their agent behind them and stats as "
+   + "chips. Two columns, so both teams sit side by side. The most 'designed' "
+   + "of the three and the friendliest to read one player at a time, at the "
+   + "cost of the column alignment that makes A easy to compare down.",
+};
+
+let STATE = null, view = "A";
+
+function art(p, kind){
+  return p.agent_id ? `/agents/${encodeURIComponent(p.agent_id)}-${kind}.png` : "";
+}
+const byTeam = (s, t) => s.players.filter(p => p.team === t);
+const kd = p => p.career ? n2(p.career.kd) : "--";
+const kd20 = p => p.recent ? n2(p.recent.kd) : "--";
+const acs = p => p.career ? n1(p.career.acs) : "--";
+const hs = p => p.career ? pc(p.career.headshot_rate) : "--";
+
+/* ---------- A · terminal ---------- */
+function viewA(s){
+  const side = t => t === "Red" ? "attacking" : "defending";
+  const tbl = t => {
+    const c = t === "Red" ? "var(--red)" : "var(--blue)";
+    return `<div class="team ${t.toLowerCase()}">
+      <div class="th"><span>${t}${s.own_team === t ? " · your team" : ""}</span>
+        <span style="opacity:.65">${side(t)} · first half</span></div>
+      <table><thead><tr>
+        <th class="l" colspan="2">player</th><th>acs</th><th>k/d</th>
+        <th>k/d 20</th><th>hs%</th><th colspan="2">score</th>
+      </tr></thead><tbody>
+      ${byTeam(s, t).map(p => `<tr class="${p.score === null ? "u" : "k"}">
+        <td style="width:26px;padding-right:0">
+          ${p.agent_id ? `<img class="ico" src="${art(p, "icon")}" alt="">` : ""}</td>
+        <td class="l"><div class="nm">${esc(p.name)}${p.is_you
+          ? ' <span style="color:var(--you);font-size:9px;font-weight:700">YOU</span>' : ""}</div>
+          <div class="rs">${esc(p.agent)} · ${esc(p.reason)}</div></td>
+        <td class="num">${acs(p)}</td>
+        <td class="num">${kd(p)}</td>
+        <td class="num" style="color:var(--soft)">${kd20(p)}</td>
+        <td class="num">${hs(p)}</td>
+        <td class="num sc" style="color:${p.score === null ? "var(--dim)" : c}">
+          ${p.score === null ? "--" : p.score}</td>
+        <td style="width:46px"><span style="display:inline-block;width:40px;
+          height:4px;background:#0e1116;border-radius:2px;overflow:hidden">
+          <i style="display:block;height:100%;width:${p.score || 0}%;
+            background:${c}"></i></span></td>
+      </tr>`).join("")}
+      </tbody></table></div>`;
+  };
+  return `<div class="A">
+    <div class="hd"><span class="mp">${esc(s.map)}</span>
+      <span class="mt">${esc(s.mode)} · ${s.coverage}/10 known · ${
+        esc(s.confidence)} confidence</span></div>
+    ${tbl("Red")}${tbl("Blue")}</div>`;
+}
+
+/* ---------- B · broadcast ---------- */
+function viewB(s){
+  const own = s.prediction ? s.prediction.own_probability : .5;
+  const redPct = s.own_team === "Red" ? own : 1 - own;
+  const stat = (label, val) => `<div class="st"><b>${val}</b><span>${label}</span></div>`;
+  const block = t => `<div class="side ${t.toLowerCase()}">
+    <div class="sh"><span>${t} · ${t === "Red" ? "attack" : "defense"}</span>
+      <span class="ln"></span>
+      <span style="opacity:.6">${s.own_team === t ? "your team" : ""}</span></div>
+    ${byTeam(s, t).map(p => `<div class="pl ${p.score === null ? "u" : "k"}">
+      ${p.agent_id ? `<img class="art" src="${art(p, "portrait")}" alt="">` : ""}
+      <div class="sc" style="color:${p.score === null ? "var(--dim)"
+        : (t === "Red" ? "var(--red)" : "var(--blue)")}">${
+        p.score === null ? "--" : p.score}</div>
+      <div class="who"><div class="nm">${esc(p.name)}${p.is_you
+        ? ' <span style="color:var(--you);font-size:10px">YOU</span>' : ""}</div>
+        <div class="rs">${esc(p.agent)} — ${esc(p.reason)}</div></div>
+      ${stat("acs", acs(p))}${stat("k/d", kd(p))}
+      ${stat("k/d 20", kd20(p))}${stat("hs%", hs(p))}
+    </div>`).join("")}</div>`;
+  return `<div class="B">
+    <div class="hero"><div class="mp">${esc(s.map)}</div>
+      <div class="mt">${esc(s.mode)} · ${s.coverage}/10 known</div></div>
+    <div class="odds">
+      <div class="r" style="width:${redPct * 100}%">${(redPct * 100).toFixed(0)}% RED</div>
+      <div class="b" style="width:${(1 - redPct) * 100}%">BLUE ${
+        ((1 - redPct) * 100).toFixed(0)}%</div></div>
+    ${block("Red")}${block("Blue")}</div>`;
+}
+
+/* ---------- C · cards ---------- */
+function viewC(s){
+  const col = t => {
+    const c = t === "Red" ? "var(--red)" : "var(--blue)";
+    return `<div class="${t.toLowerCase()}">
+      <div class="sh">${t} · ${t === "Red" ? "attacking" : "defending"}${
+        s.own_team === t ? " · your team" : ""}</div>
+      ${byTeam(s, t).map(p => `<div class="card ${p.score === null ? "u" : ""}">
+        ${p.agent_id ? `<img class="art" src="${art(p, "portrait")}" alt="">` : ""}
+        <div class="top">
+          <div style="min-width:0">
+            <div class="nm">${esc(p.name)}${p.is_you
+              ? ' <span style="color:var(--you);font-size:10px">YOU</span>' : ""}</div>
+            <div class="ag">${esc(p.agent)}${p.role ? " · " + esc(p.role) : ""}</div>
+          </div>
+          <div class="ring" style="color:${p.score === null ? "var(--dim)" : c};
+            border:2px solid ${p.score === null ? "var(--rule)" : c};
+            background:${p.score === null ? "transparent" : "rgba(0,0,0,.35)"}">
+            ${p.score === null ? "--" : p.score}</div>
+        </div>
+        <div class="chips">
+          <span class="chip">acs <b>${acs(p)}</b></span>
+          <span class="chip">k/d <b>${kd(p)}</b></span>
+          <span class="chip">20g <b>${kd20(p)}</b></span>
+          <span class="chip">hs <b>${hs(p)}</b></span>
+        </div>
+        <div class="rs">${esc(p.reason)}</div>
+      </div>`).join("")}</div>`;
+  };
+  return `<div class="C">
+    <div class="hd"><div><div class="mp">${esc(s.map)}</div>
+      <div class="mt">${esc(s.mode)} · ${s.coverage}/10 known · ${
+        esc(s.confidence)} confidence</div></div></div>
+    <div class="cols">${col("Red")}${col("Blue")}</div></div>`;
+}
+
+const VIEWS = {A: viewA, B: viewB, C: viewC};
+
+function paint(){
+  document.getElementById("blurb").textContent = BLURB[view];
+  document.getElementById("stage").innerHTML = STATE
+    ? VIEWS[view](STATE)
+    : `<div class="status">waiting for the demo match…</div>`;
+}
+document.querySelectorAll(".tabs button").forEach(b => {
+  b.onclick = () => {
+    view = b.dataset.v;
+    document.querySelectorAll(".tabs button").forEach(x =>
+      x.classList.toggle("on", x === b));
+    paint();
+  };
+});
+paint();
+
+const ws = new WebSocket(`ws://${location.host}/ws`);
+ws.onmessage = e => {
+  const m = JSON.parse(e.data);
+  if (m.status === "match"){ STATE = m.state; paint(); }
+};
+ws.onclose = () => {
+  if (!STATE) document.getElementById("stage").innerHTML =
+    `<div class="status">The demo server is not running.<br>
+     Start it with <b>python -m valwr.dash --demo</b>.</div>`;
+};
+</script>
+</body>
+</html>

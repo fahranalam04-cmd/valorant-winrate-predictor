@@ -110,6 +110,11 @@ PRIOR_N_MAP = 6.0
 # to err on.
 MIN_MAP_GAMES = 6
 
+# How many matches count as "recent" for the form figures the scoreboard shows.
+# Twenty is roughly a week of steady play, and long enough that one bad night
+# does not dominate it.
+RECENT_GAMES = 20
+
 RECENCY_HALFLIFE_DAYS = 30.0    # matches features/player.py
 POP_KD = 1.08                   # measured; only a fallback if norms lack it
 # Below this many standard deviations from the population, a component is
@@ -630,6 +635,13 @@ def detail(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
         # toward the population mean in `components`; the score must not believe
         # four games, but a scoreboard must not lie about what happened.
         "career": _stats(temporal.career_totals(conn, puuid, as_of)),
+        # Form, over the last RECENT_GAMES matches. Usually the same rows as
+        # the career block -- the median player here has 8 stored matches -- so
+        # the views compare the two and stay quiet when they are identical
+        # rather than printing one number under two headings.
+        "recent": _stats(temporal.recent_totals(conn, puuid, as_of,
+                                                RECENT_GAMES)),
+        "recent_window": RECENT_GAMES,
         "map": map_block,
         "form": form,
         "freshness": {

@@ -89,6 +89,10 @@
   .flagdot{color:var(--warn);margin-left:5px;font-size:11px}
 
   .sc{font-weight:700;font-size:14px;width:38px}
+  /* Form sits one step back from the career figure beside it -- present for
+     comparison, not competing with it for attention. */
+  td.recent{color:var(--soft)}
+  tr.unknown td.recent{color:var(--dim)}
   .scbar{width:46px;height:4px;border-radius:2px;background:var(--sunk);
     overflow:hidden;display:inline-block;vertical-align:middle}
   .scbar i{display:block;height:100%}
@@ -122,6 +126,13 @@
   .kv dt{color:var(--faint);min-width:0}
   .kv dd{margin:0;text-align:right;font-weight:600}
   .kv dd.na{color:var(--dim);font-weight:400}
+  table.twoup{width:100%;font-size:12.5px}
+  table.twoup th{font-size:9px;letter-spacing:.09em;color:var(--dim);
+    padding:0 0 4px;border:0}
+  table.twoup td{padding:2px 0;text-align:left;color:var(--faint)}
+  table.twoup td.num{text-align:right;color:var(--ink);font-weight:600}
+  table.twoup .rc{color:var(--soft)}
+  table.twoup th.rc{color:var(--dim)}
 
   .comp{display:flex;justify-content:space-between;gap:8px;font-size:12px;
     padding:2px 0}
@@ -235,8 +246,9 @@ function teamTable(state, team){
         <div class="agname">${esc(p.agent || "picking…")}</div>
       </td>
       <td class="num">${c ? n1(c.acs) : "--"}</td>
-      <td class="num">${c ? `${int(c.kills)}/${int(c.deaths)}/${int(c.assists)}` : "--"}</td>
       <td class="num">${c ? n2(c.kd) : "--"}</td>
+      <td class="num recent" title="last ${p.recent ? p.recent.games : 20} matches"
+        >${p.recent ? n2(p.recent.kd) : "--"}</td>
       <td class="num">${c ? pct(c.headshot_rate) : "--"}</td>
       <td class="num sc" style="color:${known ? colour : "var(--dim)"}">
         ${known ? p.score : "--"}</td>
@@ -250,7 +262,7 @@ function teamTable(state, team){
     <table>
       <thead><tr>
         <th class="l" colspan="2">player</th>
-        <th>acs</th><th>k / d / a</th><th>k/d</th><th>hs%</th>
+        <th>acs</th><th>k/d</th><th title="over the last 20 matches">k/d&nbsp;20</th><th>hs%</th>
         <th colspan="2">score</th>
       </tr></thead>
       <tbody>${body}</tbody>
@@ -269,6 +281,33 @@ function statList(s){
     ${row("K/D", n2(s.kd), s.kd == null)}
     ${row("headshot %", pct(s.headshot_rate), s.headshot_rate == null)}
   </dl>`;
+}
+
+/* Career against form. When the player has fewer stored matches than the
+   window, the two columns are the same rows and printing both would invent a
+   comparison -- the median player in this database has 8 stored matches, so
+   that is the common case, not the edge case. */
+function twoUp(career, recent, window){
+  if (!career || !career.games) return statList(career);
+  const same = !recent || recent.games >= career.games;
+  if (same) return statList(career) +
+    `<div class="comp off" style="margin-top:5px">All ${career.games} stored
+     matches are inside the last ${window}, so recent form and career are the
+     same games.</div>`;
+  const row = (k, a, b) => `<tr><td>${k}</td><td class="num">${a}</td>
+    <td class="num rc">${b}</td></tr>`;
+  return `<table class="twoup">
+    <thead><tr><th></th><th class="num">career</th>
+      <th class="num rc">last ${recent.games}</th></tr></thead><tbody>
+    ${row("games", career.games, recent.games)}
+    ${row("ACS", n1(career.acs), n1(recent.acs))}
+    ${row("K/D", n2(career.kd), n2(recent.kd))}
+    ${row("headshot %", pct(career.headshot_rate), pct(recent.headshot_rate))}
+    ${row("win rate", pct(career.win_rate), pct(recent.win_rate))}
+    ${row("K / D / A",
+          `${int(career.kills)}/${int(career.deaths)}/${int(career.assists)}`,
+          `${int(recent.kills)}/${int(recent.deaths)}/${int(recent.assists)}`)}
+    </tbody></table>`;
 }
 
 function panel(state){
@@ -321,7 +360,8 @@ function panel(state){
 
       <div class="sect">what makes the score</div>${comps}
 
-      <div class="sect">career</div>${statList(d.career)}
+      <div class="sect">career &amp; recent form</div>
+      ${twoUp(d.career, d.recent, d.recent_window || 20)}
 
       <div class="sect">on ${esc(m.name)}</div>
       ${m.games ? statList(m) + (m.counts_toward_score ? "" :

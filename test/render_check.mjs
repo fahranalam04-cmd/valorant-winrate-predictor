@@ -59,8 +59,10 @@ check("unknown players marked unknown",
       (out.match(/class="unknown/g) || []).length === unknown.length);
 check("your own row is tagged", /YOU<\/span>/.test(out));
 check("career ACS on the row", out.includes(String(first.career.acs)));
-check("K/D/A on the row",
-      out.includes(`${first.career.kills}/${first.career.deaths}/${first.career.assists}`));
+check("K/D on the row", out.includes(first.career.kd.toFixed(2)));
+check("last-20 K/D on the row", out.includes(first.recent.kd.toFixed(2)));
+check("K/D/A is NOT on the row",
+      !out.includes(`${first.career.kills}/${first.career.deaths}/${first.career.assists}`));
 check("headshot % on the row",
       out.includes((first.career.headshot_rate * 100).toFixed(1) + "%"));
 check(first.agent_id ? "agent art addressed by uuid"
@@ -81,7 +83,7 @@ check(first.agent_id ? "panel shows the full portrait"
                     : "panel omits art when there is no uuid",
       first.agent_id ? p.includes(`/agents/${first.agent_id}-portrait.png`)
                      : !p.includes("-portrait.png"));
-check("panel has a career section", /career<\/div>/.test(p));
+check("panel compares career against form", /career &amp; recent form/.test(p));
 check("panel has an on-map section", p.includes(`on ${state.map}`));
 check("panel shows this map's record",
       p.includes(`${first.detail.map.wins}W`));

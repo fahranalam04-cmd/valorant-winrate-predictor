@@ -34,6 +34,14 @@ CARD_KEYS = {"puuid", "name", "known_name", "agent", "role", "team", "is_you",
              "score", "reason", "flag"}
 
 
+# The keys `_player_rows` lifts out of `pot.detail`. Kept in one place because
+# a stub of this shape has already gone stale twice, each time failing in an
+# unrelated sorting test rather than saying what was actually missing.
+def _detail(score):
+    return {"score": score, "reason": "r", "flag": None,
+            "career": None, "recent": None}
+
+
 class _Stub:
     def __init__(self, **kw):
         self.__dict__.update(kw)
@@ -152,8 +160,7 @@ def test_scored_players_sort_first_and_unscored_are_kept(tmp_path,
     how much of the prediction is guesswork."""
     scores = {"b1": 80, "b2": 40}
     monkeypatch.setattr(ST.pot, "detail", lambda c, pu, ao, mp, nm, ix: (
-        {"score": scores[pu], "reason": "r", "flag": None, "career": None}
-        if pu in scores else None))
+        _detail(scores[pu]) if pu in scores else None))
     rows = ST._player_rows(_ctx(_db(tmp_path), index=object()), _match(), 1000)
     assert len(rows) == 10
     assert [r["puuid"] for r in rows[:2]] == ["b1", "b2"]
@@ -263,3 +270,17 @@ def test_a_live_row_carries_the_agent_uuid_for_its_artwork(tmp_path,
     st = ST.poll_once(_ctx(conn))
     assert all("agent_id" in p for p in st["players"])
     assert st["players"][0]["agent_id"] == "aid"
+
+
+def test_the_stub_detail_carries_everything_a_row_lifts_from_it():
+    """Guards the helper above against the real `detail()` growing past it.
+
+    When `_player_rows` starts reading a new block, this fails and names it,
+    instead of a sorting test failing with a bare KeyError.
+    """
+    import inspect
+    src = inspect.getsource(ST._player_rows)
+    stub = set(_detail(50))
+    for key in ("career", "recent", "score", "reason", "flag"):
+        assert f'got["{key}"]' not in src or key in stub, (
+            f"_player_rows reads got[{key!r}]; add it to _detail()")

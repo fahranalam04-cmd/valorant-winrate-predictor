@@ -151,7 +151,7 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
             "score": None, "reason": "no history", "flag": None,
             # Lifted out of `detail` so the scoreboard row does not have to
             # reach into the breakdown for the numbers it prints on every line.
-            "career": None,
+            "career": None, "recent": None,
         }
         if ctx.index is not None:
             got = pot.detail(ctx.conn, p.puuid, as_of, match.map_name or "?",
@@ -166,6 +166,7 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
                 # identical to a live one before this.
                 entry["detail"] = got
                 entry["career"] = got["career"]
+                entry["recent"] = got["recent"]
         rows.append(entry)
     # Best first; unscored last rather than dropped -- they are in the lobby
     # whether or not we know anything about them, and saying so is the point.

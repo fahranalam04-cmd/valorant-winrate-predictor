@@ -105,3 +105,35 @@ def test_undecided_matches_count_as_games_but_not_toward_win_rate(tmp_path):
     assert c.games == 2
     assert c.decided == 1 and c.wins == 1
     assert c.win_rate == 1.0
+
+
+# --- recent form -------------------------------------------------------
+
+def test_recent_takes_the_newest_matches_not_the_oldest(tmp_path):
+    """The whole point of a form window. Ordering the wrong way round would
+    report a player's oldest games as their current form, and every number
+    would still look entirely plausible."""
+    old_bad = [(NOW - 86400 * (10 - i), 2, 20, 1, 5, 90, 5, 1000, 20, 0)
+               for i in range(5)]                     # ancient, terrible
+    new_good = [(NOW - 3600 * (5 - i), 25, 5, 8, 50, 45, 5, 6000, 20, 1)
+                for i in range(5)]                    # recent, excellent
+    conn = _db(tmp_path, old_bad + new_good)
+
+    recent = temporal.recent_totals(conn, "p", NOW, last_n=5)
+    assert recent.games == 5
+    assert recent.kills == 125 and recent.deaths == 25, "took the wrong five"
+    assert recent.win_rate == 1.0
+    # and the career figure still spans everything
+    assert temporal.career_totals(conn, "p", NOW).games == 10
+
+
+def test_recent_is_capped_by_what_exists(tmp_path):
+    """Most players here have fewer than 20 stored matches -- the median is 8 --
+    so the window is usually the whole history."""
+    c = temporal.recent_totals(_db(tmp_path, [ONE, TWO]), "p", NOW, last_n=20)
+    assert c.games == 2
+
+
+def test_recent_obeys_the_same_time_firewall(tmp_path):
+    conn = _db(tmp_path, [ONE, TWO, (NOW, 99, 0, 0, 9, 0, 0, 9999, 24, 1)])
+    assert temporal.recent_totals(conn, "p", NOW, last_n=20).games == 2

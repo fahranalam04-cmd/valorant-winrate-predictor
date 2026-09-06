@@ -28,6 +28,25 @@ ROLES = {"Jett": "Duelist", "Reyna": "Duelist", "Neon": "Duelist",
          "Killjoy": "Sentinel", "Sova": "Initiator", "Fade": "Initiator",
          "Breach": "Initiator"}
 
+# The phrase `explain()` would produce for each profile. Taken from the real
+# vocabulary and matched to the numbers beside them -- an earlier version of
+# this file gave all eight known players the same string, which made the demo
+# look like the model had one opinion about everyone. It does not: measured
+# over 2,588 sampled players the real explain() returns 35 distinct phrases and
+# the most common covers 8.6% of them.
+REASONS = [
+    "consistently strong",
+    "high combat score",
+    None,
+    "middle of the pack",
+    "below par lately",
+    "wins duels",
+    "consistently strong",
+    None,
+    "middle of the pack",
+    "loses duels, but only 22 games",
+]
+
 # score, career games, acs, k, d, a, kd, hs, winrate, map games
 PROFILES = [
     (82, 412, 251.4, 6103, 4980, 1844, 1.23, 0.281, 0.55, 34),
@@ -73,13 +92,22 @@ def demo_state(conn=None) -> dict:
         team = "Blue" if i < 5 else "Red"
         known = score is not None
         career = _stats(games, acs, k, d, a, kd, hs, wr) if known else None
+        # Form runs a little ahead of the career figure for most of them, which
+        # is what a real last-20 usually looks like on an improving account.
+        recent = (_stats(min(games, 20), round(acs * 1.04, 1),
+                         int(k * min(games, 20) / max(games, 1)),
+                         int(d * min(games, 20) / max(games, 1)),
+                         int(a * min(games, 20) / max(games, 1)),
+                         round(kd * 1.06, 2), round(hs * 1.02, 4),
+                         round(min((wr or .5) * 1.08, 1.0), 4))
+                  if known else None)
         entry = {
             "puuid": f"demo-{i:02d}", "name": f"{name}#{tag}",
             "known_name": True, "agent": agent, "agent_id": ids.get(agent),
             "role": ROLES.get(agent), "team": team, "is_you": i == 0,
             "score": score, "flag": None, "career": career,
-            "reason": ("high combat score, wins duels" if known
-                       else "no history"),
+            "recent": recent,
+            "reason": REASONS[i] or "no history",
         }
         if known:
             # The flagged one: dominates lobbies far above their rank.
@@ -108,7 +136,7 @@ def demo_state(conn=None) -> dict:
                               f"{GATE} needed"),
                      "weight": 0.15, "contribution": 0.05 if counts else 0.0},
                 ],
-                "career": career,
+                "career": career, "recent": recent, "recent_window": 20,
                 "map": dict(_stats(mg, round(acs * 0.96, 1), int(k * mg / max(games, 1)),
                                    int(d * mg / max(games, 1)),
                                    int(a * mg / max(games, 1)),
