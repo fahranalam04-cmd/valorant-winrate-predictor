@@ -101,6 +101,11 @@ ck("on-map section", p.includes(`on ${state.map}`));
 ck("last matches section", /last matches/.test(p));
 ck("row shows selected", /class="row known sel"/.test(p));
 ck("aria-pressed set", /aria-pressed="true"/.test(p));
+ck("panel body is two grouped columns",
+   (p.match(/class="pcol"/g) || []).length === 2);
+// The per-map block passes no form window, so the "same games" note must not
+// render under it. It printed "fall inside the last 0" beneath every map.
+ck("the map block never claims a form window", !/the last 0/.test(p));
 
 // a player whose stored history is shorter than the window
 const shallow = known.find(x => x.detail && x.detail.career.games <= 20);
@@ -109,6 +114,8 @@ if (shallow){
   const q = els.stage.innerHTML;
   ck("short history collapses the two columns",
      /fall inside the last/.test(q) && !/>last \d+<\/th>/.test(q));
+  ck("and names the real window, not zero",
+     /fall inside the last 20/.test(q));
 }
 
 // a deep-history player keeps both columns
