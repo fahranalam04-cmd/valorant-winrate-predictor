@@ -514,6 +514,27 @@ def _ago(seconds: float) -> str:
     return f"{int(days)} days ago"
 
 
+def _stats(c) -> dict:
+    """One tally as plain JSON -- the same shape for a career and for one map.
+
+    `acs` is total score over total rounds, which is what ACS means. An earlier
+    version of the map block averaged per-match ACS instead, weighting a
+    13-round stomp the same as a 29-round grind; the numbers differ slightly
+    and this one is the definition.
+    """
+    return {
+        "games": c.games,
+        "wins": c.wins,
+        "losses": c.decided - c.wins,
+        "kills": c.kills, "deaths": c.deaths, "assists": c.assists,
+        "acs": round(c.acs, 1) if c.acs is not None else None,
+        "kd": round(c.kd, 2) if c.kd is not None else None,
+        "headshot_rate": (round(c.headshot_rate, 4)
+                          if c.headshot_rate is not None else None),
+        "win_rate": round(c.win_rate, 4) if c.win_rate is not None else None,
+    }
+
+
 def detail(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
            norms: Norms, index: PerfIndex, form_games: int = 5) -> dict | None:
     """Everything behind one player's score, as plain data.
@@ -577,6 +598,10 @@ def detail(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
         "agents": [{"agent": a, "games": n}
                    for a, n in sorted(agents.items(), key=lambda kv: -kv[1])],
     }
+    # K/D/A, headshots and a round-weighted ACS for this map specifically.
+    # `on_map` is already in memory, so this is free -- no second query.
+    map_block.update(_stats(temporal.Career.from_rows(on_map)))
+    map_block["name"] = map_name
 
     # --- recent form ---------------------------------------------------
     history = temporal.player_history(conn, puuid, as_of, limit=form_games)
@@ -600,6 +625,11 @@ def detail(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
         "raw": round(raw, 4),
         "reason": explain(index, c),
         "components": components,
+        # Raw career totals, deliberately NOT the shrunk component values above.
+        # A player with four games shows their real ACS here and a value pulled
+        # toward the population mean in `components`; the score must not believe
+        # four games, but a scoreboard must not lie about what happened.
+        "career": _stats(temporal.career_totals(conn, puuid, as_of)),
         "map": map_block,
         "form": form,
         "freshness": {

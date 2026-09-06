@@ -385,11 +385,21 @@ def test_the_dashboard_binds_localhost_only():
 
 
 def test_the_dashboard_exposes_no_other_routes():
-    """Two routes, and no schema endpoint. Minimal surface by construction."""
-    from valwr.dash.server import build_app
+    """The page, the socket, and a directory of agent PNGs. Nothing else.
+
+    Asserted as an exact set rather than a subset, so adding a route has to be
+    a decision someone makes here on purpose. `/agents` was added that way: it
+    serves Riot's artwork, takes no query, names no player and reveals nothing
+    about anyone, which is what docs/ETHICS-AND-TOS.md actually forbids -- an
+    endpoint that looks a player up.
+    """
+    from valwr.dash.server import AGENTS, build_app
     paths = {r.path for r in build_app(no_fetch=True).routes
              if hasattr(r, "path")}
-    assert paths == {"/", "/ws"}
+    expected = {"/", "/ws"}
+    if AGENTS.is_dir():          # only mounted once the art is downloaded
+        expected.add("/agents")
+    assert paths == expected
 
 
 # --- freshness ---------------------------------------------------------

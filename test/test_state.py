@@ -152,7 +152,7 @@ def test_scored_players_sort_first_and_unscored_are_kept(tmp_path,
     how much of the prediction is guesswork."""
     scores = {"b1": 80, "b2": 40}
     monkeypatch.setattr(ST.pot, "detail", lambda c, pu, ao, mp, nm, ix: (
-        {"score": scores[pu], "reason": "r", "flag": None}
+        {"score": scores[pu], "reason": "r", "flag": None, "career": None}
         if pu in scores else None))
     rows = ST._player_rows(_ctx(_db(tmp_path), index=object()), _match(), 1000)
     assert len(rows) == 10
@@ -215,3 +215,51 @@ def test_a_spectator_gets_blues_perspective_rather_than_a_crash(tmp_path,
     st = ST.poll_once(_ctx(_db(tmp_path)))
     assert st["own_team"] == "Blue"
     assert any("not on either team" in w for w in st["warnings"])
+
+
+# --- the demo match ----------------------------------------------------
+
+def test_the_demo_match_has_exactly_the_shape_poll_once_returns():
+    """`--demo` renders through the real page, so it must not drift.
+
+    If it were allowed to carry its own approximate shape, the demo would keep
+    working while the live view broke -- which is the worst possible failure
+    for the one screen used to check the live view by eye.
+    """
+    from valwr.dash.demo import demo_state
+    s = demo_state()
+    assert set(s) == DOCUMENTED_KEYS
+    assert len(s["players"]) == 10
+    assert {p["team"] for p in s["players"]} == {"Blue", "Red"}
+    for p in s["players"]:
+        assert CARD_KEYS <= set(p)
+        assert "career" in p and "agent_id" in p
+
+
+def test_the_demo_match_invents_everyone_in_it():
+    """It must never ship a real gamertag or PUUID -- docs/ETHICS-AND-TOS.md
+    forbids publishing either, and this file is committed."""
+    from valwr.dash import demo
+    s = demo.demo_state()
+    assert all(p["puuid"].startswith("demo-") for p in s["players"])
+    # A real PUUID is a 32-4-4-4-12 hex UUID; nothing here may look like one.
+    import re
+    blob = repr(s)
+    assert not re.search(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-"
+                         r"[0-9a-f]{4}-[0-9a-f]{12}", blob), "looks like a PUUID"
+
+
+def test_the_demo_match_is_json_serialisable():
+    from valwr.dash.demo import demo_state
+    json.dumps(demo_state())
+
+
+def test_a_live_row_carries_the_agent_uuid_for_its_artwork(tmp_path,
+                                                           monkeypatch):
+    """The page builds /agents/<uuid>-icon.png straight from this field."""
+    conn = _db(tmp_path)
+    monkeypatch.setattr(ST.roster, "current", lambda s, a: _match())
+    monkeypatch.setattr(ST.P, "predict", lambda *a, **k: None)
+    st = ST.poll_once(_ctx(conn))
+    assert all("agent_id" in p for p in st["players"])
+    assert st["players"][0]["agent_id"] == "aid"

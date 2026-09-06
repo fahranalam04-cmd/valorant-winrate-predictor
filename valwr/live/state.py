@@ -141,10 +141,17 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
             "name": names.get(p.puuid, p.puuid[:8]),
             "known_name": p.puuid in names,
             "agent": p.agent,
+            # The same UUID as ref_agents.uuid and as valorant-api's, so the
+            # page addresses the bundled artwork directly. None during agent
+            # select, before a pick is locked.
+            "agent_id": p.agent_id,
             "role": roles.get(p.agent),
             "team": p.team,
             "is_you": p.puuid == ctx.session.puuid,
             "score": None, "reason": "no history", "flag": None,
+            # Lifted out of `detail` so the scoreboard row does not have to
+            # reach into the breakdown for the numbers it prints on every line.
+            "career": None,
         }
         if ctx.index is not None:
             got = pot.detail(ctx.conn, p.puuid, as_of, match.map_name or "?",
@@ -158,6 +165,7 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
                 # available. A score computed from two-week-old history looked
                 # identical to a live one before this.
                 entry["detail"] = got
+                entry["career"] = got["career"]
         rows.append(entry)
     # Best first; unscored last rather than dropped -- they are in the lobby
     # whether or not we know anything about them, and saying so is the point.

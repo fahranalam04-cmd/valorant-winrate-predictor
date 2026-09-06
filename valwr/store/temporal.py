@@ -138,6 +138,102 @@ def recent_record(conn, puuid: str, as_of: int, last_n: int = 20) -> Record:
     return _record(conn, puuid, as_of, last_n=last_n)
 
 
+@dataclass(frozen=True)
+class Career:
+    """Raw career totals, for display rather than for scoring.
+
+    Nothing here is shrunk. The scoring path in rating/potential.py deliberately
+    pulls its components toward the population prior, because four good games
+    are not evidence of a good player. These are the actual totals, which is
+    what a scoreboard should show. The two therefore disagree for anyone with a
+    short history -- a player with four games can show a career ACS of 260 next
+    to a component value near the population mean -- and that disagreement is
+    correct rather than a bug.
+    """
+    games: int
+    kills: int
+    deaths: int
+    assists: int
+    headshots: int
+    bodyshots: int
+    legshots: int
+    score: int
+    rounds: int
+    wins: int
+    decided: int          # matches with a winner; `games` includes draws/aborts
+
+    @property
+    def acs(self) -> float | None:
+        """Average combat score per round, the number the scoreboard shows."""
+        return self.score / self.rounds if self.rounds else None
+
+    @property
+    def kd(self) -> float | None:
+        if not self.games:
+            return None
+        # A player who has never died reports their kill count rather than
+        # dividing by zero. Vanishingly rare over a career, but it is one row.
+        return self.kills / self.deaths if self.deaths else float(self.kills)
+
+    @property
+    def headshot_rate(self) -> float | None:
+        """Headshots over every shot that landed, not over kills."""
+        shots = self.headshots + self.bodyshots + self.legshots
+        return self.headshots / shots if shots else None
+
+    @property
+    def win_rate(self) -> float | None:
+        return self.wins / self.decided if self.decided else None
+
+
+    @classmethod
+    def from_rows(cls, rows) -> "Career":
+        """The same tally from history rows already in memory.
+
+        Used for per-map stats, where the rows have been fetched anyway and a
+        second aggregate query would be pure waste. Takes anything indexable by
+        column name -- sqlite3.Row or dict.
+        """
+        def total(key):
+            return sum((r[key] or 0) for r in rows)
+
+        return cls(games=len(rows), kills=total("kills"),
+                   deaths=total("deaths"), assists=total("assists"),
+                   headshots=total("headshots"), bodyshots=total("bodyshots"),
+                   legshots=total("legshots"), score=total("score"),
+                   rounds=total("rounds_played"),
+                   wins=sum(1 for r in rows if r["won"]),
+                   decided=sum(1 for r in rows if r["won"] is not None))
+
+
+def career_totals(conn: sqlite3.Connection, puuid: str, as_of: int) -> Career:
+    """Every counting stat for one player, in a single aggregate.
+
+    One indexed range scan rather than materialising the whole history: a lobby
+    of ten costs ten cheap sums, and the live view repeats them every five
+    seconds.
+
+    Time-gated like everything else in this module, strictly before `as_of`.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*) games, "
+        "COALESCE(SUM(kills), 0) kills, COALESCE(SUM(deaths), 0) deaths, "
+        "COALESCE(SUM(assists), 0) assists, "
+        "COALESCE(SUM(headshots), 0) headshots, "
+        "COALESCE(SUM(bodyshots), 0) bodyshots, "
+        "COALESCE(SUM(legshots), 0) legshots, "
+        "COALESCE(SUM(score), 0) score, "
+        "COALESCE(SUM(rounds_played), 0) rounds, "
+        "COALESCE(SUM(won), 0) wins, COUNT(won) decided "
+        "FROM match_players WHERE puuid = ? AND started_at < ?",
+        (puuid, as_of)).fetchone()
+    return Career(games=row["games"], kills=row["kills"], deaths=row["deaths"],
+                  assists=row["assists"], headshots=row["headshots"],
+                  bodyshots=row["bodyshots"], legshots=row["legshots"],
+                  score=row["score"], rounds=row["rounds"], wins=row["wins"],
+                  decided=row["decided"])
+
+
 # Columns knowable at the loading screen, before a single round is played.
 # Deliberately excludes score, kills, deaths, damage, won and the derived
 # components -- those are the outcome of the match being predicted.

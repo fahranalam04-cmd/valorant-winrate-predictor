@@ -10,6 +10,11 @@ data/
 *.sqlite
 *.sqlite3
 
+# Downloaded game art: 33 MB of Riot's PNGs, regenerated in one command by
+# tools/fetch_agent_art.py. Generated asset, not source -- same reasoning as
+# models/ below.
+valwr/dash/static/agents/
+
 # Trained artefacts
 models/
 *.pkl

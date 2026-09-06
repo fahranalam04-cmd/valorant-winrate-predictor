@@ -35,6 +35,7 @@ from pathlib import Path
 # 403 Forbidden and "loc: ['query', 'socket'], Field required".
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from valwr.live import state as st
 
@@ -43,9 +44,31 @@ PORT = 8787
 POLL_SECONDS = 5.0
 
 STATIC = Path(__file__).resolve().parent / "static"
+AGENTS = STATIC / "agents"
 
 
-def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE):
+def _demo_payload() -> dict:
+    """The demo match, with agent UUIDs filled in where a database exists."""
+    from valwr.dash.demo import demo_state
+    conn = None
+    try:
+        from valwr import config
+        from valwr.store import schema
+        s = config.load(require_key=False)
+        if s.database_path.exists():
+            conn = schema.connect(s.database_path)
+    except Exception:                                # noqa: BLE001
+        conn = None                                  # lettered tiles, still fine
+    try:
+        return {"status": "match", "state": demo_state(conn),
+                "top1_rate": 0.296, "fresh": True}
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
+              demo: bool = False):
     @asynccontextmanager
     async def lifespan(_app):
         yield
@@ -56,6 +79,7 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE):
                   lifespan=lifespan)
     app.state.ctx = None
     app.state.error = None
+    app.state.demo_state = None
 
     # ONE worker, and always the same one. A SQLite connection belongs to the
     # thread that opened it, and `asyncio.to_thread` draws from a pool with no
@@ -99,6 +123,18 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE):
         return FileResponse(STATIC / "index.html",
                             headers={"Cache-Control": "no-store, max-age=0"})
 
+    # Agent artwork, and nothing else. This is the only route besides the page
+    # and the socket, and it is deliberately a directory of static PNGs: it
+    # takes no query, names no player, and reveals nothing about anyone. The
+    # constraint in docs/ETHICS-AND-TOS.md is that no endpoint may look a
+    # player up, and a file server for Riot's own art does not.
+    #
+    # Absent until tools/fetch_agent_art.py has run, so the mount is
+    # conditional -- StaticFiles raises at construction on a missing directory,
+    # which would turn "no art yet" into "no dashboard at all".
+    if AGENTS.is_dir():
+        app.mount("/agents", StaticFiles(directory=AGENTS), name="agents")
+
     @app.websocket("/ws")
     async def ws(socket: WebSocket):
         await socket.accept()
@@ -110,6 +146,17 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE):
         pool = app.state.pool
         try:
             while True:
+                if demo:
+                    # The synthetic state goes through the same renderer as a
+                    # real match. Built once -- it never changes -- and the only
+                    # database read is `ref_agents`, a static table of agent
+                    # names and UUIDs, so the bundled artwork resolves. No
+                    # player row is touched and no client call is made.
+                    if app.state.demo_state is None:
+                        app.state.demo_state = _demo_payload()
+                    await socket.send_text(json.dumps(app.state.demo_state))
+                    await asyncio.sleep(POLL_SECONDS)
+                    continue
                 ctx = await loop.run_in_executor(pool, context)
                 if ctx is None:
                     await socket.send_text(json.dumps(
@@ -155,6 +202,9 @@ def main(argv=None) -> int:
     ap.add_argument("--no-fetch", action="store_true",
                     help="cache only; never spend API quota")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--demo", action="store_true",
+                    help="serve an invented match, to see the page without "
+                         "playing one; touches nothing real")
     ap.add_argument("--deadline", type=float, default=st.DEFAULT_DEADLINE)
     args = ap.parse_args(argv)
 
@@ -166,7 +216,8 @@ def main(argv=None) -> int:
     print("  Keep this window open. Ctrl+C to stop.\n")
 
     server = uvicorn.Server(uvicorn.Config(
-        build_app(no_fetch=args.no_fetch, deadline=args.deadline),
+        build_app(no_fetch=args.no_fetch, deadline=args.deadline,
+                  demo=args.demo),
         host=HOST, port=args.port, log_level="warning"))
 
     if not args.no_browser:
