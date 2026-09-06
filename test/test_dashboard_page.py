@@ -171,3 +171,43 @@ def test_the_stylesheet_is_not_truncated():
     css = page[page.index("<style>"):page.index("</style>")]
     assert len(css) > 12000, f"stylesheet is only {len(css)} chars; truncated?"
     assert css.count("{") == css.count("}"), "unbalanced braces in the sheet"
+
+
+def test_nothing_paints_over_the_map():
+    """The map is a `background-image` on `body`, and so is the weave texture.
+
+    Both were plain `body{...}` rules of equal specificity, so source order
+    decided which won -- and the weave came later, resetting the map to none.
+    The page looked correct in every other respect and the render harness,
+    which executes JavaScript, could not see it.
+
+    So: whichever body rule sets the map must be the last one that touches
+    body's background at all.
+    """
+    page = PAGE.read_text(encoding="utf-8")
+    css = page[page.index("<style>"):page.index("</style>")]
+    # Comments first: a `}` inside one truncates the block match, and these
+    # comments quote CSS. That silently made this check pass on nothing.
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+
+    # Every `body { ... }` block -- not body::before, not body[data-x].
+    blocks = [(m.start(), m.group(1))
+              for m in re.finditer(r"(?:^|\n)(?:html,)?body\s*\{([^}]*)\}", css)]
+    assert blocks, "no body rule at all"
+
+    paints = [(pos, body) for pos, body in blocks
+              if re.search(r"(?<!-)\bbackground(?:-image)?\s*:", body)]
+    assert paints, "nothing paints body's background"
+
+    last_pos, last_body = paints[-1]
+    assert "--mapart" in last_body, (
+        "the last body rule to touch the background does not set the map; "
+        "something paints over it")
+
+    # And the shorthand must not appear after it either, since `background:`
+    # resets background-image wholesale.
+    for pos, body in blocks:
+        if pos > last_pos:
+            assert not re.search(r"(?<!-)\bbackground\s*:", body), (
+                "a later body rule uses the `background` shorthand, which "
+                "resets the map image")

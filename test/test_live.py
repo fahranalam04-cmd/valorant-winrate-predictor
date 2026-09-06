@@ -572,3 +572,47 @@ def test_launching_the_dashboard_does_not_die_on_a_missing_import():
     """
     from valwr.dash import server as S
     assert hasattr(S, "threading") and hasattr(S, "time")
+
+
+def test_your_own_account_is_refreshed_even_when_it_looks_current(tmp_path):
+    """Finish a game, requeue five minutes later: your own last-20 must
+    include the game you just played.
+
+    The staleness rule cannot help here -- the account is minutes old, so it
+    is "current" by any threshold. It is the one account nothing else keeps
+    up to date, it costs a single call, and it is the row you actually read.
+    The comment claimed this was unconditional while the code gated it.
+    """
+    from valwr.live import resolve as R
+    now = 2_000_000_000
+    # Eight matches, the newest five minutes old: recent enough and deep
+    # enough that neither the staleness threshold nor the thin-history rule
+    # would ask for a refetch.
+    conn = _tiny_db(tmp_path, [(f"m{i}", "me", now - 300 - i * 3600)
+                               for i in range(8)])
+    assert R.has_history(conn, "me", now)
+    assert not R.is_stale(conn, "me", now), "fresh by every rule we have"
+
+    calls = []
+
+    class _Client:
+        def matches(self, region, platform, puuid, size, mode):
+            calls.append(puuid)
+            return {"data": []}
+
+    match = LiveMatch("live", "coregame", "Ascent", "BombGameMode",
+                      [LivePlayer("me", "Blue", "x", "Jett")])
+    R.resolve(conn, match, "me", now, client=_Client(), deadline_seconds=5)
+    assert calls == ["me"], "the local account must be fetched regardless"
+
+
+def test_a_player_who_played_two_hours_ago_counts_as_stale(tmp_path):
+    """19.3% of players queue again within the hour. A threshold that called
+    them current left their last-20 several games behind while looking fine."""
+    from valwr.live import resolve as R
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [(f"m{i}", "p", now - 3 * 3600 - i * 60)
+                               for i in range(8)])
+    assert R.has_history(conn, "p", now)
+    assert R.is_stale(conn, "p", now), "three hours old must be refetched"
+    assert R.STALE_AFTER_SECONDS <= 3 * 3600

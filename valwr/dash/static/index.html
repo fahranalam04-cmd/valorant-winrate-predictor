@@ -42,10 +42,6 @@
    The map's own key art, blurred and dimmed hard enough that type still
    passes contrast on it, with the panels frosted so the art reads through.
    --mapart is set from JS per match; with no art the gradient alone stands. */
-body{
-  background-image:var(--mapart,none);
-  background-size:cover;background-position:center 26%;
-  background-attachment:fixed;background-repeat:no-repeat}
 
 /* Two layers, and the order matters. The vignette darkens the edges where
    type sits closest to the artwork and stays light through the middle, so the
@@ -97,11 +93,19 @@ body .top{border-bottom-color:rgba(160,195,220,.26)}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
-  margin:0;background:var(--void);color:var(--bone);font:15px/1.5 var(--body);
-  /* A very faint diagonal weave, the texture Riot puts behind menu panels.
-     Two degrees off true so it never lines up with a row edge and moirés. */
-  background-image:
-    repeating-linear-gradient(118deg,rgba(255,255,255,.014) 0 1px,transparent 1px 7px);
+  margin:0;background-color:var(--void);color:var(--bone);
+  font:15px/1.5 var(--body);
+  /* The map being played, set from the state as `--mapart`.
+     This lives in the base rule rather than a later one on purpose. It used
+     to sit in its own `body{...}` block above, which lost outright: this rule
+     comes later in the sheet, and both `background:` and `background-image:`
+     here reset it to the weave. Equal specificity, so source order decided,
+     and the map never painted. */
+  background-image:var(--mapart,none);
+  background-size:cover;
+  background-position:center 26%;
+  background-attachment:fixed;
+  background-repeat:no-repeat;
 }
 .num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
 .disp{font-family:var(--display);font-stretch:condensed;letter-spacing:.02em}

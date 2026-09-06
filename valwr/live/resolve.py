@@ -36,11 +36,17 @@ from valwr.store import normalize, temporal
 # August match, marked the account known, and nothing ever refetched it. The
 # score was recomputed every game from identical history and never moved.
 #
-# Twelve hours is chosen so a session's earlier games count as current while
-# yesterday's do not. Crawled players sit at a median staleness of 0.6 days
-# because the crawl follows them; the local account is the one nothing else
-# keeps current, which is why it is refreshed unconditionally below.
-STALE_AFTER_SECONDS = 12 * 3600
+# Two hours, measured rather than guessed. Over 1,484 player-appearances with
+# prior history, 19.3% of players queue again within an hour and 22.4% within
+# three -- so a twelve-hour rule called a player "current" whose stored history
+# was already missing the games they had just played. That matters most for the
+# last-20 K/D on every row, which is computed from stored history and looks
+# entirely plausible while being several games behind.
+#
+# The budget allows it. The API grants 30 requests a minute, so a whole ten-man
+# lobby costs about 20 seconds against a 25-second deadline; being aggressive
+# here spends capacity that was otherwise idle.
+STALE_AFTER_SECONDS = 2 * 3600
 
 # Below this many stored matches the score is mostly prior anyway, so it is
 # worth a fetch even if the newest row is recent.
@@ -153,7 +159,11 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
     if on_progress:
         on_progress(out)
 
-    if client is None or not (out.unknown or out.stale):
+    # The local account is always worth one call, so it alone is not enough
+    # reason to stop here. This return used to fire whenever the lobby looked
+    # current, which skipped the unconditional refresh below entirely -- the
+    # comment said "unconditionally" and the code never reached it.
+    if client is None or not (out.unknown or out.stale or own_puuid):
         out.seconds = time.monotonic() - started
         return out
 
@@ -183,14 +193,18 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
             out.stale.discard(puuid)    # unfetchable; do not keep retrying it
             return True                 # the rest of the lobby still can be
 
-    # The local account first, unconditionally, before any deadline accounting.
-    # It is the score actually read every game, it costs one call, and it is
-    # the one account nothing else keeps current -- the crawl follows the
-    # players it discovers, not the person running this. Skipping it is what
-    # left the reported score frozen for twelve days.
+    # The local account first and *genuinely* unconditionally, before any
+    # deadline accounting. This comment claimed "unconditionally" while the
+    # code gated it on the staleness rule above, so finishing a game and
+    # requeueing five minutes later left your own last-20 missing the game you
+    # had just played -- the one row you actually read.
+    #
+    # It costs one call, it is the account nothing else keeps current (the
+    # crawl follows the players it discovers, not the person running this), and
+    # skipping it is what left the reported score frozen for twelve days.
     keep_going = True
-    if own_puuid in out.stale or own_puuid in out.unknown:
-        was_unknown = own_puuid in out.unknown
+    was_unknown = own_puuid in out.unknown
+    if own_puuid:
         keep_going = fetch(own_puuid)
         if keep_going:
             out.fetched += was_unknown
