@@ -14,6 +14,7 @@ data/
 # tools/fetch_agent_art.py. Generated asset, not source -- same reasoning as
 # models/ below.
 valwr/dash/static/agents/
+valwr/dash/static/maps/
 
 # Trained artefacts
 models/

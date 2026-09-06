@@ -45,6 +45,7 @@ POLL_SECONDS = 5.0
 
 STATIC = Path(__file__).resolve().parent / "static"
 AGENTS = STATIC / "agents"
+MAPS = STATIC / "maps"
 
 
 def _demo_payload() -> dict:
@@ -134,6 +135,8 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
     # which would turn "no art yet" into "no dashboard at all".
     if AGENTS.is_dir():
         app.mount("/agents", StaticFiles(directory=AGENTS), name="agents")
+    if MAPS.is_dir():
+        app.mount("/maps", StaticFiles(directory=MAPS), name="maps")
 
     @app.websocket("/ws")
     async def ws(socket: WebSocket):

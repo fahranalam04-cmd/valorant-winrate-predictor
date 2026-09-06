@@ -393,12 +393,16 @@ def test_the_dashboard_exposes_no_other_routes():
     about anyone, which is what docs/ETHICS-AND-TOS.md actually forbids -- an
     endpoint that looks a player up.
     """
-    from valwr.dash.server import AGENTS, build_app
+    from valwr.dash.server import AGENTS, MAPS, build_app
     paths = {r.path for r in build_app(no_fetch=True).routes
              if hasattr(r, "path")}
     expected = {"/", "/ws"}
-    if AGENTS.is_dir():          # only mounted once the art is downloaded
+    # Both are static directories of Riot's own art, mounted only once the
+    # files exist. Neither takes a parameter or names a player.
+    if AGENTS.is_dir():
         expected.add("/agents")
+    if MAPS.is_dir():
+        expected.add("/maps")
     assert paths == expected
 
 

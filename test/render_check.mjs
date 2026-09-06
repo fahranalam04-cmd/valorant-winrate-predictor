@@ -24,13 +24,22 @@ const code = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script
 const state = JSON.parse(readFileSync(statePath, "utf8"));
 
 const els = {};
-for (const id of ["pulse", "map", "sub", "stage", "foot"])
-  els[id] = { id, innerHTML: "", textContent: "", className: "", scrollTop: 0 };
+for (const id of ["pulse", "map", "sub", "stage", "foot", "themes"])
+  els[id] = { id, innerHTML: "", textContent: "", className: "", scrollTop: 0,
+              addEventListener(t, fn){ (this._h ||= {})[t] = fn; } };
 const handlers = {};
+const body = { dataset: {}, style: { _v: {},
+  setProperty(k, v){ this._v[k] = v; } } };
 globalThis.document = {
+  body,
   getElementById: id => els[id] || null,
   addEventListener: (t, fn) => { (handlers[t] ||= []).push(fn); },
+  // The picker rewrites its own aria-pressed after every switch; the harness
+  // only needs that call not to throw.
+  querySelectorAll: () => [],
 };
+// localStorage does not exist under node, so reading it throws -- which is
+// exactly what a private window does, and the page must fall back not break.
 globalThis.WebSocket = class { constructor(){ this.onopen = null; } };
 globalThis.location = { host: "127.0.0.1:8788" };
 globalThis.setTimeout = () => {};
@@ -146,6 +155,31 @@ np.prediction = null;
 render({ status: "match", state: np, top1_rate: 0.296 });
 ck("missing prediction says so",
    /Not enough of the roster/.test(els.stage.innerHTML));
+
+// --- themes ------------------------------------------------------------
+render({ status: "match", state, top1_rate: 0.296 });
+ck("picker built", /data-theme="midnight"/.test(els.themes.innerHTML));
+ck("five themes offered",
+   (els.themes.innerHTML.match(/<button data-theme=/g) || []).length === 5);
+ck("falls back to midnight when storage is unreadable",
+   body.dataset.theme === "midnight");
+ck("default layout is stacked", body.dataset.layout === "stack");
+
+applyTheme("splash");
+ck("switching sets the theme", body.dataset.theme === "splash");
+ck("splash switches the layout too", body.dataset.layout === "split");
+ck("splash paints the map",
+   (body.style._v["--mapart"] || "")
+     .includes(`/maps/${state.map.toLowerCase()}-splash.jpg`));
+
+applyTheme("tactical");
+ck("tactical is also split", body.dataset.layout === "split");
+applyTheme("bone");
+ck("daylight stacks again", body.dataset.layout === "stack");
+applyTheme("not-a-theme");
+ck("an unknown theme falls back rather than blanking the page",
+   body.dataset.theme === "midnight");
+applyTheme("midnight");
 
 console.log(bad ? `\n${bad} FAILED` : "\nall checks passed");
 process.exit(bad ? 1 : 0);

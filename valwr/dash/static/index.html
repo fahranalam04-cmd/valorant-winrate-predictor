@@ -40,6 +40,128 @@
   --display:"Bahnschrift","DIN Alternate","Oswald","Segoe UI",system-ui,sans-serif;
   --body:"Segoe UI",system-ui,-apple-system,sans-serif;
 }
+
+/* ==========================================================================
+   THEMES.  Every one of these redefines tokens only -- no component below
+   names a colour directly, so a theme cannot half-apply and leave one panel
+   in the previous palette. `midnight` is the set above and stays the default;
+   the others are additive and reversible from the picker in the header.
+   ========================================================================== */
+
+/* --- BONE · daylight ---------------------------------------------------
+   The inversion. Riot's off-white as the ground rather than as the type
+   colour, which is how the game's own menus and the esports broadcast
+   graphics treat it. Red has to darken to hold contrast on a light ground;
+   the cyan darkens further, since a light cyan on cream is unreadable. */
+body[data-theme="bone"]{
+  --void:#e6e1d8; --steel:#f6f3ed; --steel-2:#fffdf8; --sunk:#dbd5c9;
+  --line:#c9c1b2; --line-soft:#ded8cb;
+  --bone:#12181f; --bone-dim:#4a5560; --slate:#6d7883; --ghost:#9aa3ac;
+  --val:#c8323f; --atk:#c8323f; --def:#0a7580; --val-deep:#f0dcdd;
+  --gold:#9a6b16; --win:#1a7a52;
+  background-image:
+    repeating-linear-gradient(118deg,rgba(0,0,0,.018) 0 1px,transparent 1px 7px);
+}
+body[data-theme="bone"] .art{opacity:.30;mix-blend-mode:multiply}
+body[data-theme="bone"] .row.unknown .art{opacity:.10}
+body[data-theme="bone"] .phero{background:#cdc6b8}
+body[data-theme="bone"] .pid .pn,body[data-theme="bone"] .pid .pa{
+  text-shadow:0 1px 8px rgba(255,255,255,.9)}
+body[data-theme="bone"] .flag{background:rgba(200,50,63,.09);color:#8f2731}
+body[data-theme="bone"] .warn{background:rgba(154,107,22,.10);color:#7a5512}
+
+/* --- SPLASH · the map itself ------------------------------------------
+   The map's own key art, blurred and dimmed hard enough that type still
+   passes contrast on it, with the panels frosted so the art reads through.
+   --mapart is set from JS per match; with no art the gradient alone stands. */
+body[data-theme="splash"]{
+  --void:#080b10; --steel:rgba(14,20,28,.80); --steel-2:rgba(22,31,42,.84);
+  --sunk:rgba(8,11,16,.72);
+  --line:rgba(120,150,175,.24); --line-soft:rgba(120,150,175,.13);
+  --bone:#f2f5f8; --bone-dim:#b6c4d0; --slate:#8798a6; --ghost:#5d6b78;
+  --val:#ff4655; --atk:#ff5865; --def:#38d8e4; --val-deep:#3d1218;
+  background-image:var(--mapart,none);
+  background-size:cover;background-position:center 32%;
+  background-attachment:fixed;background-repeat:no-repeat}
+body[data-theme="splash"]::before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  backdrop-filter:blur(11px) saturate(.72);
+  background:linear-gradient(180deg,rgba(6,9,13,.80),rgba(6,9,13,.93))}
+body[data-theme="splash"] .row,body[data-theme="splash"] .panel,
+body[data-theme="splash"] .fx{backdrop-filter:blur(7px)}
+body[data-theme="splash"] .map{text-shadow:0 3px 26px rgba(0,0,0,.85)}
+
+/* --- RADIANT · neon ----------------------------------------------------
+   The rank the whole ladder is pointed at. Near-black, one hot magenta and
+   one electric cyan, and light that spills -- glow on the accents, a fine
+   scanline over everything. Loud on purpose; the restraint is that only the
+   two accents glow and nothing else does. */
+body[data-theme="radiant"]{
+  --void:#04060a; --steel:#0a0e16; --steel-2:#101725; --sunk:#06090e;
+  --line:#1d2b42; --line-soft:#141d2c;
+  --bone:#f4f7fb; --bone-dim:#a8b8cc; --slate:#6f8098; --ghost:#455568;
+  --val:#ff2d78; --atk:#ff2d78; --def:#00e5ff; --val-deep:#2a0618;
+  --gold:#ffd24a; --win:#2bf0b0;
+  background-image:
+    repeating-linear-gradient(0deg,rgba(255,255,255,.030) 0 1px,transparent 1px 3px);
+}
+body[data-theme="radiant"] .row.known::before{box-shadow:0 0 14px 1px currentColor}
+body[data-theme="radiant"] .atkc .row.known::before{color:var(--atk)}
+body[data-theme="radiant"] .defc .row.known::before{color:var(--def)}
+body[data-theme="radiant"] .score{text-shadow:0 0 22px currentColor}
+body[data-theme="radiant"] .bigscore b{text-shadow:0 0 30px currentColor}
+body[data-theme="radiant"] .oddsbar .atk{box-shadow:0 0 26px rgba(255,45,120,.6)}
+body[data-theme="radiant"] .oddsbar .def{box-shadow:0 0 26px rgba(0,229,255,.55)}
+body[data-theme="radiant"] .tname{text-shadow:0 0 18px currentColor}
+body[data-theme="radiant"] .map{
+  background:linear-gradient(96deg,var(--atk),var(--def));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* --- TACTICAL · blueprint ---------------------------------------------
+   The opposite bet: no fills, no chamfer, one accent, and a survey grid
+   under everything. Colour is reserved for data -- the score, a win, a
+   flag -- so anything coloured is something to look at. Rows compress so a
+   full lobby fits without scrolling. */
+body[data-theme="tactical"]{
+  --void:#0d1114; --steel:#11171b; --steel-2:#151d22; --sunk:#0a0e11;
+  --line:#26333a; --line-soft:#1a242a;
+  --bone:#dfe7ea; --bone-dim:#94a6ad; --slate:#6b7d85; --ghost:#495b64;
+  --val:#e0603a; --atk:#e0603a; --def:#4f9aa8; --val-deep:#2a1610;
+  --gold:#c9a227; --win:#5aa87a;
+  background-image:
+    linear-gradient(rgba(120,160,175,.045) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(120,160,175,.045) 1px,transparent 1px);
+  background-size:28px 28px,28px 28px}
+body[data-theme="tactical"] .row,body[data-theme="tactical"] .panel,
+body[data-theme="tactical"] .fx,body[data-theme="tactical"] .oddsbar{
+  clip-path:none;border:1px solid var(--line)}
+body[data-theme="tactical"] .row{height:48px;margin-bottom:3px;
+  grid-template-columns:52px minmax(0,1fr) repeat(4,60px)}
+body[data-theme="tactical"] .art{opacity:.16;filter:grayscale(1) contrast(1.2)}
+body[data-theme="tactical"] .row.known{background:var(--steel)}
+body[data-theme="tactical"] .score{font-size:24px}
+body[data-theme="tactical"] .rs{font-size:10.5px}
+body[data-theme="tactical"] .map{font-size:44px}
+body[data-theme="tactical"] .st b{font-size:15px}
+
+/* --- layout: teams side by side, for the themes that want the ground to
+   show through or the whole lobby to fit at once ----------------------- */
+body[data-layout="split"] .rosters{display:grid;
+  grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+@media(max-width:980px){body[data-layout="split"] .rosters{
+  grid-template-columns:1fr}}
+
+/* --- the picker -------------------------------------------------------- */
+.themes{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.themes .lbl{font:600 9px/1 var(--display);letter-spacing:.2em;
+  text-transform:uppercase;color:var(--ghost);margin-right:3px}
+.themes button{width:24px;height:24px;padding:0;cursor:pointer;
+  border:1px solid var(--line);background:var(--sw,#222);position:relative;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 5px),calc(100% - 5px) 100%,0 100%)}
+.themes button:hover{border-color:var(--bone-dim)}
+.themes button[aria-pressed="true"]{border-color:var(--bone);
+  box-shadow:0 0 0 1px var(--bone)}
+.themes button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{
@@ -250,6 +372,7 @@ table.tw tr+tr td{border-top:1px solid var(--line-soft)}
       <h1 class="map" id="map">—</h1>
       <div class="mapsub" id="sub">connecting</div>
     </div>
+    <div class="themes" id="themes" role="group" aria-label="Theme"></div>
   </div>
   <div id="stage"><div class="idle">connecting…</div></div>
   <div class="foot" id="foot"></div>
@@ -266,6 +389,61 @@ const pc = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
 const i0 = v => v == null ? "—" : String(v);
 
 let STATE = null, selected = null, top1 = null, tries = 0;
+
+/* Five palettes over one set of markup. `midnight` is the original and the
+   fallback: nothing else is required for the page to work, and an unknown or
+   unreadable stored value lands back on it. Layout is tied to the theme --
+   the two that want a visible ground or a whole lobby at once put the teams
+   side by side. */
+const THEMES = [
+  {id: "midnight", name: "Midnight",  layout: "stack", sw: "#0b1016"},
+  {id: "bone",     name: "Daylight",  layout: "stack", sw: "#e6e1d8"},
+  {id: "splash",   name: "Map splash",layout: "split", sw: "#1d3a4d"},
+  {id: "radiant",  name: "Radiant",   layout: "stack", sw: "#ff2d78"},
+  {id: "tactical", name: "Tactical",  layout: "split", sw: "#1a242a"},
+];
+const DEFAULT_THEME = "midnight";
+let theme = DEFAULT_THEME;
+
+function readStoredTheme(){
+  // Private windows and cleared site data both throw here rather than
+  // returning null, so the read is guarded and simply falls back.
+  try {
+    const v = localStorage.getItem("valwr-theme");
+    return THEMES.some(t => t.id === v) ? v : DEFAULT_THEME;
+  } catch (e) { return DEFAULT_THEME; }
+}
+
+function applyTheme(id){
+  const t = THEMES.find(x => x.id === id) || THEMES[0];
+  theme = t.id;
+  document.body.dataset.theme = t.id;
+  document.body.dataset.layout = t.layout;
+  try { localStorage.setItem("valwr-theme", t.id); } catch (e) {}
+  for (const b of document.querySelectorAll("#themes button"))
+    b.setAttribute("aria-pressed", String(b.dataset.theme === t.id));
+  setMapArt();
+}
+
+/* Only the splash theme paints the map, but the variable is set regardless so
+   switching to it mid-match does not wait for the next poll. */
+function setMapArt(){
+  const name = STATE && STATE.map
+    ? STATE.map.toLowerCase().replace(/[^a-z0-9]/g, "") : "";
+  document.body.style.setProperty("--mapart",
+    name ? `url("/maps/${name}-splash.jpg")` : "none");
+}
+
+function buildPicker(){
+  const host = document.getElementById("themes");
+  host.innerHTML = `<span class="lbl">theme</span>` + THEMES.map(t =>
+    `<button data-theme="${t.id}" title="${t.name}" aria-label="${t.name}"
+       aria-pressed="false" style="--sw:${t.sw}"></button>`).join("");
+  host.addEventListener("click", e => {
+    const b = e.target.closest("button[data-theme]");
+    if (b) applyTheme(b.dataset.theme);
+  });
+}
 
 const artURL = (p, k) =>
   p.agent_id ? `/agents/${encodeURIComponent(p.agent_id)}-${k}.png` : "";
@@ -441,6 +619,7 @@ function render(msg){
   if (selected && !s.players.some(p => p.puuid === selected)) selected = null;
 
   $("map").textContent = s.map || "UNKNOWN MAP";
+  setMapArt();
   const phase = s.is_custom ? "Custom" : s.phase === "pregame" ? "Agent select" : "Live";
   $("sub").innerHTML = `${esc(phase)} <b>·</b> ${esc(s.mode || "—")} <b>·</b> ` +
     `${s.coverage}/10 known <b>·</b> ${esc(s.confidence)} confidence`;
@@ -480,7 +659,7 @@ function render(msg){
 
   const keep = $("pbody"), sc = keep ? keep.scrollTop : 0;
   $("stage").innerHTML = head + `<div class="grid">
-      <div>${teamHTML(s, "Red")}${teamHTML(s, "Blue")}${fx}</div>
+      <div><div class="rosters">${teamHTML(s, "Red")}${teamHTML(s, "Blue")}</div>${fx}</div>
       ${panelHTML(s)}</div>`;
   const now = $("pbody"); if (now) now.scrollTop = sc;
 
@@ -528,6 +707,8 @@ function connect(){
     setTimeout(connect, 3000);
   };
 }
+buildPicker();
+applyTheme(readStoredTheme());
 connect();
 </script>
 </body>

@@ -1,15 +1,26 @@
-"""Download agent artwork for the dashboard, once.
+"""Download the dashboard's artwork, once.
 
-    python tools/fetch_agent_art.py
+    python tools/fetch_agent_art.py            # agents and maps
+    python tools/fetch_agent_art.py --reprocess  # resize what is on disk
 
-Saves two files per agent into valwr/dash/static/agents/:
+Three files per agent, into valwr/dash/static/agents/:
 
-    <uuid>-icon.png       the square portrait, shown on every scoreboard row
-    <uuid>-portrait.png   the full-body art, shown in the detail panel
+    <uuid>-row.png        480px wide, the art bleeding across a scoreboard row
+    <uuid>-portrait.png   560px tall, the detail-panel hero
+    <uuid>-icon.png       96px square, the compact agent tile
 
-The UUIDs are Riot's own, the same ones already in `ref_agents` and the same
-ones the live client reports as `CharacterID`, so the page addresses a file
-directly from the roster with no lookup table.
+and one per map, into valwr/dash/static/maps/:
+
+    <name>-splash.jpg     1280px wide, the background some themes use
+
+The agent UUIDs are Riot's own, the same ones already in `ref_agents` and the
+same ones the live client reports as `CharacterID`; map files are keyed by the
+lowercased map name, which is exactly what the live state carries. Either way
+the page addresses a file straight from the match with no lookup table.
+
+Everything is resized on the way in. Riot ships these at print resolution --
+the agent portraits are ~705 KB each and the scoreboard shows ten at once --
+so resizing once here saves the browser megabytes of decode on every paint.
 
 **Why bundle rather than hotlink.** The dashboard runs while you are in a game.
 An external image request per agent means the page depends on a CDN being up
@@ -36,7 +47,9 @@ sys.path.insert(0, ".")
 import httpx
 
 API = "https://valorant-api.com/v1/agents?isPlayableCharacter=true"
+MAPS_API = "https://valorant-api.com/v1/maps"
 DEST = Path("valwr/dash/static/agents")
+MAPS = Path("valwr/dash/static/maps")
 TIMEOUT = 30.0
 
 # What to save from each agent entry: (api field, filename suffix).
@@ -52,7 +65,10 @@ WANTED = (("displayIcon", "icon"), ("fullPortrait", "portrait"))
 #   icon      square agent tile, 30 CSS px
 #
 # Each is sized for a 2x display and no larger.
-SIZES = {"row": ("width", 480), "portrait": ("height", 560), "icon": ("box", 96)}
+SIZES = {"row": ("width", 480), "portrait": ("height", 560), "icon": ("box", 96),
+         # Map splashes are only ever shown blurred and darkened behind the
+         # scoreboard, so they need far less resolution than they ship at.
+         "splash": ("width", 1280)}
 
 
 def _shrink(path: Path, kind: str) -> None:
@@ -84,6 +100,66 @@ def _shrink(path: Path, kind: str) -> None:
         pass
 
 
+def _save_jpeg(path: Path, blob: bytes) -> None:
+    """Map splashes are photographs shown blurred behind the scoreboard.
+
+    PNG is the wrong container for them -- 20 of these came to 27.6 MB as PNG
+    and about a tenth of that as JPEG, with no visible difference through a
+    blur and a dark scrim. Alpha is dropped deliberately: a background has
+    nothing to composite against.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        path.with_suffix(".png").write_bytes(blob)
+        return
+    import io
+    with Image.open(io.BytesIO(blob)) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        target = SIZES["splash"][1]
+        if w > target:
+            im = im.resize((target, max(1, round(h * target / w))), Image.LANCZOS)
+        im.save(path, "JPEG", quality=82, optimize=True, progressive=True)
+
+
+def slug(name: str) -> str:
+    """`Pearl` -> `pearl`. The live state names maps exactly as this API does,
+    so the page can address a file straight from the match without a lookup."""
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def fetch_maps(client) -> int:
+    """Map splash art, used as a background by the themes that want one."""
+    MAPS.mkdir(parents=True, exist_ok=True)
+    try:
+        data = client.get(MAPS_API).json().get("data") or []
+    except Exception as e:                           # noqa: BLE001
+        print(f"  maps: {type(e).__name__}; skipping")
+        return 0
+    got = 0
+    for m in data:
+        name, url = m.get("displayName"), m.get("splash")
+        # The listing carries practice ranges and unreleased entries; only real
+        # competitive maps get a file.
+        if not name or not url or "skirmish" in name.lower():
+            continue
+        path = MAPS / f"{slug(name)}-splash.jpg"
+        if path.exists():
+            continue
+        try:
+            r = client.get(url)
+            r.raise_for_status()
+            _save_jpeg(path, r.content)
+            got += 1
+        except Exception as e:                       # noqa: BLE001
+            print(f"  map {name}: {type(e).__name__}")
+    size = sum(f.stat().st_size for f in MAPS.glob("*.jpg"))
+    print(f"maps: {got} downloaded, {len(list(MAPS.glob('*.jpg')))} on disk, "
+          f"{size / 1e6:.1f} MB")
+    return got
+
+
 def reprocess() -> int:
     """Resize whatever is already on disk, without re-downloading.
 
@@ -100,6 +176,9 @@ def reprocess() -> int:
         n += 1
     for path in sorted(DEST.glob("*-icon.png")):
         _shrink(path, "icon")
+    for path in sorted(MAPS.glob("*-splash.png")):
+        _save_jpeg(path.with_suffix(".jpg"), path.read_bytes())
+        path.unlink()
     size = sum(f.stat().st_size for f in DEST.glob("*.png"))
     print(f"reprocessed {n} agents; {len(list(DEST.glob('*.png')))} files, "
           f"{size / 1e6:.1f} MB")
@@ -167,6 +246,7 @@ def main(argv=None) -> int:
                     failed += 1
                     print(f"  {name} {suffix}: {type(e).__name__}")
 
+        fetch_maps(client)
         print(f"\n{len(agents)} agents: {got} downloaded, {skipped} already "
               f"present, {failed} failed")
         print(f"into {DEST}")
