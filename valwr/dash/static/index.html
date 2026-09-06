@@ -592,13 +592,13 @@ function render(msg){
     `Career figures are raw totals; the score shrinks them toward the population
      average, so a player with few games will show a career ACS that differs
      from their score component. `
-    + `<b>Competitive only, and pooled.</b> K/D is total kills over total
-     deaths, not the average of per-match ratios, and swiftplay, customs and
-     the rotating queues are excluded. Third-party trackers usually do the
-     opposite on both counts and pool every mode, so their figure reads higher
-     — for one account here, 0.89 against their 0.95. Neither is wrong; they
-     are answering different questions, and this one is answering "how does
-     this player do in the queue we are predicting". `
+    + `<b>Competitive only, and pooled.</b> Every figure here — ACS, K/D, the
+     last 20, headshot %, the map record — counts ranked games and nothing
+     else; swiftplay, customs and the rotating queues are excluded in the
+     query, not by luck. K/D is total kills over total deaths rather than the
+     average of per-match ratios, so one 10-and-1 game cannot drag twenty
+     others upward. Third-party trackers usually pool every mode and average
+     the ratios, which is why theirs reads higher. `
     + `Read-only — never writes to the game.`;
 }
 

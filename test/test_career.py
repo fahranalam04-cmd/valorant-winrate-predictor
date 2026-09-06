@@ -163,3 +163,39 @@ def test_kd_is_pooled_not_an_average_of_ratios(tmp_path):
     assert abs(pooled - 1.047) < 0.001
     assert abs(averaged - 1.45) < 0.001
     assert pooled < averaged, "the outlier must not dominate a pooled figure"
+
+
+def test_only_competitive_matches_are_counted(tmp_path):
+    """Every figure on the scoreboard is about competitive play.
+
+    Swiftplay is shorter and customs are not matchmade, so pooling them moves
+    a player's K/D without saying so -- and the model has only ever seen
+    competitive. The database holds nothing else today, which is exactly why
+    this is asserted: "correct as long as nobody ingests another queue" is not
+    a guarantee, and the failure would be silent.
+    """
+    conn = _db(tmp_path, [ONE, TWO])
+    # Same rows again, relabelled as other queues.
+    for i, (mode, row) in enumerate((("swiftplay", ONE), ("custom", TWO))):
+        mid = f"other{i}"
+        ts, k, d, a, hs, bs, ls, sc, rp, won = row
+        conn.execute(
+            "INSERT INTO matches (match_id, started_at, map, mode, queue, "
+            "region, season, rounds_red, rounds_blue, winner, data_quality, "
+            "ingested_at) VALUES (?, ?, 'Ascent', ?, 'Standard', 'na', 's', "
+            "9, 13, 'Blue', NULL, 0)", (mid, ts - 10, mode))
+        conn.execute(
+            "INSERT INTO match_players (match_id, puuid, team, agent, "
+            "party_id, tier, account_level, score, kills, deaths, assists, "
+            "headshots, bodyshots, legshots, damage_dealt, damage_taken, "
+            "started_at, map, won, rounds_played) VALUES "
+            "(?, 'p', 'Blue', 'Jett', NULL, 15, 100, 9999, 99, 1, 9, 99, 1, "
+            "1, 3000, 3000, ?, 'Ascent', 1, 20)", (mid, ts - 10))
+    conn.commit()
+
+    c = temporal.career_totals(conn, "p", NOW)
+    assert c.games == 2, "a swiftplay and a custom game leaked in"
+    assert c.kills == 20 and c.deaths == 30
+    assert temporal.recent_totals(conn, "p", NOW, last_n=20).games == 2
+    assert len(temporal.player_history(conn, "p", NOW)) == 2
+    assert temporal.record(conn, "p", NOW).games == 2

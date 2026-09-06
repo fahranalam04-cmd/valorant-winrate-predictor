@@ -21,6 +21,21 @@ from dataclasses import dataclass
 
 # started_at is denormalised onto match_players (see docs/DATA.md), so history
 # is one index range scan rather than a join fanning out per match.
+# Every figure this project computes is about *competitive* play, because that
+# is the only thing the model was trained on and the only thing it predicts.
+# Swiftplay is shorter, customs are not matchmade, and pooling them would move
+# a player's K/D without saying so.
+#
+# The database happens to hold nothing else today -- all 68,847 matches are
+# competitive -- so this filter changes no current result. It is here because
+# "correct as long as nobody ingests another queue" is not a guarantee, and
+# the failure would be silent: every number would still look plausible.
+COMPETITIVE = "competitive"
+
+_ONLY_COMPETITIVE = (
+    " AND mp.match_id IN (SELECT match_id FROM matches WHERE mode = ?)")
+
+
 _SELECT = """
 SELECT mp.match_id, mp.started_at, mp.puuid, mp.team, mp.agent, mp.tier,
        -- Pre-match identity, same class as tier: known before the first round
@@ -45,8 +60,8 @@ WHERE mp.puuid = ? AND mp.started_at < ?
 
 def _query(conn, puuid: str, as_of: int, extra: str = "", params: tuple = (),
            limit: int | None = None) -> list[sqlite3.Row]:
-    sql = _SELECT + extra + " ORDER BY mp.started_at DESC"
-    args: list = [puuid, as_of, *params]
+    sql = _SELECT + _ONLY_COMPETITIVE + extra + " ORDER BY mp.started_at DESC"
+    args: list = [puuid, as_of, COMPETITIVE, *params]
     if limit is not None:
         sql += " LIMIT ?"
         args.append(limit)
@@ -105,8 +120,9 @@ class Record:
 def _record(conn, puuid: str, as_of: int, extra: str = "",
             params: tuple = (), last_n: int | None = None) -> Record:
     inner = ("SELECT mp.won FROM match_players mp "
-             "WHERE mp.puuid = ? AND mp.started_at < ? AND mp.won IS NOT NULL" + extra)
-    args: list = [puuid, as_of, *params]
+             "WHERE mp.puuid = ? AND mp.started_at < ? AND mp.won IS NOT NULL"
+             + _ONLY_COMPETITIVE + extra)
+    args: list = [puuid, as_of, COMPETITIVE, *params]
     if last_n is not None:
         inner += " ORDER BY mp.started_at DESC LIMIT ?"
         args.append(last_n)
@@ -208,9 +224,9 @@ class Career:
 
 def _totals(conn, puuid: str, as_of: int, last_n: int | None = None) -> Career:
     inner = ("SELECT kills, deaths, assists, headshots, bodyshots, legshots, "
-             "score, rounds_played, won FROM match_players "
-             "WHERE puuid = ? AND started_at < ?")
-    args: list = [puuid, as_of]
+             "score, rounds_played, won FROM match_players mp "
+             "WHERE puuid = ? AND started_at < ?" + _ONLY_COMPETITIVE)
+    args: list = [puuid, as_of, COMPETITIVE]
     if last_n is not None:
         # Newest first, then cut. The LIMIT applies to matches before `as_of`,
         # never around it -- ordering after the time filter, not instead of it.
@@ -285,8 +301,9 @@ def population_win_rate(conn, as_of: int) -> float:
     """Prior for shrinkage. ~0.5 by construction, but measure rather than assume."""
     row = conn.execute(
         "SELECT COUNT(*) games, COALESCE(SUM(won), 0) wins FROM match_players "
-        "WHERE started_at < ? AND won IS NOT NULL", (as_of,)
-    ).fetchone()
+        "WHERE started_at < ? AND won IS NOT NULL "
+        "AND match_id IN (SELECT match_id FROM matches WHERE mode = ?)",
+        (as_of, COMPETITIVE)).fetchone()
     return (row["wins"] / row["games"]) if row["games"] else 0.5
 
 # A match needs at least this many players present before finishing near
@@ -323,6 +340,7 @@ def lobby_dominance(conn: sqlite3.Connection, puuid: str, as_of: int,
                           > 1.0 * mp.score / mp.rounds_played) AS better
             FROM match_players mp
             WHERE mp.puuid = ? AND mp.started_at < ? AND mp.rounds_played > 0
+              AND mp.match_id IN (SELECT match_id FROM matches WHERE mode = ?)
               -- Only matches where we actually hold a lobby to compare
               -- against. Without this a partially-scraped match counts as a
               -- win by default, and a synthetic solo match scores a perfect
@@ -331,7 +349,7 @@ def lobby_dominance(conn: sqlite3.Connection, puuid: str, as_of: int,
               AND (SELECT COUNT(*) FROM match_players q
                    WHERE q.match_id = mp.match_id AND q.rounds_played > 0) >= ?
         )
-        """, (top_n, puuid, as_of, MIN_LOBBY)).fetchone()
+        """, (top_n, puuid, as_of, COMPETITIVE, MIN_LOBBY)).fetchone()
     n = row["n"] or 0
     return ((row["top"] or 0) / n, n) if n else (0.0, 0)
 
