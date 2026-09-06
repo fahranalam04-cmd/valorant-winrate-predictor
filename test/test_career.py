@@ -137,3 +137,29 @@ def test_recent_is_capped_by_what_exists(tmp_path):
 def test_recent_obeys_the_same_time_firewall(tmp_path):
     conn = _db(tmp_path, [ONE, TWO, (NOW, 99, 0, 0, 9, 0, 0, 9999, 24, 1)])
     assert temporal.recent_totals(conn, "p", NOW, last_n=20).games == 2
+
+
+def test_kd_is_pooled_not_an_average_of_ratios(tmp_path):
+    """Two defensible definitions, and they disagree by enough to matter.
+
+    Pooled is total kills over total deaths. The alternative -- averaging each
+    match's own K/D -- is what most third-party trackers show, and it reads
+    higher because a game with very few deaths produces a huge ratio that an
+    average lets dominate. On one real account the same twenty games gave
+    0.894 pooled against 0.921 averaged.
+
+    Pooled is the right aggregate here: it weights a long game more than a
+    short one, which is what "how does this player do" should mean.
+    """
+    # 19 ordinary games and one 10-kill, 1-death outlier.
+    rows = [(NOW - 3600 * (i + 2), 10, 10, 2, 20, 60, 20, 3000, 20, 1)
+            for i in range(19)]
+    rows.append((NOW - 3600, 10, 1, 2, 20, 60, 20, 3000, 20, 1))
+    c = temporal.recent_totals(_db(tmp_path, rows), "p", NOW, last_n=20)
+
+    pooled = c.kd
+    averaged = (19 * (10 / 10) + (10 / 1)) / 20
+    assert pooled == 200 / 191
+    assert abs(pooled - 1.047) < 0.001
+    assert abs(averaged - 1.45) < 0.001
+    assert pooled < averaged, "the outlier must not dominate a pooled figure"

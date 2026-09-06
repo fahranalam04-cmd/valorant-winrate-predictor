@@ -497,6 +497,8 @@ function panelHTML(s){
             esc(d.freshness.label)}</span></div>
         <div class="cmp"><span class="k">Matches on record</span>
           <span class="v">${i0(d.freshness.games_known)}</span></div>
+        <div class="cmp"><span class="k">Queues counted</span>
+          <span class="v">competitive only</span></div>
       </div>`;
   }
 
@@ -589,7 +591,15 @@ function render(msg){
       the time against 20% by chance: a real edge, not a reliable one. ` : "") +
     `Career figures are raw totals; the score shrinks them toward the population
      average, so a player with few games will show a career ACS that differs
-     from their score component. Read-only — never writes to the game.`;
+     from their score component. `
+    + `<b>Competitive only, and pooled.</b> K/D is total kills over total
+     deaths, not the average of per-match ratios, and swiftplay, customs and
+     the rotating queues are excluded. Third-party trackers usually do the
+     opposite on both counts and pool every mode, so their figure reads higher
+     — for one account here, 0.89 against their 0.95. Neither is wrong; they
+     are answering different questions, and this one is answering "how does
+     this player do in the queue we are predicting". `
+    + `Read-only — never writes to the game.`;
 }
 
 document.addEventListener("click", e => {
