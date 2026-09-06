@@ -39,12 +39,12 @@ REASONS = [
     "high combat score",
     None,
     "middle of the pack",
-    "below par lately",
+    "below par lately, but only 4 games",
     "wins duels",
     "consistently strong",
     None,
     "middle of the pack",
-    "loses duels, but only 22 games",
+    "loses duels",
 ]
 
 # score, career games, acs, k, d, a, kd, hs, winrate, map games
@@ -53,12 +53,12 @@ PROFILES = [
     (67, 188, 224.8, 2610, 2430, 998, 1.07, 0.243, 0.51, 12),
     (None, 0, None, 0, 0, 0, None, None, None, 0),
     (54, 96, 209.1, 1290, 1355, 612, 0.95, 0.219, 0.47, 8),
-    (46, 31, 196.3, 402, 470, 233, 0.86, 0.198, 0.42, 3),
+    (46, 4, 196.3, 52, 61, 30, 0.86, 0.198, 0.42, 1),
     (91, 74, 288.7, 1249, 812, 261, 1.54, 0.334, 0.71, 9),
     (63, 260, 218.2, 3520, 3380, 1502, 1.04, 0.236, 0.50, 21),
     (None, 0, None, 0, 0, 0, None, None, None, 0),
     (58, 143, 213.6, 1902, 1930, 870, 0.99, 0.227, 0.49, 11),
-    (41, 22, 188.4, 268, 331, 160, 0.81, 0.191, 0.39, 2),
+    (41, 11, 188.4, 134, 166, 80, 0.81, 0.191, 0.39, 2),
 ]
 
 MAP = "Ascent"

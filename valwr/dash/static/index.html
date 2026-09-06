@@ -3,183 +3,256 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>valwr live</title>
+<title>valwr live — broadcast</title>
 <style>
-  :root{
-    --paper:#0e1116; --card:#161a21; --raised:#1c2129; --sunk:#12151b;
-    --ink:#e9edf3; --soft:#a4aebc; --faint:#6f7987; --dim:#4d5560;
-    --rule:#272d37;
-    --red:#e5484d;  --red-sunk:#2a1719;  --red-line:#7a2a2e;
-    --blue:#4f9ddb; --blue-sunk:#152331; --blue-line:#2c5c85;
-    --warn:#d9a441; --bad:#e07070; --good:#5fbf9f; --you:#f0c674;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--paper);color:var(--ink);
-    font:15px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
-  .wrap{max-width:1340px;margin:0 auto;padding:20px 20px 60px}
-  .mono,.num{font-variant-numeric:tabular-nums}
+/* ==========================================================================
+   Palette taken from VALORANT's own UI rather than invented: the signature
+   red, the deep desaturated navy the menus sit on, and the warm off-white
+   Riot uses for type. Attack red / defend cyan is the in-game side language.
 
-  /* ---- header ---- */
-  header{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
-  h1{font-size:15px;margin:0;color:var(--faint);font-weight:600;
-    letter-spacing:.14em;text-transform:uppercase}
-  .mapname{font-size:30px;font-weight:700;letter-spacing:-.02em;margin:0;
-    line-height:1.05}
-  .meta{color:var(--faint);font-size:12.5px;margin-top:4px}
-  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;
-    background:var(--good);margin-right:7px;vertical-align:middle}
-  .dot.off{background:var(--bad)}
+   Type is Bahnschrift -- Microsoft's DIN, already installed on Windows -- for
+   the condensed uppercase that game reads in, with Segoe UI carrying body
+   text. Nothing is fetched: this page must not make a network request while
+   you are loading into a match, which is the same reason the agent art is
+   downloaded ahead of time rather than hotlinked.
+   ========================================================================== */
+:root{
+  --void:#0b1016;        /* page */
+  --steel:#101823;       /* panels */
+  --steel-2:#16202c;     /* raised rows */
+  --sunk:#0d141c;
+  --line:#20303f;
+  --line-soft:#182531;
 
-  .bar{display:flex;height:40px;border-radius:5px;overflow:hidden;
-    border:1px solid var(--rule);margin-top:16px}
-  .bar div{display:flex;align-items:center;justify-content:center;
-    font-weight:700;font-size:15px;color:#0e1116;min-width:0}
-  .reading{margin-top:7px;color:var(--soft);font-size:13px}
+  --bone:#ece8e1;        /* Riot's off-white */
+  --bone-dim:#9bb0bf;
+  --slate:#69818f;
+  --ghost:#425464;
 
-  .note{background:var(--raised);border-left:2px solid var(--warn);
-    padding:8px 12px;border-radius:0 4px 4px 0;margin-top:10px;
-    color:var(--soft);font-size:12.5px}
+  --val:#ff4655;         /* the red */
+  --val-deep:#3d1218;
+  --atk:#ff4655;
+  --def:#00c8d7;
+  --def-deep:#062a30;
+  --gold:#e7c27d;
+  --win:#3ad6a0;
 
-  /* ---- layout ---- */
-  .grid{display:grid;grid-template-columns:minmax(0,1fr) 348px;gap:18px;
-    margin-top:20px;align-items:start}
-  @media(max-width:980px){.grid{grid-template-columns:minmax(0,1fr)}}
+  --display:"Bahnschrift","DIN Alternate","Oswald","Segoe UI",system-ui,sans-serif;
+  --body:"Segoe UI",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--void);color:var(--bone);font:15px/1.5 var(--body);
+  /* A very faint diagonal weave, the texture Riot puts behind menu panels.
+     Two degrees off true so it never lines up with a row edge and moirés. */
+  background-image:
+    repeating-linear-gradient(118deg,rgba(255,255,255,.014) 0 1px,transparent 1px 7px);
+}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.disp{font-family:var(--display);font-stretch:condensed;letter-spacing:.02em}
 
-  /* ---- team tables ---- */
-  .team{border:1px solid var(--rule);border-radius:6px;overflow:hidden;
-    margin-bottom:14px;background:var(--card)}
-  .team h2{margin:0;padding:8px 12px;font-size:11px;font-weight:700;
-    letter-spacing:.13em;text-transform:uppercase;display:flex;
-    justify-content:space-between;align-items:baseline;gap:10px}
-  .team.red h2{background:var(--red-sunk);color:var(--red);
-    border-bottom:1px solid var(--red-line)}
-  .team.blue h2{background:var(--blue-sunk);color:var(--blue);
-    border-bottom:1px solid var(--blue-line)}
-  .team h2 .side{font-weight:600;letter-spacing:.08em;opacity:.72}
+.shell{max-width:1400px;margin:0 auto;padding:20px 22px 64px}
 
-  table{width:100%;border-collapse:collapse}
-  thead th{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--dim);font-weight:600;text-align:right;padding:6px 10px 5px;
-    border-bottom:1px solid var(--rule)}
-  thead th.l{text-align:left}
-  tbody tr{border-bottom:1px solid var(--sunk);cursor:pointer}
-  tbody tr:last-child{border-bottom:0}
-  tbody tr:hover{background:var(--raised)}
-  tbody tr.sel{background:var(--raised);box-shadow:inset 3px 0 0 var(--you)}
-  tbody tr:focus-visible{outline:2px solid var(--you);outline-offset:-2px}
-  td{padding:6px 10px;text-align:right;font-size:13.5px}
-  td.l{text-align:left}
+/* ---------- header ------------------------------------------------------ */
+.top{display:flex;align-items:flex-end;gap:22px;flex-wrap:wrap;
+  padding-bottom:14px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:9px;font:600 11px/1 var(--display);
+  letter-spacing:.34em;text-transform:uppercase;color:var(--slate)}
+.pulse{width:6px;height:6px;background:var(--win);
+  clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+.pulse.off{background:var(--val)}
+.mapwrap{flex:1;min-width:240px}
+.map{font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:58px;line-height:.9;letter-spacing:.01em;text-transform:uppercase;
+  margin:6px 0 0}
+.mapsub{color:var(--slate);font:600 10.5px/1 var(--display);letter-spacing:.24em;
+  text-transform:uppercase;margin-top:8px}
+.mapsub b{color:var(--bone-dim);font-weight:600}
 
-  /* known vs unknown: the whole point of the colour split */
-  tr.unknown td{color:var(--dim)}
-  tr.unknown .nm{color:var(--faint)}
-  tr.known{background:var(--raised)}
-  tr.known:hover{background:#222834}
+/* the odds strip -- angled ends, the way Riot cuts every bar in the game */
+.odds{margin-top:18px}
+.oddsbar{display:flex;height:36px;overflow:hidden;
+  clip-path:polygon(9px 0,100% 0,calc(100% - 9px) 100%,0 100%)}
+.oddsbar div{display:flex;align-items:center;padding:0 15px;
+  font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:17px;letter-spacing:.06em;color:#080d12;
+  transition:width .5s cubic-bezier(.4,0,.2,1)}
+.oddsbar .atk{background:var(--atk)}
+.oddsbar .def{background:var(--def);justify-content:flex-end}
+.verdict{margin-top:8px;color:var(--bone-dim);font-size:12.5px}
+.verdict b{color:var(--bone)}
 
-  .ico{position:relative;display:block;width:30px;height:30px;border-radius:4px;
-    background:var(--sunk);color:var(--faint);font-size:12px;font-weight:700;
-    line-height:30px;text-align:center;overflow:hidden;flex:none}
-  .ico img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-  td.ic{width:30px;padding-right:0}
-  .nm{font-size:13.5px;max-width:180px;overflow:hidden;text-overflow:ellipsis;
-    white-space:nowrap}
-  .you-tag{color:var(--you);font-size:9.5px;font-weight:700;letter-spacing:.1em;
-    margin-left:6px}
-  .agname{color:var(--faint);font-size:11px}
-  .flagdot{color:var(--warn);margin-left:5px;font-size:11px}
+.warn{margin-top:11px;padding:9px 13px;background:rgba(231,194,125,.07);
+  border-left:2px solid var(--gold);color:#d8c49c;font-size:12.5px}
 
-  .sc{font-weight:700;font-size:14px;width:38px}
-  /* Form sits one step back from the career figure beside it -- present for
-     comparison, not competing with it for attention. */
-  td.recent{color:var(--soft)}
-  tr.unknown td.recent{color:var(--dim)}
-  .scbar{width:46px;height:4px;border-radius:2px;background:var(--sunk);
-    overflow:hidden;display:inline-block;vertical-align:middle}
-  .scbar i{display:block;height:100%}
+/* ---------- layout ------------------------------------------------------ */
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 372px;gap:20px;
+  margin-top:20px;align-items:start}
+@media(max-width:1080px){.grid{grid-template-columns:minmax(0,1fr)}}
 
-  /* ---- detail panel ---- */
-  .panel{border:1px solid var(--rule);border-radius:6px;background:var(--card);
-    position:sticky;top:18px;overflow:hidden}
-  @media(max-width:980px){.panel{position:static}}
-  .phero{position:relative;height:186px;background:var(--sunk);overflow:hidden}
-  .phero img{position:absolute;left:50%;top:0;height:100%;
-    transform:translateX(-50%);object-fit:contain}
-  .phero .shade{position:absolute;inset:0;
-    background:linear-gradient(180deg,transparent 38%,var(--card) 97%)}
-  .phead{position:absolute;left:0;right:0;bottom:0;padding:10px 14px}
-  .phead .pn{font-size:17px;font-weight:700;line-height:1.2;
-    text-shadow:0 1px 6px rgba(0,0,0,.85)}
-  .phead .pa{font-size:11.5px;color:var(--soft);
-    text-shadow:0 1px 6px rgba(0,0,0,.85)}
-  .pbody{padding:12px 14px 14px;max-height:calc(100vh - 250px);overflow-y:auto}
-  @media(max-width:980px){.pbody{max-height:none}}
-  .pscore{display:flex;align-items:baseline;gap:9px;margin-bottom:3px}
-  .pscore b{font-size:30px;line-height:1;font-weight:700}
-  .pscore span{color:var(--faint);font-size:11px}
-  .preason{color:var(--soft);font-size:12.5px;margin-bottom:12px}
+/* ---------- team ------------------------------------------------------- */
+.team{margin-bottom:20px}
+.tbar{display:flex;align-items:center;gap:12px;margin-bottom:9px}
+.tname{font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:19px;letter-spacing:.16em;text-transform:uppercase;line-height:1}
+.tside{font:600 9.5px/1 var(--display);letter-spacing:.2em;
+  text-transform:uppercase;color:var(--slate);padding-top:2px}
+.trule{flex:1;height:1px}
+.tcount{font:600 9.5px/1 var(--display);letter-spacing:.16em;color:var(--ghost);
+  text-transform:uppercase}
+.atkc .tname{color:var(--atk)}
+.atkc .trule{background:linear-gradient(90deg,var(--atk),transparent)}
+.defc .tname{color:var(--def)}
+.defc .trule{background:linear-gradient(90deg,var(--def),transparent)}
 
-  .sect{font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;
-    color:var(--dim);font-weight:700;margin:14px 0 6px;
-    border-top:1px solid var(--sunk);padding-top:10px}
-  .sect:first-of-type{border-top:0;margin-top:4px;padding-top:0}
-  .kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:12.5px}
-  .kv dt{color:var(--faint);min-width:0}
-  .kv dd{margin:0;text-align:right;font-weight:600}
-  .kv dd.na{color:var(--dim);font-weight:400}
-  table.twoup{width:100%;font-size:12.5px}
-  table.twoup th{font-size:9px;letter-spacing:.09em;color:var(--dim);
-    padding:0 0 4px;border:0}
-  table.twoup td{padding:2px 0;text-align:left;color:var(--faint)}
-  table.twoup td.num{text-align:right;color:var(--ink);font-weight:600}
-  table.twoup .rc{color:var(--soft)}
-  table.twoup th.rc{color:var(--dim)}
+/* ---------- a player row ------------------------------------------------ */
+.row{position:relative;display:grid;
+  grid-template-columns:62px minmax(0,1fr) repeat(4,66px);
+  align-items:center;gap:12px;height:66px;margin-bottom:5px;
+  background:var(--steel);border:0;width:100%;text-align:left;
+  padding:0 16px 0 0;cursor:pointer;color:inherit;font:inherit;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%);
+  transition:background .14s ease,transform .14s ease}
+.row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:var(--ghost);transition:width .14s ease,background .14s ease}
+.atkc .row.known::before{background:var(--atk)}
+.defc .row.known::before{background:var(--def)}
+.row.known{background:var(--steel-2)}
+.row:hover{background:#1b2734}
+.row:hover::before{width:5px}
+.row.sel{background:#1e2b3a}
+.row.sel::before{width:7px}
+.row:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.row.unknown{background:var(--sunk)}
+.row.unknown .nm,.row.unknown .st b{color:var(--ghost)}
+.row.unknown .rs{color:#33424f}
 
-  .comp{display:flex;justify-content:space-between;gap:8px;font-size:12px;
-    padding:2px 0}
-  .comp .cl{color:var(--faint)}
-  .comp .cv{text-align:right;white-space:nowrap}
-  .comp .up{color:var(--good)} .comp .dn{color:var(--bad)}
-  .comp .off{color:var(--dim)}
+/* agent art bleeding out of the left, masked so it never fights the name */
+.art{position:absolute;left:52px;top:0;height:100%;width:230px;
+  object-fit:cover;object-position:center 12%;opacity:.44;pointer-events:none;
+  -webkit-mask-image:linear-gradient(90deg,#000 0,#000 26%,transparent 88%);
+  mask-image:linear-gradient(90deg,#000 0,#000 26%,transparent 88%)}
+.row.unknown .art{opacity:.13;filter:grayscale(1)}
 
-  .form{display:flex;gap:3px;margin-top:2px;flex-wrap:wrap}
-  .form i{width:100%;font-style:normal;display:flex;justify-content:space-between;
-    gap:8px;font-size:11.5px;padding:2px 0;color:var(--soft)}
-  .form i .w{color:var(--good)} .form i .l{color:var(--bad)}
+.score{position:relative;font-family:var(--display);font-stretch:condensed;
+  font-weight:700;font-size:31px;line-height:1;text-align:center;
+  padding-left:14px}
+.score .u{font-size:20px;color:var(--ghost)}
+.atkc .row.known .score{color:var(--atk)}
+.defc .row.known .score{color:var(--def)}
 
-  .agents span{display:inline-block;background:var(--sunk);border-radius:3px;
-    padding:1px 6px;margin:2px 3px 0 0;font-size:11px;color:var(--soft)}
-  .flagbox{margin-top:10px;padding:7px 10px;border-radius:4px;
-    background:#2a1f14;border-left:2px solid var(--warn);color:var(--warn);
-    font-size:11.5px}
-  .stale{color:var(--warn)}
-  .empty{padding:44px 18px;text-align:center;color:var(--dim);font-size:13px}
+.who{position:relative;min-width:0}
+.nm{font-weight:600;font-size:15.5px;line-height:1.2;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.tag{font-family:var(--display);font-size:9.5px;font-weight:700;
+  letter-spacing:.16em;color:var(--gold);margin-left:7px;vertical-align:1px}
+.rs{color:var(--bone-dim);font-size:11.5px;line-height:1.35;margin-top:1px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rs .ag{color:var(--slate)}
+.alert{color:var(--gold);margin-left:6px}
 
-  .fac{background:var(--card);border:1px solid var(--rule);border-radius:6px;
-    padding:11px 14px;margin-top:14px}
-  .fac h2{font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;
-    color:var(--dim);margin:0 0 7px;font-weight:700}
-  .fac table td{padding:2px 0;font-size:12.5px;text-align:left}
-  .fac td.n{text-align:right;color:var(--faint);width:64px}
-  .fac td.d{width:88px;font-size:10px;letter-spacing:.05em;
-    text-transform:uppercase}
-  .toR{color:var(--red)} .toB{color:var(--blue)}
+.st{position:relative;text-align:center}
+.st b{display:block;font-family:var(--display);font-stretch:condensed;
+  font-weight:700;font-size:17px;line-height:1.05}
+.st span{display:block;font:600 8.5px/1 var(--display);letter-spacing:.15em;
+  text-transform:uppercase;color:var(--ghost);margin-top:3px}
+.st.form b{color:var(--bone-dim)}
 
-  .idle{color:var(--faint);text-align:center;padding:76px 20px}
-  footer{margin-top:24px;padding-top:13px;border-top:1px solid var(--rule);
-    color:var(--dim);font-size:11.5px;line-height:1.65}
+/* ---------- detail panel ------------------------------------------------ */
+.panel{background:var(--steel);border:1px solid var(--line);position:sticky;
+  top:18px;overflow:hidden;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 16px),calc(100% - 16px) 100%,0 100%)}
+@media(max-width:1080px){.panel{position:static}}
+.phero{position:relative;height:214px;overflow:hidden;background:var(--sunk)}
+.phero img{position:absolute;left:50%;top:-6%;height:112%;
+  transform:translateX(-50%);object-fit:contain}
+.phero .veil{position:absolute;inset:0;
+  background:linear-gradient(180deg,transparent 30%,var(--steel) 96%)}
+.phero .stripe{position:absolute;left:0;top:0;bottom:0;width:4px}
+.pid{position:absolute;left:0;right:0;bottom:0;padding:0 16px 12px}
+.pid .pn{font-size:20px;font-weight:600;line-height:1.15;
+  text-shadow:0 2px 10px rgba(0,0,0,.9)}
+.pid .pa{font:600 10px/1 var(--display);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--bone-dim);margin-top:6px;text-shadow:0 2px 10px rgba(0,0,0,.9)}
+.pbody{padding:14px 16px 18px;max-height:calc(100vh - 272px);overflow-y:auto}
+@media(max-width:1080px){.pbody{max-height:none}}
+.pbody::-webkit-scrollbar{width:7px}
+.pbody::-webkit-scrollbar-thumb{background:var(--line)}
+
+.bigscore{display:flex;align-items:flex-end;gap:11px;margin-bottom:4px}
+.bigscore b{font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:48px;line-height:.82}
+.bigscore span{font:600 9.5px/1 var(--display);letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ghost);padding-bottom:5px}
+.pwhy{color:var(--bone-dim);font-size:12.5px;margin-bottom:2px}
+
+.sect{display:flex;align-items:center;gap:9px;margin:16px 0 8px;
+  font:600 9.5px/1 var(--display);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ghost)}
+.sect::after{content:"";flex:1;height:1px;background:var(--line-soft)}
+
+.cmp{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;
+  padding:3px 0;border-bottom:1px solid var(--line-soft)}
+.cmp:last-child{border-bottom:0}
+.cmp .k{color:var(--slate)}
+.cmp .v{text-align:right;white-space:nowrap;font-weight:600}
+.cmp .v.up{color:var(--win)} .cmp .v.dn{color:var(--val)}
+.cmp .v.mute{color:var(--ghost);font-weight:400}
+
+table.tw{width:100%;font-size:12.5px;border-collapse:collapse}
+table.tw th{font:600 8.5px/1 var(--display);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ghost);padding:0 0 6px;text-align:right}
+table.tw th.l{text-align:left}
+table.tw td{padding:3px 0;color:var(--slate)}
+table.tw td.n{text-align:right;color:var(--bone);font-weight:600}
+table.tw td.n.f{color:var(--bone-dim)}
+table.tw tr+tr td{border-top:1px solid var(--line-soft)}
+
+.chips span{display:inline-block;background:var(--sunk);border:1px solid var(--line-soft);
+  padding:2px 8px;margin:3px 4px 0 0;font-size:11px;color:var(--bone-dim)}
+.formrow{display:flex;justify-content:space-between;gap:9px;font-size:11.5px;
+  padding:3px 0;color:var(--bone-dim);border-bottom:1px solid var(--line-soft)}
+.formrow:last-child{border-bottom:0}
+.formrow .w{color:var(--win);font-weight:700} .formrow .l{color:var(--val);font-weight:700}
+.formrow .when{color:var(--ghost)}
+.flag{margin-top:11px;padding:9px 12px;background:rgba(255,70,85,.08);
+  border-left:2px solid var(--val);color:#ffb0b7;font-size:11.5px}
+.stale{color:var(--gold)}
+.hint{padding:56px 20px;text-align:center;color:var(--ghost);font-size:12.5px;
+  line-height:1.7}
+.hint .kbd{font-family:var(--display);border:1px solid var(--line);
+  padding:1px 6px;color:var(--slate)}
+
+/* ---------- factors ----------------------------------------------------- */
+.fx{background:var(--steel);border:1px solid var(--line);padding:13px 16px;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%)}
+.fx h2{font:600 9.5px/1 var(--display);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ghost);margin:0 0 9px}
+.fx .f{display:grid;grid-template-columns:76px minmax(0,1fr) 54px;gap:10px;
+  align-items:center;padding:3px 0;font-size:12.5px}
+.fx .dir{font:600 8.5px/1 var(--display);letter-spacing:.13em;text-transform:uppercase}
+.fx .track{height:3px;background:var(--sunk);position:relative}
+.fx .track i{position:absolute;top:0;bottom:0;left:50%;transform:translateX(-50%)}
+.fx .mag{text-align:right;color:var(--slate)}
+.fx .toA{color:var(--atk)} .fx .toB{color:var(--def)}
+
+.idle{padding:90px 20px;text-align:center;color:var(--slate)}
+.foot{margin-top:22px;padding-top:13px;border-top:1px solid var(--line);
+  color:var(--ghost);font-size:11.5px;line-height:1.7;max-width:96ch}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div style="flex:1;min-width:200px">
-      <h1><span class="dot off" id="live"></span>valwr live</h1>
-      <div class="mapname" id="mapname">—</div>
-      <div class="meta" id="meta">connecting…</div>
+<div class="shell">
+  <div class="top">
+    <div class="mapwrap">
+      <div class="brand"><span class="pulse off" id="pulse"></span>valwr live</div>
+      <h1 class="map" id="map">—</h1>
+      <div class="mapsub" id="sub">connecting</div>
     </div>
-  </header>
-  <div id="main"></div>
-  <footer id="foot"></footer>
+  </div>
+  <div id="stage"><div class="idle">connecting…</div></div>
+  <div class="foot" id="foot"></div>
 </div>
 
 <script>
@@ -187,335 +260,271 @@
 const $ = id => document.getElementById(id);
 const esc = t => String(t == null ? "" : t).replace(/[&<>"]/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const n1 = v => v == null ? "—" : v.toFixed(1);
+const n2 = v => v == null ? "—" : v.toFixed(2);
+const pc = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
+const i0 = v => v == null ? "—" : String(v);
 
-let top1 = null, tries = 0;
-let selected = null;      // puuid; survives the 5-second repaint
-let lastState = null;
+let STATE = null, selected = null, top1 = null, tries = 0;
 
-const n1 = v => v == null ? "--" : (Math.round(v * 10) / 10).toFixed(1);
-const n2 = v => v == null ? "--" : v.toFixed(2);
-const pct = v => v == null ? "--" : (v * 100).toFixed(1) + "%";
-const int = v => v == null ? "--" : String(v);
-
-/* Artwork is addressed by the agent's own UUID, which is what the client
-   reports and what ref_agents stores. A missing file removes the <img> and
-   reveals the lettered tile underneath, so a fresh clone with no art still
-   renders a readable scoreboard. */
-function tile(p, cls){
-  const letter = esc((p.agent || "?").slice(0, 1).toUpperCase());
-  const src = p.agent_id ? `/agents/${encodeURIComponent(p.agent_id)}-icon.png` : null;
-  return `<span class="${cls}">${letter}` +
-    (src ? `<img src="${src}" alt="${esc(p.agent)}" onerror="this.remove()">` : "") +
-    `</span>`;
-}
+const artURL = (p, k) =>
+  p.agent_id ? `/agents/${encodeURIComponent(p.agent_id)}-${k}.png` : "";
+const isAtk = t => t === "Red";
 
 function verdict(p){
   const e = Math.abs(p - .5);
   if (e < .015) return "Too close to call";
-  const side = p > .5 ? "You are" : "The enemy is";
-  if (e < .05) return side + " slightly ahead";
-  if (e < .12) return side + " favoured";
-  if (e < .25) return side + " clearly favoured";
-  return side + " heavily favoured";
+  const s = p > .5 ? "Your side is" : "The enemy is";
+  if (e < .05) return s + " marginally ahead";
+  if (e < .12) return s + " favoured";
+  if (e < .25) return s + " clearly favoured";
+  return s + " heavily favoured";
 }
 
-/* Red attacks and Blue defends for the first half of a bomb-defusal match.
-   The client's roster endpoint carries no round or score field, so the swap at
-   halftime is not detectable here -- the label says "first half" rather than
-   quietly going wrong after round 12. Other modes have no sides at all. */
-function sideLabel(state, team){
-  if (!state.standard_mode) return "";
-  return team === "Red" ? "attacking · first half" : "defending · first half";
+/* ---------------- roster ---------------- */
+function rowHTML(p){
+  const c = p.career, r = p.recent, known = p.score !== null;
+  const stat = (label, val, cls) =>
+    `<div class="st ${cls || ""}"><b class="num">${val}</b><span>${label}</span></div>`;
+  return `<button class="row ${known ? "known" : "unknown"}${
+      selected === p.puuid ? " sel" : ""}" data-puuid="${esc(p.puuid)}"
+      aria-pressed="${selected === p.puuid}">
+    ${p.agent_id ? `<img class="art" src="${artURL(p, "row")}" alt=""
+        decoding="async" onerror="this.remove()">` : ""}
+    <div class="score">${known ? p.score : '<span class="u">—</span>'}</div>
+    <div class="who">
+      <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
+        p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}</div>
+      <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>
+        &nbsp;·&nbsp;${esc(p.reason)}</div>
+    </div>
+    ${stat("acs", c ? n1(c.acs) : "—")}
+    ${stat("k/d", c ? n2(c.kd) : "—")}
+    ${stat("last 20", r ? n2(r.kd) : "—", "form")}
+    ${stat("hs%", c ? pc(c.headshot_rate) : "—")}
+  </button>`;
 }
 
-function teamTable(state, team){
-  const rows = state.players.filter(p => p.team === team);
-  if (!rows.length) return "";
-  const cls = team === "Red" ? "red" : "blue";
-  const colour = team === "Red" ? "var(--red)" : "var(--blue)";
-  const mine = state.own_team === team ? " · your team" : "";
-  const body = rows.map(p => {
-    const c = p.career, known = p.score !== null;
-    return `<tr tabindex="0" data-puuid="${esc(p.puuid)}"
-        class="${known ? "known" : "unknown"}${selected === p.puuid ? " sel" : ""}">
-      <td class="ic">${tile(p, "ico")}</td>
-      <td class="l">
-        <div class="nm">${esc(p.name)}${p.is_you
-          ? '<span class="you-tag">YOU</span>' : ""}${p.flag
-          ? '<span class="flagdot" title="irregularity flagged">&#9650;</span>' : ""}</div>
-        <div class="agname">${esc(p.agent || "picking…")}</div>
-      </td>
-      <td class="num">${c ? n1(c.acs) : "--"}</td>
-      <td class="num">${c ? n2(c.kd) : "--"}</td>
-      <td class="num recent" title="last ${p.recent ? p.recent.games : 20} matches"
-        >${p.recent ? n2(p.recent.kd) : "--"}</td>
-      <td class="num">${c ? pct(c.headshot_rate) : "--"}</td>
-      <td class="num sc" style="color:${known ? colour : "var(--dim)"}">
-        ${known ? p.score : "--"}</td>
-      <td style="width:52px"><span class="scbar"><i style="width:${
-        known ? p.score : 0}%;background:${colour}"></i></span></td>
-    </tr>`;
-  }).join("");
-  return `<div class="team ${cls}">
-    <h2><span>${team}${esc(mine)}</span><span class="side">${
-      esc(sideLabel(state, team))}</span></h2>
-    <table>
-      <thead><tr>
-        <th class="l" colspan="2">player</th>
-        <th>acs</th><th>k/d</th><th title="over the last 20 matches">k/d&nbsp;20</th><th>hs%</th>
-        <th colspan="2">score</th>
-      </tr></thead>
-      <tbody>${body}</tbody>
-    </table></div>`;
+function teamHTML(s, team){
+  const players = s.players.filter(p => p.team === team);
+  if (!players.length) return "";
+  const atk = isAtk(team);
+  const side = s.standard_mode ? (atk ? "attacking · first half"
+                                      : "defending · first half") : "";
+  const known = players.filter(p => p.score !== null).length;
+  return `<section class="team ${atk ? "atkc" : "defc"}">
+    <div class="tbar">
+      <span class="tname">${esc(team)}</span>
+      <span class="tside">${esc(side)}</span>
+      <span class="trule"></span>
+      <span class="tcount">${s.own_team === team ? "your side · " : ""}${
+        known}/${players.length} known</span>
+    </div>
+    ${players.map(rowHTML).join("")}
+  </section>`;
 }
 
-function statList(s){
-  if (!s || !s.games) return `<div class="comp off">no games on record</div>`;
-  const row = (k, v, na) => `<dt>${k}</dt><dd class="${na ? "na" : ""}">${v}</dd>`;
-  return `<dl class="kv">
-    ${row("games", int(s.games))}
-    ${row("record", `${int(s.wins)}W &ndash; ${int(s.losses)}L`)}
-    ${row("win rate", pct(s.win_rate), s.win_rate == null)}
-    ${row("ACS", n1(s.acs), s.acs == null)}
-    ${row("K / D / A", `${int(s.kills)} / ${int(s.deaths)} / ${int(s.assists)}`)}
-    ${row("K/D", n2(s.kd), s.kd == null)}
-    ${row("headshot %", pct(s.headshot_rate), s.headshot_rate == null)}
-  </dl>`;
-}
-
-/* Career against form. When the player has fewer stored matches than the
-   window, the two columns are the same rows and printing both would invent a
-   comparison -- the median player in this database has 8 stored matches, so
-   that is the common case, not the edge case. */
-function twoUp(career, recent, window){
-  if (!career || !career.games) return statList(career);
+/* ---------------- panel ---------------- */
+function twoUp(career, recent, win){
+  if (!career || !career.games)
+    return `<div class="cmp"><span class="k">no games on record</span></div>`;
   const same = !recent || recent.games >= career.games;
-  if (same) return statList(career) +
-    `<div class="comp off" style="margin-top:5px">All ${career.games} stored
-     matches are inside the last ${window}, so recent form and career are the
-     same games.</div>`;
-  const row = (k, a, b) => `<tr><td>${k}</td><td class="num">${a}</td>
-    <td class="num rc">${b}</td></tr>`;
-  return `<table class="twoup">
-    <thead><tr><th></th><th class="num">career</th>
-      <th class="num rc">last ${recent.games}</th></tr></thead><tbody>
-    ${row("games", career.games, recent.games)}
-    ${row("ACS", n1(career.acs), n1(recent.acs))}
-    ${row("K/D", n2(career.kd), n2(recent.kd))}
-    ${row("headshot %", pct(career.headshot_rate), pct(recent.headshot_rate))}
-    ${row("win rate", pct(career.win_rate), pct(recent.win_rate))}
-    ${row("K / D / A",
-          `${int(career.kills)}/${int(career.deaths)}/${int(career.assists)}`,
-          `${int(recent.kills)}/${int(recent.deaths)}/${int(recent.assists)}`)}
-    </tbody></table>`;
+  const line = (k, a, b) => `<tr><td>${k}</td><td class="n">${a}</td>${
+    same ? "" : `<td class="n f">${b}</td>`}</tr>`;
+  return `<table class="tw">
+    <thead><tr><th class="l"></th><th>career</th>${
+      same ? "" : `<th>last ${recent.games}</th>`}</tr></thead><tbody>
+    ${line("Games", i0(career.games), i0(recent && recent.games))}
+    ${line("ACS", n1(career.acs), n1(recent && recent.acs))}
+    ${line("K/D", n2(career.kd), n2(recent && recent.kd))}
+    ${line("Headshot %", pc(career.headshot_rate), pc(recent && recent.headshot_rate))}
+    ${line("Win rate", pc(career.win_rate), pc(recent && recent.win_rate))}
+    ${line("K / D / A", `${i0(career.kills)}/${i0(career.deaths)}/${i0(career.assists)}`,
+        recent ? `${i0(recent.kills)}/${i0(recent.deaths)}/${i0(recent.assists)}` : "—")}
+    </tbody></table>${same ? `<div class="cmp" style="border:0;padding-top:7px">
+      <span class="k">All ${career.games} stored matches fall inside the last
+      ${win}, so form and career are the same games.</span></div>` : ""}`;
 }
 
-function panel(state){
-  const p = state.players.find(x => x.puuid === selected);
-  if (!p) return `<div class="panel"><div class="empty">
-    Select a player to see their agent, career stats,<br>
-    and how they perform on ${esc(state.map || "this map")}.</div></div>`;
+function panelHTML(s){
+  const p = s.players.find(x => x.puuid === selected);
+  if (!p) return `<aside class="panel"><div class="hint">
+      Select any player for their agent, career record,<br>
+      recent form and how they play ${esc(s.map || "this map")}.
+      <div style="margin-top:14px"><span class="kbd">ESC</span> closes</div>
+    </div></aside>`;
 
-  const art = p.agent_id
-    ? `/agents/${encodeURIComponent(p.agent_id)}-portrait.png` : null;
+  const accent = isAtk(p.team) ? "var(--atk)" : "var(--def)";
   const d = p.detail;
-  const colour = p.team === "Red" ? "var(--red)" : "var(--blue)";
+  let body;
 
-  let body = "";
   if (!d){
-    body = `<div class="empty" style="padding:26px 0">
-      No match history for this player.<br>
-      <span style="font-size:11.5px">They are in the lobby and counted, but
-      nothing is known about them yet.</span></div>`;
+    body = `<div class="hint" style="padding:30px 0">
+      <b style="color:var(--bone-dim)">No match history.</b><br>
+      They are in the lobby and counted in the prediction,<br>
+      but nothing is known about how they play.</div>`;
   } else {
     const m = d.map;
     const comps = d.components.map(c => {
       const gated = c.key === "map_edge" && !m.counts_toward_score;
-      const dir = gated ? "off" : (c.contribution > 0 ? "up"
-                 : c.contribution < 0 ? "dn" : "off");
-      return `<div class="comp"><span class="cl">${esc(c.label)}</span>
-        <span class="cv ${dir}">${esc(c.note)}</span></div>`;
+      const cls = gated ? "mute" : c.contribution > 0 ? "up"
+                : c.contribution < 0 ? "dn" : "mute";
+      return `<div class="cmp"><span class="k">${esc(c.label)}</span>
+        <span class="v ${cls}">${esc(c.note)}</span></div>`;
     }).join("");
 
-    const agents = m.agents && m.agents.length
-      ? `<div class="agents">${m.agents.slice(0, 5).map(a =>
-          `<span>${esc(a.agent)} &times;${a.games}</span>`).join("")}</div>`
-      : "";
+    const mapBlock = m.games
+      ? twoUp(m, null, 0) + (m.counts_toward_score ? ""
+          : `<div class="cmp" style="border:0"><span class="k">Under ${m.gate}
+             games here, so the map does not move the score.</span></div>`)
+        + (m.agents && m.agents.length ? `<div class="chips">${
+            m.agents.slice(0, 5).map(a =>
+              `<span>${esc(a.agent)} ×${a.games}</span>`).join("")}</div>` : "")
+      : `<div class="cmp"><span class="k">Never played this map.</span></div>`;
 
-    const form = d.form && d.form.length
-      ? `<div class="form">${d.form.map(f => `<i>
-          <span>${esc(f.map || "?")} &middot; ${esc(f.agent || "?")}</span>
-          <span><span class="${f.won === null ? "" : (f.won ? "w" : "l")}">${
-            f.won === null ? "&ndash;" : (f.won ? "W" : "L")}</span>
-          &nbsp;${n1(f.acs)} acs &nbsp;${int(f.kills)}/${int(f.deaths)}
-          &nbsp;<span style="color:var(--dim)">${esc(f.ago)}</span></span>
-        </i>`).join("")}</div>`
-      : "";
+    const form = (d.form || []).map(f => `<div class="formrow">
+        <span>${esc(f.map || "?")} <span class="when">·</span> ${esc(f.agent || "?")}</span>
+        <span><span class="${f.won === null ? "" : f.won ? "w" : "l"}">${
+          f.won === null ? "–" : f.won ? "W" : "L"}</span>
+          <span class="num">&nbsp;${n1(f.acs)}</span>
+          <span class="num">&nbsp;${i0(f.kills)}/${i0(f.deaths)}</span>
+          <span class="when">&nbsp;${esc(f.ago)}</span></span></div>`).join("");
 
     body = `
-      <div class="pscore"><b style="color:${colour}">${p.score}</b>
-        <span>out of 100</span></div>
-      <div class="preason">${esc(p.reason)}</div>
-      ${p.flag ? `<div class="flagbox">${esc(p.flag.note)}</div>` : ""}
+      <div class="bigscore"><b style="color:${accent}">${p.score}</b>
+        <span>of 100</span></div>
+      <div class="pwhy">${esc(p.reason)}</div>
+      ${p.flag ? `<div class="flag">${esc(p.flag.note)}</div>` : ""}
 
       <div class="sect">what makes the score</div>${comps}
-
-      <div class="sect">career &amp; recent form</div>
+      <div class="sect">record &amp; form</div>
       ${twoUp(d.career, d.recent, d.recent_window || 20)}
-
-      <div class="sect">on ${esc(m.name)}</div>
-      ${m.games ? statList(m) + (m.counts_toward_score ? "" :
-        `<div class="comp off" style="margin-top:4px">under ${m.gate} games
-         &mdash; not counted toward the score</div>`) + agents
-        : `<div class="comp off">never played this map</div>`}
-
-      ${form ? `<div class="sect">recent form</div>${form}` : ""}
-
+      <div class="sect">on ${esc(m.name)}</div>${mapBlock}
+      ${form ? `<div class="sect">last matches</div>${form}` : ""}
       <div class="sect">data</div>
-      <div class="comp"><span class="cl">${
-        d.freshness.stale ? '<span class="stale">out of date</span>' : "freshness"
-        }</span><span class="cv">${esc(d.freshness.label)}</span></div>
-      <div class="comp"><span class="cl">games on record</span>
-        <span class="cv">${int(d.freshness.games_known)}</span></div>`;
+      <div class="cmp"><span class="k">Freshness</span>
+        <span class="v ${d.freshness.stale ? "stale" : ""}">${
+          esc(d.freshness.label)}</span></div>
+      <div class="cmp"><span class="k">Matches on record</span>
+        <span class="v">${i0(d.freshness.games_known)}</span></div>`;
   }
 
-  return `<div class="panel">
+  return `<aside class="panel">
     <div class="phero">
-      ${art ? `<img src="${art}" alt="" onerror="this.remove()">` : ""}
-      <div class="shade"></div>
-      <div class="phead">
-        <div class="pn">${esc(p.name)}</div>
-        <div class="pa">${esc(p.agent || "picking…")}${
-          p.role ? " &middot; " + esc(p.role) : ""} &middot; ${esc(p.team)}</div>
-      </div>
+      <div class="stripe" style="background:${accent}"></div>
+      ${p.agent_id ? `<img src="${artURL(p, "portrait")}" alt=""
+          decoding="async" onerror="this.remove()">` : ""}
+      <div class="veil"></div>
+      <div class="pid"><div class="pn">${esc(p.name)}</div>
+        <div class="pa">${esc(p.agent || "selecting")}${
+          p.role ? " · " + esc(p.role) : ""} · ${esc(p.team)}</div></div>
     </div>
     <div class="pbody" id="pbody">${body}</div>
-  </div>`;
+  </aside>`;
 }
 
+/* ---------------- page ---------------- */
 function render(msg){
   if (msg.status === "error"){
-    $("meta").textContent = msg.message;
-    $("mapname").textContent = "—";
-    $("main").innerHTML = `<div class="idle">${esc(msg.message)}</div>`;
+    $("map").textContent = "—"; $("sub").textContent = msg.message;
+    $("stage").innerHTML = `<div class="idle">${esc(msg.message)}</div>`;
     return;
   }
   if (msg.status === "lobby"){
-    $("mapname").textContent = "Not in a match";
-    $("meta").textContent = "connected — waiting for a match";
-    $("main").innerHTML = `<div class="idle">Queue, or start a custom game.<br>
-      This fills in the moment you load in.</div>`;
-    lastState = null;
-    return;
+    $("map").textContent = "STANDBY"; $("sub").textContent = "waiting for a match";
+    $("stage").innerHTML = `<div class="idle">Queue, or start a custom game.</div>`;
+    STATE = null; return;
   }
 
-  const s = lastState = msg.state;
+  const s = STATE = msg.state;
   if (msg.top1_rate != null) top1 = msg.top1_rate;
   if (selected && !s.players.some(p => p.puuid === selected)) selected = null;
 
-  $("mapname").textContent = s.map || "Unknown map";
-  const kind = s.is_custom ? "Custom" : (s.phase === "pregame"
-    ? "Agent select" : "In game");
-  $("meta").textContent =
-    `${kind} · ${s.mode || "unknown mode"} · ${s.coverage}/10 players known` +
-    ` — ${s.confidence} confidence`;
+  $("map").textContent = s.map || "UNKNOWN MAP";
+  const phase = s.is_custom ? "Custom" : s.phase === "pregame" ? "Agent select" : "Live";
+  $("sub").innerHTML = `${esc(phase)} <b>·</b> ${esc(s.mode || "—")} <b>·</b> ` +
+    `${s.coverage}/10 known <b>·</b> ${esc(s.confidence)} confidence`;
 
   let head = "";
-  for (const w of s.warnings) head += `<div class="note">${esc(w)}</div>`;
+  for (const w of s.warnings) head += `<div class="warn">${esc(w)}</div>`;
 
   if (s.prediction){
     const own = s.prediction.own_probability;
-    const ownRed = s.own_team === "Red";
-    const a = ownRed ? "var(--red)" : "var(--blue)";
-    const b = ownRed ? "var(--blue)" : "var(--red)";
-    head += `<div class="bar">
-        <div style="width:${own * 100}%;background:${a}">${(own * 100).toFixed(0)}%</div>
-        <div style="width:${(1 - own) * 100}%;background:${b}">${
-          ((1 - own) * 100).toFixed(0)}%</div>
-      </div>
-      <div class="reading">${verdict(own)} — your team (${esc(s.own_team)})
-        on the left. Model: ${esc(s.model)}.</div>`;
+    const atkPct = isAtk(s.own_team) ? own : 1 - own;
+    head += `<div class="odds"><div class="oddsbar">
+        <div class="atk" style="width:${atkPct * 100}%">${(atkPct * 100).toFixed(0)}% RED</div>
+        <div class="def" style="width:${(1 - atkPct) * 100}%">BLUE ${
+          ((1 - atkPct) * 100).toFixed(0)}%</div></div>
+      <div class="verdict"><b>${verdict(own)}</b> — you are on ${esc(s.own_team)}.
+        Model: ${esc(s.model)}.</div></div>`;
   } else {
-    head += `<div class="note">Not enough of the roster known to predict yet.</div>`;
+    head += `<div class="warn">Not enough of the roster known to predict yet.</div>`;
   }
 
-  let fac = "";
+  let fx = "";
   if (s.prediction && s.prediction.factors.length){
-    const ownRed = s.own_team === "Red";
-    fac = `<div class="fac"><h2>What pushed the prediction</h2><table>` +
+    const ownAtk = isAtk(s.own_team);
+    const max = Math.max(...s.prediction.factors.map(f => Math.abs(f.value)), .001);
+    fx = `<div class="fx"><h2>What moves the prediction</h2>` +
       s.prediction.factors.map(f => {
-        const toOwn = f.value > 0;
-        const cls = (toOwn === ownRed) ? "toR" : "toB";
-        return `<tr>
-          <td class="d ${cls}">${toOwn ? "toward you" : "toward them"}</td>
-          <td>${esc(f.name.replace(/^d_/, "").replace(/_/g, " "))}</td>
-          <td class="n">${Math.abs(f.value).toFixed(3)}</td></tr>`;
-      }).join("") + `</table></div>`;
+        const toOwn = f.value > 0, atk = toOwn === ownAtk;
+        const w = Math.abs(f.value) / max * 50;
+        return `<div class="f">
+          <span class="dir ${atk ? "toA" : "toB"}">${toOwn ? "toward you" : "toward them"}</span>
+          <span class="track"><i style="width:${w}%;background:${
+            atk ? "var(--atk)" : "var(--def)"};${
+            toOwn ? "left:50%;transform:none" : "right:50%;left:auto;transform:none"}"></i></span>
+          <span class="mag num">${Math.abs(f.value).toFixed(3)}</span></div>`;
+      }).join("") + `</div>`;
   }
 
-  // Panel scroll is restored after the repaint, or reading a card while the
-  // socket ticks every five seconds throws you back to the top.
-  const keep = document.getElementById("pbody");
-  const scroll = keep ? keep.scrollTop : 0;
-
-  $("main").innerHTML = head + `<div class="grid">
-      <div>${teamTable(s, "Red")}${teamTable(s, "Blue")}${fac}</div>
-      <div>${panel(s)}</div>
-    </div>`;
-
-  const now = document.getElementById("pbody");
-  if (now) now.scrollTop = scroll;
+  const keep = $("pbody"), sc = keep ? keep.scrollTop : 0;
+  $("stage").innerHTML = head + `<div class="grid">
+      <div>${teamHTML(s, "Red")}${teamHTML(s, "Blue")}${fx}</div>
+      ${panelHTML(s)}</div>`;
+  const now = $("pbody"); if (now) now.scrollTop = sc;
 
   $("foot").innerHTML =
-    `Scores are percentiles: 70 means likely to outperform 70% of players. ` +
-    (top1 != null
-      ? `Picks the best player of five ${(top1 * 100).toFixed(1)}% of the time
-         against 20% by chance — a real edge, not a reliable one. `
-      : `A real edge over chance, not a reliable one. `) +
-    `Career stats are raw totals; the score shrinks them toward the population
+    `Scores are percentiles — 70 means likely to outperform 70% of players. ` +
+    (top1 != null ? `Picks the strongest of five ${(top1 * 100).toFixed(1)}% of
+      the time against 20% by chance: a real edge, not a reliable one. ` : "") +
+    `Career figures are raw totals; the score shrinks them toward the population
      average, so a player with few games will show a career ACS that differs
-     from their score component. Read-only: never writes to the game.`;
+     from their score component. Read-only — never writes to the game.`;
 }
 
-/* Delegated, because the whole roster is replaced on every poll. */
 document.addEventListener("click", e => {
-  const tr = e.target.closest("tr[data-puuid]");
-  if (!tr || !lastState) return;
-  selected = tr.dataset.puuid === selected ? null : tr.dataset.puuid;
-  render({status: "match", state: lastState, top1_rate: top1});
+  const b = e.target.closest("button.row");
+  if (!b || !STATE) return;
+  selected = b.dataset.puuid === selected ? null : b.dataset.puuid;
+  render({status: "match", state: STATE, top1_rate: top1});
 });
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && selected){
     selected = null;
-    if (lastState) render({status: "match", state: lastState, top1_rate: top1});
-    return;
-  }
-  const tr = e.target.closest && e.target.closest("tr[data-puuid]");
-  if (tr && (e.key === "Enter" || e.key === " ")){
-    e.preventDefault();
-    tr.click();
+    if (STATE) render({status: "match", state: STATE, top1_rate: top1});
   }
 });
 
 function connect(){
   const ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onopen = () => { $("live").className = "dot"; tries = 0; };
+  ws.onopen = () => { $("pulse").className = "pulse"; tries = 0; };
   ws.onmessage = e => render(JSON.parse(e.data));
   ws.onclose = () => {
-    $("live").className = "dot off";
+    $("pulse").className = "pulse off";
     tries++;
     // "disconnected" on its own is the least useful thing this can say. After
-    // a couple of failed attempts the likely cause is that the server is not
-    // running at all -- the page having been restored from cache -- so say so.
-    $("meta").textContent = tries < 2
-      ? "disconnected — retrying…"
-      : "Cannot reach the dashboard server.";
-    if (tries >= 2) $("main").innerHTML = `<div class="idle">
-      <b>The dashboard server is not running.</b><br><br>
+    // two failed attempts the likely cause is that nothing is listening at all
+    // -- the page having been restored from cache -- so say that, and say what
+    // to do about it. Guessing at this cost a real debugging session.
+    $("sub").textContent = tries < 2 ? "reconnecting…"
+      : "cannot reach the dashboard server";
+    if (tries >= 2) $("stage").innerHTML = `<div class="idle">
+      <b style="color:var(--bone)">The dashboard server is not running.</b><br><br>
       This page is still open, but nothing is listening on this port —
       most likely the window running it was closed, or it never started.<br><br>
-      Start it again by double-clicking <b>dashboard.bat</b>, and keep that
-      window open while you use this page.</div>`;
+      Start it again with <b>dashboard.bat</b>, and keep that window open
+      while you use this page.</div>`;
     setTimeout(connect, 3000);
   };
 }

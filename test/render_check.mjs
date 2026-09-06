@@ -9,6 +9,11 @@
 // test_state.py separately pins to the exact key set `poll_once` returns, so
 // this cannot drift from the real shape.
 //
+// Every branch is exercised, not just the happy path: lobby, error, a match
+// with no prediction yet, a non-bomb mode, players with no history, and both
+// the deep and shallow history cases -- the shallow one being the common case,
+// since the median player in this database has 8 stored matches.
+//
 // Prints one line per check and exits non-zero if any fail.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -18,81 +23,129 @@ const html = readFileSync(pagePath, "utf8");
 const code = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"));
 const state = JSON.parse(readFileSync(statePath, "utf8"));
 
-// --- the smallest DOM this page touches -------------------------------
 const els = {};
-for (const id of ["live", "mapname", "meta", "main", "foot"])
+for (const id of ["pulse", "map", "sub", "stage", "foot"])
   els[id] = { id, innerHTML: "", textContent: "", className: "", scrollTop: 0 };
-
 const handlers = {};
 globalThis.document = {
   getElementById: id => els[id] || null,
-  addEventListener: (type, fn) => { (handlers[type] ||= []).push(fn); },
+  addEventListener: (t, fn) => { (handlers[t] ||= []).push(fn); },
 };
 globalThis.WebSocket = class { constructor(){ this.onopen = null; } };
-globalThis.location = { host: "127.0.0.1:8787" };
+globalThis.location = { host: "127.0.0.1:8788" };
 globalThis.setTimeout = () => {};
 
 vm.runInThisContext(code);
 render({ status: "match", state, top1_rate: 0.296 });
+const out = els.stage.innerHTML;
 
-const out = els.main.innerHTML;
+let bad = 0;
+const ck = (n, ok, extra) => { if (!ok) bad++;
+  console.log(`  ${ok ? "ok  " : "FAIL"}  ${n}${!ok && extra ? "  -> " + extra : ""}`); };
+
 const known = state.players.filter(p => p.score !== null);
 const unknown = state.players.filter(p => p.score === null);
 const first = known[0];
 
-let bad = 0;
-const check = (name, ok) => {
-  if (!ok) bad++;
-  console.log(`  ${ok ? "ok  " : "FAIL"}  ${name}`);
-};
+ck("map in the header", els.map.textContent === state.map);
+ck("one button per player",
+   (out.match(/<button class="row/g) || []).length === state.players.length);
+ck("attack column present", /class="team atkc"/.test(out));
+ck("defence column present", /class="team defc"/.test(out));
+ck("side labels", /attacking · first half/.test(out) && /defending · first half/.test(out));
+ck("known rows marked", (out.match(/class="row known/g) || []).length === known.length);
+ck("unknown rows marked", (out.match(/class="row unknown/g) || []).length === unknown.length);
+ck("YOU marker", /class="tag">YOU/.test(out));
+ck("acs on row", out.includes(first.career.acs.toFixed(1)));
+ck("k/d on row", out.includes(first.career.kd.toFixed(2)));
+ck("last-20 on row", out.includes(first.recent.kd.toFixed(2)));
+ck("hs% on row", out.includes((first.career.headshot_rate * 100).toFixed(1) + "%"));
+ck("no K/D/A triple on row",
+   !out.includes(`${first.career.kills}/${first.career.deaths}/${first.career.assists}</b>`));
+// Rows take the small -row art and only the panel hero takes the tall
+// portrait. Ten full portraits on screen was 7 MB of decode on first paint.
+ck("rows use the row-sized art", out.includes(`-row.png`));
+ck("rows do NOT pull the tall portrait", !out.includes(`-portrait.png`));
+ck("odds bar", /class="oddsbar"/.test(out));
+ck("factors panel", /What moves the prediction/.test(out));
+ck("empty panel prompts", /Select any player/.test(out));
+ck("every distinct reason rendered",
+   [...new Set(state.players.map(p => p.reason))].every(r => out.includes(r)));
 
-check("map is named in the header", els.mapname.textContent === state.map);
-check("a row per player",
-      (out.match(/<tr tabindex/g) || []).length === state.players.length);
-check("both teams rendered",
-      /class="team red"/.test(out) && /class="team blue"/.test(out));
-check("attack/defence sides labelled",
-      /attacking/.test(out) && /defending/.test(out));
-check("known players marked known",
-      (out.match(/class="known/g) || []).length === known.length);
-check("unknown players marked unknown",
-      (out.match(/class="unknown/g) || []).length === unknown.length);
-check("your own row is tagged", /YOU<\/span>/.test(out));
-check("career ACS on the row", out.includes(String(first.career.acs)));
-check("K/D on the row", out.includes(first.career.kd.toFixed(2)));
-check("last-20 K/D on the row", out.includes(first.recent.kd.toFixed(2)));
-check("K/D/A is NOT on the row",
-      !out.includes(`${first.career.kills}/${first.career.deaths}/${first.career.assists}`));
-check("headshot % on the row",
-      out.includes((first.career.headshot_rate * 100).toFixed(1) + "%"));
-check(first.agent_id ? "agent art addressed by uuid"
-                    : "no uuid, so a lettered tile is used instead",
-      first.agent_id ? out.includes(`/agents/${first.agent_id}-icon.png`)
-                     : !out.includes("/agents/") && /class="ico">[A-Z]/.test(out));
-check("unknown players show no numbers",
-      (out.match(/>--</g) || []).length >= unknown.length * 4);
+// --- interaction -------------------------------------------------------
+const fire = puuid => { for (const fn of handlers.click || [])
+  fn({ target: { closest: s => s.includes("button.row")
+        ? { dataset: { puuid } } : null } }); };
+// Clicking is a toggle, so selecting a player who may already be selected has
+// to clear first or the test silently asserts against a closed panel.
+const escape = () => { for (const fn of handlers.keydown || [])
+  fn({ key: "Escape", target: {} }); };
+const select = puuid => { escape(); fire(puuid); };
 
-// Selecting a player must go through the real delegated click handler.
-const row = { dataset: { puuid: first.puuid } };
-for (const fn of handlers.click || [])
-  fn({ target: { closest: s => s.includes("data-puuid") ? row : null } });
-const p = els.main.innerHTML;
+fire(first.puuid);
+let p = els.stage.innerHTML;
+ck("panel opens on click", p.includes(first.name) && /class="panel"/.test(p));
+ck("panel portrait", p.includes(`/agents/${first.agent_id}-portrait.png`));
+ck("panel score", new RegExp(`<b style="color:[^"]+">${first.score}</b>`).test(p));
+ck("record & form section", /record &amp; form/.test(p));
+ck("on-map section", p.includes(`on ${state.map}`));
+ck("last matches section", /last matches/.test(p));
+ck("row shows selected", /class="row known sel"/.test(p));
+ck("aria-pressed set", /aria-pressed="true"/.test(p));
 
-check("panel names the selected player", p.includes(first.name));
-check(first.agent_id ? "panel shows the full portrait"
-                    : "panel omits art when there is no uuid",
-      first.agent_id ? p.includes(`/agents/${first.agent_id}-portrait.png`)
-                     : !p.includes("-portrait.png"));
-check("panel compares career against form", /career &amp; recent form/.test(p));
-check("panel has an on-map section", p.includes(`on ${state.map}`));
-check("panel shows this map's record",
-      p.includes(`${first.detail.map.wins}W`));
-check("selected row is highlighted", / sel"/.test(p));
+// a player whose stored history is shorter than the window
+const shallow = known.find(x => x.detail && x.detail.career.games <= 20);
+if (shallow){
+  select(shallow.puuid);
+  const q = els.stage.innerHTML;
+  ck("short history collapses the two columns",
+     /fall inside the last/.test(q) && !/>last \d+<\/th>/.test(q));
+}
 
-// Clicking the same row again clears it, which is how you close the panel.
-for (const fn of handlers.click || [])
-  fn({ target: { closest: s => s.includes("data-puuid") ? row : null } });
-check("clicking again deselects", /Select a player/.test(els.main.innerHTML));
+// a deep-history player keeps both columns
+const deep = known.find(x => x.detail && x.detail.career.games > 20);
+if (deep){
+  select(deep.puuid);
+  const q = els.stage.innerHTML;
+  ck("deep history shows career vs form", /<th>last \d+<\/th>/.test(q));
+}
 
-console.log(bad ? `\n${bad} check(s) FAILED` : "\nall checks passed");
+// unknown player
+const u = unknown[0];
+if (u){
+  select(u.puuid);
+  ck("unknown player explained, not crashed",
+     /No match history/.test(els.stage.innerHTML));
+}
+
+// deselect
+select(first.puuid); fire(first.puuid);
+ck("clicking twice closes the panel", /Select any player/.test(els.stage.innerHTML));
+
+// esc
+select(first.puuid);
+for (const fn of handlers.keydown || []) fn({ key: "Escape", target: {} });
+ck("escape closes the panel", /Select any player/.test(els.stage.innerHTML));
+
+// lobby / error branches must not throw
+render({ status: "lobby" });
+ck("lobby branch", els.map.textContent === "STANDBY");
+render({ status: "error", message: "VALORANT is not running" });
+ck("error branch", /not running/.test(els.stage.innerHTML));
+
+// non-standard mode drops the side labels
+const dm = JSON.parse(JSON.stringify(state));
+dm.standard_mode = false;
+render({ status: "match", state: dm, top1_rate: 0.296 });
+ck("no side labels outside bomb defusal",
+   !/attacking · first half/.test(els.stage.innerHTML));
+
+// no prediction yet
+const np = JSON.parse(JSON.stringify(state));
+np.prediction = null;
+render({ status: "match", state: np, top1_rate: 0.296 });
+ck("missing prediction says so",
+   /Not enough of the roster/.test(els.stage.innerHTML));
+
+console.log(bad ? `\n${bad} FAILED` : "\nall checks passed");
 process.exit(bad ? 1 : 0);

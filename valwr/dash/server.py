@@ -135,15 +135,6 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
     if AGENTS.is_dir():
         app.mount("/agents", StaticFiles(directory=AGENTS), name="agents")
 
-    # Demo only: three visual treatments of the same match, side by side, so a
-    # design can be chosen by looking rather than describing. Never mounted in
-    # normal use, which is why the route-surface test still sees two routes.
-    if demo:
-        @app.get("/styles")
-        def styles():
-            return FileResponse(STATIC / "styles.html",
-                                headers={"Cache-Control": "no-store, max-age=0"})
-
     @app.websocket("/ws")
     async def ws(socket: WebSocket):
         await socket.accept()
