@@ -20,7 +20,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import threading
+import time
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # Imported at MODULE level, deliberately. `from __future__ import annotations`
@@ -42,10 +46,34 @@ STATIC = Path(__file__).resolve().parent / "static"
 
 
 def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE):
+    @asynccontextmanager
+    async def lifespan(_app):
+        yield
+        _app.state.pool.shutdown(wait=False, cancel_futures=True)
+
     app = FastAPI(title="valwr live", docs_url=None, redoc_url=None,
-                  openapi_url=None)   # minimal surface: two routes, no schema
+                  openapi_url=None,   # minimal surface: two routes, no schema
+                  lifespan=lifespan)
     app.state.ctx = None
     app.state.error = None
+
+    # ONE worker, and always the same one. A SQLite connection belongs to the
+    # thread that opened it, and `asyncio.to_thread` draws from a pool with no
+    # such guarantee -- so the context was opened on the event-loop thread and
+    # every poll ran on some pool worker. SQLite refuses that outright:
+    #
+    #   ProgrammingError: SQLite objects created in a thread can only be used
+    #   in that same thread.
+    #
+    # Every poll raised it, the page showed the error and never recovered, and
+    # the suite stayed green because the websocket test accepted
+    # `status == "error"` as a pass -- it was written to tolerate VALORANT
+    # being closed, and tolerated a completely dead dashboard too.
+    #
+    # A single dedicated worker gives the connection one owner for the life of
+    # the process, and serialises polls for free.
+    app.state.pool = ThreadPoolExecutor(max_workers=1,
+                                        thread_name_prefix="valwr-poll")
 
     def context():
         """Open the live context lazily, so the page can explain a failure.
@@ -75,9 +103,14 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE):
     async def ws(socket: WebSocket):
         await socket.accept()
         last: str | None = None
+        loop = asyncio.get_running_loop()
+        # Both of these run on app.state.pool's single thread: `context` opens
+        # the SQLite connection, `poll_once` uses it, and they must agree on
+        # which thread that is.
+        pool = app.state.pool
         try:
             while True:
-                ctx = context()
+                ctx = await loop.run_in_executor(pool, context)
                 if ctx is None:
                     await socket.send_text(json.dumps(
                         {"status": "error", "message": app.state.error}))
@@ -92,7 +125,7 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE):
                 # socket: a dropped connection renders as "disconnected" with
                 # no cause, which is the least useful thing it could say.
                 try:
-                    state = await asyncio.to_thread(st.poll_once, ctx)
+                    state = await loop.run_in_executor(pool, st.poll_once, ctx)
                 except Exception as e:                  # noqa: BLE001
                     await socket.send_text(json.dumps(
                         {"status": "error",

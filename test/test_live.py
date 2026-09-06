@@ -505,3 +505,56 @@ def test_fetching_actually_stores_what_it_fetched(tmp_path):
     after = R.has_history(conn, "stranger", 2_000_000_000)
     assert not before
     assert after, "a fetched player must be queryable afterwards"
+
+
+def test_the_context_and_the_poll_share_one_thread(monkeypatch):
+    """A SQLite connection belongs to the thread that opened it.
+
+    The context was opened on the event-loop thread and polled on an
+    `asyncio.to_thread` worker, so every poll raised ProgrammingError --
+    "SQLite objects created in a thread can only be used in that same thread"
+    -- and the page displayed that forever. The websocket test above could not
+    catch it: it accepts `status == "error"`, which it has to, because
+    VALORANT is normally closed when the suite runs. So the whole dashboard
+    was dead with a green suite.
+    """
+    import threading
+    from fastapi.testclient import TestClient
+    from valwr.dash import server as S
+
+    seen = {}
+
+    class _Ctx:
+        index = None
+
+        def close(self):
+            pass
+
+    def fake_open(**kw):
+        seen["opened"] = threading.get_ident()
+        return _Ctx()
+
+    def fake_poll(ctx):
+        seen["polled"] = threading.get_ident()
+        return None
+
+    monkeypatch.setattr(S.st, "open_context", fake_open)
+    monkeypatch.setattr(S.st, "poll_once", fake_poll)
+    with TestClient(S.build_app(no_fetch=True)) as client:
+        with client.websocket_connect("/ws") as ws:
+            assert ws.receive_json()["status"] == "lobby"
+
+    assert seen["opened"] == seen["polled"], \
+        "opened on one thread and polled on another: SQLite refuses that"
+    assert seen["opened"] != threading.get_ident(), \
+        "the poll must stay off the event loop"
+
+
+def test_launching_the_dashboard_does_not_die_on_a_missing_import():
+    """`main()` starts a thread that opens the browser once the port is up,
+    using `threading` and `time`. Neither was imported, so starting the
+    dashboard the normal way raised NameError before it ever bound -- and
+    nothing imported `main`, so nothing noticed.
+    """
+    from valwr.dash import server as S
+    assert hasattr(S, "threading") and hasattr(S, "time")

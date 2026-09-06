@@ -201,7 +201,13 @@ def check_population(rep: Report) -> None:
     rep.note("database", f"{matches:,} matches, {total:,} players, "
                          f"{one:.1f}% seen once, {five:.1f}% seen 5+ times")
 
-    # Any doc quoting a player total that is not the live one is stale.
+    # Any doc quoting a player total well off the live one is stale.
+    #
+    # Within a tolerance, because this number grows every time the crawler
+    # runs: demanding an exact match meant the check fired on ordinary growth
+    # (213,925 -> 214,190 overnight) and would have been switched off inside a
+    # week. 2% passes a day of crawling and still catches the figure this was
+    # written for, 162,002, which was 24% low.
     for doc in DOCS:
         if not doc.exists():
             continue
@@ -209,10 +215,11 @@ def check_population(rep: Report) -> None:
             if HISTORICAL.search(line):
                 continue
             for found in re.findall(r"\b(\d{2,3},\d{3})\s+players\b", line):
-                if int(found.replace(",", "")) != total:
+                got = int(found.replace(",", ""))
+                if abs(got - total) / total > 0.02:
                     rep.problem(f"{doc}:{i}",
                                 f"says '{found} players'; the database holds "
-                                f"{total:,}")
+                                f"{total:,} ({(got - total) / total * 100:+.0f}%)")
 
 
 # --- 4. constants named in two places ----------------------------------
@@ -273,12 +280,69 @@ def check_imports(rep: Report) -> None:
                 rep.problem(f"{p}:{line}", f"unused import '{name}'")
 
 
+# --- 6. names used but never bound --------------------------------------
+
+def check_undefined(rep: Report) -> None:
+    """The mirror of the dead-import check, and it earns its place.
+
+    `dash/server.py` called `threading.Thread` and `time.sleep` in `main()`
+    with neither module imported. Starting the dashboard the ordinary way died
+    with NameError before it bound a port; nothing imported `main`, so no test
+    executed the line and the suite stayed green.
+
+    The binding set is deliberately over-approximated -- every name bound
+    *anywhere* in the file counts as bound everywhere in it -- so this cannot
+    see a name used before assignment, or one bound only in a sibling scope.
+    It flags names bound nowhere at all, which is the crash above and few false
+    positives.
+    """
+    import builtins
+    safe = set(dir(builtins)) | {"__file__", "__name__", "__doc__", "self",
+                                 "cls", "__spec__", "__package__"}
+
+    for p in sorted(ROOT.glob("valwr/**/*.py")) + sorted(ROOT.glob("tools/*.py")):
+        try:
+            tree = ast.parse(p.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue                    # already reported by check_imports
+        bound: set[str] = set()
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Name) and not isinstance(n.ctx, ast.Load):
+                bound.add(n.id)
+            elif isinstance(n, ast.arg):
+                bound.add(n.arg)
+            elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                ast.ClassDef)):
+                bound.add(n.name)
+            elif isinstance(n, ast.Import):
+                for a in n.names:
+                    bound.add((a.asname or a.name).split(".")[0])
+            elif isinstance(n, ast.ImportFrom):
+                for a in n.names:
+                    bound.add(a.asname or a.name)
+            elif isinstance(n, ast.ExceptHandler) and n.name:
+                bound.add(n.name)
+            elif isinstance(n, (ast.Global, ast.Nonlocal)):
+                bound.update(n.names)
+
+        seen: dict[str, int] = {}
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load):
+                seen.setdefault(n.id, n.lineno)
+        for name, line in sorted(seen.items(), key=lambda kv: kv[1]):
+            if name not in bound and name not in safe:
+                rep.problem(f"{p}:{line}",
+                            f"'{name}' is used but never imported or assigned "
+                            f"-- NameError when this line runs")
+
+
 CHECKS = (
     ("frozen artefacts", check_artefacts),
     ("figures in prose", check_figures),
     ("population claims", check_population),
     ("duplicated constants", check_constants),
     ("dead imports", check_imports),
+    ("undefined names", check_undefined),
 )
 
 

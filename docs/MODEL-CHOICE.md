@@ -133,7 +133,7 @@ C=0.5   strength alone: auc 0.515  | weight the model gave it: sum -0.0203
 
 **Strength on its own is AUC 0.506–0.515 — barely above a coin flip.** So this
 is not redundancy with the existing features; there is close to no signal in it
-at all. The cause is sparsity: **53.5% of the 213,925 players in this dataset
+at all. The cause is sparsity: **53.6% of the ~214,000 players in this dataset
 appear in exactly one match**, and only 16.0% appear five or more times. A
 player seen once has no learnable strength. The downstream model correctly
 assigns the two columns a near-zero weight, and adding them still costs a
