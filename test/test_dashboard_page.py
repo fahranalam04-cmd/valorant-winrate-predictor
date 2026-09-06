@@ -136,3 +136,38 @@ def test_every_map_the_database_has_seen_has_a_background():
             missing.append(name)
     assert not missing, (
         f"no splash art for {missing}; run tools/fetch_agent_art.py")
+
+
+# --- the stylesheet ----------------------------------------------------
+
+# Every class the renderer emits. The page builds HTML by string
+# concatenation, so a rule that disappears takes no JavaScript with it: the
+# markup is identical, the render harness passes, and the page renders as
+# unstyled serif text on white boxes. That happened -- a slice meant to delete
+# the theme picker ran to </style> and removed the entire component sheet, and
+# all 275 tests still passed.
+EMITTED = (
+    "shell", "top", "brand", "mapwrap", "map", "mapsub", "odds", "oddsbar",
+    "verdict", "warn", "grid", "rosters", "team", "tbar", "tname", "tside",
+    "trule", "tcount", "row", "art", "score", "who", "nm", "tag", "rs",
+    "alert", "st", "panel", "phero", "veil", "stripe", "pid", "pbody", "pcol",
+    "bigscore", "pwhy", "sect", "cmp", "chips", "formrow", "flag", "hint",
+    "fx", "dir", "track", "mag", "idle", "foot", "num", "disp", "pulse",
+)
+
+
+def test_the_stylesheet_defines_every_class_the_page_emits():
+    page = PAGE.read_text(encoding="utf-8")
+    css = page[page.index("<style>"):page.index("</style>")]
+    missing = [c for c in EMITTED if f".{c}" not in css]
+    assert not missing, f"no rule for {missing} -- the page renders unstyled"
+
+
+def test_the_stylesheet_is_not_truncated():
+    """A blunter version of the same guard: the sheet has a known floor and
+    must still close. Catches a slice that ate the tail of it."""
+    page = PAGE.read_text(encoding="utf-8")
+    assert page.count("<style>") == 1 and page.count("</style>") == 1
+    css = page[page.index("<style>"):page.index("</style>")]
+    assert len(css) > 12000, f"stylesheet is only {len(css)} chars; truncated?"
+    assert css.count("{") == css.count("}"), "unbalanced braces in the sheet"

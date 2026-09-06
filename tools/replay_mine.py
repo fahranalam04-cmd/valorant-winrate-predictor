@@ -32,7 +32,7 @@ from valwr.live.roster import LiveMatch, LivePlayer
 from valwr.rating import potential as P
 from valwr.rating.normalize import build_norms
 from valwr.rating.rating import rate_performance
-from valwr.store import schema
+from valwr.store import normalize, schema
 
 
 def local_puuid(conn, name: str, tag: str | None) -> str | None:
@@ -72,8 +72,15 @@ def refresh(conn, settings, puuid: str) -> int:
     client = HenrikClient(full.henrik_api_key, conn=conn,
                           limiter=TokenBucket(full.requests_per_minute))
     try:
-        client.matches(settings.region, settings.platform, puuid, size=10,
-                       mode="competitive")
+        payload = client.matches(settings.region, settings.platform, puuid,
+                                 size=10, mode="competitive")
+        # `HenrikClient.matches()` fetches and caches the raw body; it does
+        # *not* turn it into rows. Without this the call spent quota, stored a
+        # blob nothing reads, and reported "+0 new player-rows" while the API
+        # had the match all along. The identical omission in live/resolve.py
+        # froze the live score for twelve days.
+        normalize.ingest(conn, payload)
+        conn.commit()
     finally:
         client.close()
     after = conn.execute(
