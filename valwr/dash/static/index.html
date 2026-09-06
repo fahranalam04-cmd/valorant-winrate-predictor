@@ -595,10 +595,10 @@ function render(msg){
     + `<b>Competitive only, and pooled.</b> Every figure here — ACS, K/D, the
      last 20, headshot %, the map record — counts ranked games and nothing
      else; swiftplay, customs and the rotating queues are excluded in the
-     query, not by luck. K/D is total kills over total deaths rather than the
-     average of per-match ratios, so one 10-and-1 game cannot drag twenty
-     others upward. Third-party trackers usually pool every mode and average
-     the ratios, which is why theirs reads higher. `
+     query, not by luck. K/D is total kills over total deaths, the same way a
+     tracker computes it. Where a figure still differs from one, the cause is
+     coverage rather than arithmetic: a player whose history we have not
+     fetched deeply enough shows a "last 20" padded with older games. `
     + `Read-only — never writes to the game.`;
 }
 

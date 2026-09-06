@@ -596,14 +596,14 @@ def test_your_own_account_is_refreshed_even_when_it_looks_current(tmp_path):
     calls = []
 
     class _Client:
-        def matches(self, region, platform, puuid, size, mode):
-            calls.append(puuid)
+        def matches(self, region, platform, puuid, size, mode, start=0):
+            calls.append((puuid, start))
             return {"data": []}
 
     match = LiveMatch("live", "coregame", "Ascent", "BombGameMode",
                       [LivePlayer("me", "Blue", "x", "Jett")])
     R.resolve(conn, match, "me", now, client=_Client(), deadline_seconds=5)
-    assert calls == ["me"], "the local account must be fetched regardless"
+    assert calls and calls[0] == ("me", 0),         "the local account must be fetched first and regardless"
 
 
 def test_a_player_who_played_two_hours_ago_counts_as_stale(tmp_path):
@@ -616,3 +616,42 @@ def test_a_player_who_played_two_hours_ago_counts_as_stale(tmp_path):
     assert R.has_history(conn, "p", now)
     assert R.is_stale(conn, "p", now), "three hours old must be refetched"
     assert R.STALE_AFTER_SECONDS <= 3 * 3600
+
+
+def test_enough_pages_are_fetched_to_fill_the_form_window(tmp_path):
+    """One page is ten matches; the form figure on every row is twenty.
+
+    Asking for one page and calling the result a "last 20" pads it out with
+    whatever older games happen to be stored, which is a different sample from
+    the player's actual last twenty. Measured against tracker.gg on one real
+    account, that was a 0.914 where the truth was 0.952 -- six of their last
+    twenty games were simply never requested.
+    """
+    from valwr.live import resolve as R
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [("m0", "me", now - 300)])
+    calls = []
+
+    class _Client:
+        def matches(self, region, platform, puuid, size, mode, start=0):
+            calls.append((puuid, start))
+            return {"data": []}
+
+    match = LiveMatch("live", "coregame", "Ascent", "BombGameMode",
+                      [LivePlayer("me", "Blue", "x", "Jett"),
+                       LivePlayer("them", "Red", "x", "Sova")])
+    R.resolve(conn, match, "me", now, client=_Client(), deadline_seconds=30)
+
+    assert R.HISTORY_PAGES >= 2, "one page cannot cover a twenty-game window"
+    pages = [s for p, s in calls if p == "me"]
+    assert pages == [0, 10], f"own history not paged: {pages}"
+    # The stranger has no stored history at all, so they need depth too.
+    assert ("them", 0) in calls and ("them", 10) in calls
+
+
+def test_the_form_window_matches_the_one_the_score_uses(tmp_path):
+    """Two modules name this number. If they drift, the live path fetches a
+    different window from the one the row prints."""
+    from valwr.live import resolve as R
+    from valwr.rating import potential as P
+    assert R.FORM_WINDOW == P.RECENT_GAMES

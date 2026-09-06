@@ -52,6 +52,25 @@ STALE_AFTER_SECONDS = 2 * 3600
 # worth a fetch even if the newest row is recent.
 THIN_HISTORY = 5
 
+# One matchlist call returns ten matches. The form figure on every row is the
+# last twenty, so one page cannot fill it: a player we have never crawled
+# deeply shows a "last 20" padded out with whatever older games we happen to
+# hold, which is a different sample from their actual last twenty.
+#
+# Measured against tracker.gg on one account. Our twenty reached back to Aug 23
+# and read 0.914; their twenty stopped at Aug 26 and read 0.952. We were
+# missing six of their last twenty games -- not because the API withholds them
+# but because we only ever asked for the first page. Fetching the second
+# reproduced their figure exactly: 318/334 = 0.9521 against 0.9521.
+PAGE_SIZE = 10
+FORM_WINDOW = 20                       # keep in step with potential.RECENT_GAMES
+HISTORY_PAGES = -(-FORM_WINDOW // PAGE_SIZE)
+
+
+def stored_depth(conn: sqlite3.Connection, puuid: str, as_of: int) -> int:
+    """How many competitive matches we hold for them, up to the form window."""
+    return len(temporal.player_history(conn, puuid, as_of, limit=FORM_WINDOW))
+
 
 @dataclass
 class Resolution:
@@ -167,11 +186,11 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
         out.seconds = time.monotonic() - started
         return out
 
-    def fetch(puuid: str) -> bool:
-        """One matchlist call. True if it landed, False to stop fetching."""
+    def fetch(puuid: str, start: int = 0) -> bool:
+        """One matchlist page. True if it landed, False to stop fetching."""
         try:
-            payload = client.matches(region, platform, puuid, size=10,
-                                     mode="competitive")
+            payload = client.matches(region, platform, puuid, size=PAGE_SIZE,
+                                     mode="competitive", start=start)
             # The client only fetches and caches the raw body -- it does not
             # normalise. Without this the fetch stored a blob nothing read and
             # the player stayed exactly as unknown as before, which is why the
@@ -210,16 +229,33 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
             out.fetched += was_unknown
             out.refreshed += not was_unknown
 
-    # Then everyone else: genuinely unknown players before merely stale ones,
-    # because a missing player costs the prediction more than an old one.
-    rest = ([p for p in ordered if p in out.unknown and p != own_puuid]
-            + [p for p in ordered if p in out.stale and p != own_puuid])
-    for puuid in rest:
+    # Everything else, as (player, page) work in priority order. Under a
+    # deadline the ordering decides what you end up knowing, so it is explicit:
+    #
+    #   1. the rest of your own history, because your own row is the one read
+    #      every game and it is the only account nothing else keeps current
+    #   2. page one for players we know nothing about -- a missing player
+    #      costs the prediction more than a shallow one
+    #   3. page one for players whose data is merely old
+    #   4. page two for anyone still short of the form window, which is what
+    #      makes their "last 20" actually their last 20
+    others = [p for p in ordered if p != own_puuid]
+    work: list[tuple[str, int]] = []
+    if own_puuid:
+        work += [(own_puuid, page * PAGE_SIZE)
+                 for page in range(1, HISTORY_PAGES)]
+    work += [(p, 0) for p in others if p in out.unknown]
+    work += [(p, 0) for p in others if p in out.stale]
+    work += [(p, page * PAGE_SIZE) for p in others
+             for page in range(1, HISTORY_PAGES)
+             if stored_depth(conn, p, as_of) < FORM_WINDOW]
+
+    for puuid, start in work:
         if not keep_going or time.monotonic() - started >= deadline_seconds:
             break
         was_unknown = puuid in out.unknown
-        keep_going = fetch(puuid)
-        if keep_going:
+        keep_going = fetch(puuid, start)
+        if keep_going and start == 0:
             out.fetched += was_unknown
             out.refreshed += not was_unknown
 
