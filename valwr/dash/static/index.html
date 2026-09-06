@@ -75,21 +75,59 @@ body[data-theme="bone"] .warn{background:rgba(154,107,22,.10);color:#7a5512}
    passes contrast on it, with the panels frosted so the art reads through.
    --mapart is set from JS per match; with no art the gradient alone stands. */
 body[data-theme="splash"]{
-  --void:#080b10; --steel:rgba(14,20,28,.80); --steel-2:rgba(22,31,42,.84);
-  --sunk:rgba(8,11,16,.72);
-  --line:rgba(120,150,175,.24); --line-soft:rgba(120,150,175,.13);
-  --bone:#f2f5f8; --bone-dim:#b6c4d0; --slate:#8798a6; --ghost:#5d6b78;
+  /* Panels are near-opaque so they carry their own readability. That is what
+     lets the scrim below be light: an earlier version dimmed the whole page to
+     93% black to protect the type, which protected it from the artwork too. */
+  --void:#070a0e; --steel:rgba(10,15,22,.90); --steel-2:rgba(17,25,35,.90);
+  --sunk:rgba(6,9,13,.84);
+  --line:rgba(140,175,200,.30); --line-soft:rgba(140,175,200,.16);
+  --bone:#f4f7fa; --bone-dim:#bccbd7; --slate:#8fa2b1; --ghost:#63727f;
   --val:#ff4655; --atk:#ff5865; --def:#38d8e4; --val-deep:#3d1218;
+  --gold:#e7c27d; --win:#3ad6a0;
   background-image:var(--mapart,none);
-  background-size:cover;background-position:center 32%;
+  background-size:cover;background-position:center 26%;
   background-attachment:fixed;background-repeat:no-repeat}
+
+/* Two layers, and the order matters. The vignette darkens the edges where
+   type sits closest to the artwork and stays light through the middle, so the
+   map is legible as a place rather than as texture. Blur is 3px, not 11 --
+   enough to keep detail from competing with small text, not so much that
+   Ascent stops looking like Ascent. */
 body[data-theme="splash"]::before{
   content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
-  backdrop-filter:blur(11px) saturate(.72);
-  background:linear-gradient(180deg,rgba(6,9,13,.80),rgba(6,9,13,.93))}
+  backdrop-filter:blur(3px) saturate(1.14) contrast(1.04);
+  background:
+    radial-gradient(128% 86% at 50% 14%,
+      rgba(5,8,12,.16) 0%, rgba(5,8,12,.44) 46%, rgba(5,8,12,.80) 100%),
+    linear-gradient(180deg, rgba(5,8,12,.18) 0%, rgba(5,8,12,.36) 55%,
+      rgba(5,8,12,.62) 100%)}
+/* Roughly 30% darkened behind the map name and 92% at the lower corners. The
+   bright maps -- Breeze, Sunset -- are what set the top figure: any lighter
+   and the small uppercase subheading stops holding against sand. */
+
+/* The page gets more air in this theme than the others, because the gaps are
+   where the map is actually seen. */
+body[data-theme="splash"] .shell{padding:26px 30px 72px}
+body[data-theme="splash"] .grid{gap:26px}
+body[data-theme="splash"][data-layout="split"] .rosters{gap:22px}
+body[data-theme="splash"] .team{margin-bottom:26px}
+body[data-theme="splash"] .row{margin-bottom:7px}
+
 body[data-theme="splash"] .row,body[data-theme="splash"] .panel,
-body[data-theme="splash"] .fx{backdrop-filter:blur(7px)}
-body[data-theme="splash"] .map{text-shadow:0 3px 26px rgba(0,0,0,.85)}
+body[data-theme="splash"] .fx{backdrop-filter:blur(9px) saturate(1.1);
+  box-shadow:0 6px 22px rgba(0,0,0,.42)}
+/* The agent art inside a row now has the map behind it as well, so it steps
+   back to keep the two from fighting. */
+body[data-theme="splash"] .art{opacity:.34}
+body[data-theme="splash"] .row.known{border-top:1px solid rgba(255,255,255,.05)}
+
+/* Header type sits directly on the artwork, so it carries its own shadow
+   rather than relying on the scrim. */
+body[data-theme="splash"] .map{
+  text-shadow:0 2px 4px rgba(0,0,0,.55),0 6px 30px rgba(0,0,0,.85)}
+body[data-theme="splash"] .mapsub,body[data-theme="splash"] .brand,
+body[data-theme="splash"] .verdict{text-shadow:0 1px 10px rgba(0,0,0,.9)}
+body[data-theme="splash"] .top{border-bottom-color:rgba(160,195,220,.26)}
 
 /* --- RADIANT · neon ----------------------------------------------------
    The rank the whole ladder is pointed at. Near-black, one hot magenta and
@@ -402,7 +440,10 @@ const THEMES = [
   {id: "radiant",  name: "Radiant",   layout: "stack", sw: "#ff2d78"},
   {id: "tactical", name: "Tactical",  layout: "split", sw: "#1a242a"},
 ];
-const DEFAULT_THEME = "midnight";
+// The map theme is the default. `midnight` remains the bare :root palette, so
+// the page is still correct with no theme applied at all -- which is what
+// happens if the picker or localStorage fails -- and it is one click away.
+const DEFAULT_THEME = "splash";
 let theme = DEFAULT_THEME;
 
 function readStoredTheme(){
@@ -415,7 +456,11 @@ function readStoredTheme(){
 }
 
 function applyTheme(id){
-  const t = THEMES.find(x => x.id === id) || THEMES[0];
+  // Falls back to the same place readStoredTheme does. These were two
+  // different themes for one commit, so an unknown id from storage and an
+  // unknown id from a caller landed somewhere different.
+  const t = THEMES.find(x => x.id === id)
+         || THEMES.find(x => x.id === DEFAULT_THEME) || THEMES[0];
   theme = t.id;
   document.body.dataset.theme = t.id;
   document.body.dataset.layout = t.layout;

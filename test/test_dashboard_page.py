@@ -103,16 +103,38 @@ def test_every_theme_repaints_the_whole_page():
         assert not missing, f"theme '{name}' never sets {missing}"
 
 
-def test_the_default_theme_needs_no_theme_block():
-    """`midnight` is the bare :root palette, so the page renders correctly
-    with no theme applied at all -- which is what happens if the picker or
-    localStorage fails."""
+def test_the_page_is_correct_with_no_theme_applied():
+    """`midnight` is the bare :root palette and has no theme block of its own.
+
+    That is the property that matters, not which theme opens by default: if
+    the picker never runs, or localStorage is unreadable, or the body attribute
+    is missing for any other reason, the page still renders in a complete
+    palette rather than in browser defaults.
+    """
     page = PAGE.read_text(encoding="utf-8")
     assert 'body[data-theme="midnight"]' not in page
-    assert 'const DEFAULT_THEME = "midnight"' in page
     root = re.search(r":root\s*\{([^}]*)\}", page).group(1)
     for token in CRITICAL:
         assert f"{token}:" in root, f":root must define {token}"
+
+
+def test_the_default_theme_is_one_that_exists():
+    """A default naming a theme that is not in the list would leave the page
+    on whatever the fallback happens to be, silently ignoring the setting."""
+    page = PAGE.read_text(encoding="utf-8")
+    default = re.search(r'const DEFAULT_THEME = "([a-z]+)"', page).group(1)
+    ids = set(re.findall(r'\{id: "([a-z]+)"', page))
+    assert default in ids, f"default '{default}' is not among {sorted(ids)}"
+
+
+def test_both_fallbacks_land_in_the_same_place():
+    """An unknown id from storage and an unknown id from a caller must resolve
+    to the same theme. They resolved to two different ones for one commit."""
+    page = PAGE.read_text(encoding="utf-8")
+    apply = page[page.index("function applyTheme"):]
+    apply = apply[:apply.index("function setMapArt")]
+    assert "DEFAULT_THEME" in apply, (
+        "applyTheme falls back to something other than DEFAULT_THEME")
 
 
 def test_reading_a_stored_theme_cannot_throw():

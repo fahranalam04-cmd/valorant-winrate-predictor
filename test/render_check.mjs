@@ -161,9 +161,11 @@ render({ status: "match", state, top1_rate: 0.296 });
 ck("picker built", /data-theme="midnight"/.test(els.themes.innerHTML));
 ck("five themes offered",
    (els.themes.innerHTML.match(/<button data-theme=/g) || []).length === 5);
-ck("falls back to midnight when storage is unreadable",
-   body.dataset.theme === "midnight");
-ck("default layout is stacked", body.dataset.layout === "stack");
+// localStorage throws under node, exactly as it does in a private window.
+ck("unreadable storage lands on the default",
+   body.dataset.theme === DEFAULT_THEME);
+ck("the default carries its own layout",
+   body.dataset.layout === THEMES.find(t => t.id === DEFAULT_THEME).layout);
 
 applyTheme("splash");
 ck("switching sets the theme", body.dataset.theme === "splash");
@@ -178,8 +180,10 @@ applyTheme("bone");
 ck("daylight stacks again", body.dataset.layout === "stack");
 applyTheme("not-a-theme");
 ck("an unknown theme falls back rather than blanking the page",
-   body.dataset.theme === "midnight");
+   body.dataset.theme === DEFAULT_THEME);
 applyTheme("midnight");
+ck("midnight is still reachable from the picker",
+   body.dataset.theme === "midnight" && body.dataset.layout === "stack");
 
 console.log(bad ? `\n${bad} FAILED` : "\nall checks passed");
 process.exit(bad ? 1 : 0);
