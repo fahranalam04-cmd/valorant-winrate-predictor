@@ -33,7 +33,14 @@ def roster(scored, team, players, agents_for):
         out.append(entry)
     return out
 
-out = {"model": bundle.get("best"), "scenarios": [], "categories": {}}
+# `index_as_of` is what tools/audit.py checks this file against. The
+# per-player scores below are computed through the index, so refitting
+# it (or changing MIN_MAP_GAMES) silently strands them -- which it did:
+# raising the map gate to 6 moved 1,489 of 1,620 scores by up to 5
+# points while the file still looked current, because nothing recorded
+# which index had produced them.
+out = {"model": bundle.get("best"), "scenarios": [], "categories": {},
+       "index_as_of": index.as_of if index else None}
 CAT_BLURB = {
  "sanity": "Controls. If these look wrong, nothing else can be trusted.",
  "potential": "For the per-player 0-100 score, not the win model. The archetype names are ground truth, so the ranking can be checked rather than trusted.",

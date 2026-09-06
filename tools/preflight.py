@@ -13,7 +13,6 @@ Exit codes are what the batch file branches on:
 from __future__ import annotations
 
 import argparse
-import io
 import sys
 import time
 

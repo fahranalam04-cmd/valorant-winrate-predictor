@@ -26,7 +26,6 @@ sys.path.insert(0, ".")
 import joblib
 
 from valwr import config
-from valwr.features import build as fb
 from valwr.live import predict as LP
 from valwr.live.resolve import Resolution
 from valwr.live.roster import LiveMatch, LivePlayer

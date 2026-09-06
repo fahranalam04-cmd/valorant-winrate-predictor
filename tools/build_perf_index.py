@@ -29,7 +29,12 @@ from valwr.store import schema
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="build_perf_index")
-    ap.add_argument("--sample", type=int, default=15000)
+    # 15,000 was enough for acs/rating/kd, which every sample contributes to,
+    # and quietly not enough for map_edge, which only 1.3% do: it yielded 128
+    # gate-clearing samples against the 200 P.fit_scales needs, so the fit fell
+    # back to the contaminated full-sample scale and the index looked fine.
+    # 60,000 yields ~495 and costs about 20 seconds.
+    ap.add_argument("--sample", type=int, default=60000)
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args(argv)
 
@@ -63,12 +68,20 @@ def main(argv=None) -> int:
         print(f"only {len(collected)} usable samples; too few to fit an index")
         return 1
 
-    means, stds = {}, {}
-    for name in P.WEIGHTS:
-        vals = [getattr(c, name) for c in collected]
-        mu = sum(vals) / len(vals)
-        var = sum((v - mu) ** 2 for v in vals) / max(len(vals) - 1, 1)
-        means[name], stds[name] = mu, var ** 0.5
+    means, stds = P.fit_scales(collected)
+
+    # `map_edge` is scaled on the players who clear the gate, not on the
+    # majority who are pinned to zero -- see P.fit_scales. Reported here
+    # because a silent fallback would put the old 8.7x-too-small divisor back
+    # without anything saying so.
+    clear = sum(1 for c in collected if c.n_map_games >= P.MIN_MAP_GAMES)
+    print(f"  map_edge scale fitted on {clear:,} of {len(collected):,} samples "
+          f"({clear / len(collected) * 100:.1f}%) that clear "
+          f"MIN_MAP_GAMES={P.MIN_MAP_GAMES}")
+    if clear < P.MIN_SCALE_SAMPLE:
+        print(f"  WARNING: fewer than {P.MIN_SCALE_SAMPLE} clear the gate; "
+              f"fell back to the full sample, so map_edge z-scores will be "
+              f"inflated. Lower MIN_MAP_GAMES or raise --sample.")
 
     index = P.PerfIndex(means=means, stds=stds, quantiles=[],
                         as_of=b.train_end, n=len(collected))

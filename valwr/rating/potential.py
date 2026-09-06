@@ -17,13 +17,22 @@ Four components, deliberately chosen:
 `map_edge` is a **delta, not a level**, and that is the important design
 choice. An absolute map rating would mostly restate overall skill, which
 `rating` already carries, and the two would double-count. The delta isolates
-what the map actually adds: a player with no history here scores 0 on it and
-is ranked purely on the rest, which is the honest answer rather than a guess.
+what the map actually adds.
+
+It is also **gated**: below `MIN_MAP_GAMES` it is exactly zero, so a player
+with no history *and* a player with a handful of games are both ranked purely
+on the rest. That is the honest answer rather than a guess, and it is stronger
+than shrinkage alone -- see the constant for the measurement that forced it.
+
+Gating and scaling are coupled, and getting that wrong cost more than the gate
+ever bought: a gated component's z-score must not be scaled on the players it
+gated out, or the divisor collapses toward zero. `fit_scales` carries the
+measurement and the fix.
 
 Everything is shrunk toward a prior by sample size, the same empirical-Bayes
-treatment every rate feature in this project gets -- 62% of players in this
-dataset have a single prior match, and without shrinkage one lucky game would
-outrank a hundred consistent ones.
+treatment every rate feature in this project gets. Of the samples we can score
+at all, 23.3% have exactly one prior match, and without shrinkage one lucky
+game would outrank a hundred consistent ones.
 
 The 0-100 number is a **percentile against the training population**, not a
 rescaled z-score. "82" means "played better than 82% of players", which is what
@@ -56,10 +65,12 @@ from valwr.store import temporal
 # led with `rating` scored 29.0% -- worse than the single feature it was built
 # on top of.
 #
-# So this is deliberately ACS-led, and the other three earn their place by
-# explaining rather than by ranking: they are what `explain()` turns into "wins
-# duels" or "strong on this map", which a bare ACS number cannot say. The cost
-# of keeping them is inside noise; the gain is a readable reason.
+# So this is deliberately ACS-led, and `rating` and `kd` earn their place by
+# explaining rather than by ranking: they are what `explain()` turns into
+# "consistently strong" or "wins duels", which a bare ACS number cannot say.
+# The cost of keeping them is inside noise; the gain is a readable reason.
+#
+# `map_edge` is the exception and is deliberately NOT narrated -- see `_HIGH`.
 WEIGHTS = {"acs": 0.45, "rating": 0.25, "kd": 0.15, "map_edge": 0.15}
 
 # Shrinkage strengths, in units of "matches". Map history is thinner than
@@ -76,7 +87,28 @@ PRIOR_N_MAP = 6.0
 # predictive power at all (Spearman -0.010 over 12,000 held-out
 # player-matches). A number that moves that far on one game is worse than one
 # that does not move, because the movement reads as insight.
-MIN_MAP_GAMES = 4
+#
+# The threshold was swept on 1,500 held-out teams. Accuracy does not choose it
+# -- every value sits inside a +/-1.0 point standard error:
+#
+#     gate   top-1   players it affects   median map swing
+#        0   28.9%              100.0%              0.152
+#        4   29.5%               14.1%              0.476
+#        6   29.7%                5.4%              0.463   <- shipped
+#        8   29.3%                2.3%              0.418
+#
+# Those are simulated: one pass of components measured with the gate off, then
+# each threshold applied to the same values. A fresh end-to-end run at gate 6
+# -- rebuilt index, refitted percentiles -- came back at 29.2%, not 29.7%. Both
+# sit inside the standard error of each other and of gate 4, which is the point:
+# accuracy does not choose the threshold, so do not read either figure as one
+# beating the other.
+#
+# What separates them is *exposure*: at 6 the map moves one player in twenty
+# rather than one in seven, at the same strength when it does fire. For a
+# component with no measured predictive power, less exposure is the right side
+# to err on.
+MIN_MAP_GAMES = 6
 
 RECENCY_HALFLIFE_DAYS = 30.0    # matches features/player.py
 POP_KD = 1.08                   # measured; only a fallback if norms lack it
@@ -210,6 +242,57 @@ def measure(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
                       tier=newest.get("tier"),
                       account_level=newest.get("account_level"),
                       dominance=dom, n_dominance=dom_n)
+
+
+# Below this many gate-clearing samples, a scale fitted on them alone is itself
+# noise, and the full sample -- wrong but stable -- is the safer of two bad
+# options. The build prints loudly when it falls back.
+MIN_SCALE_SAMPLE = 200
+
+
+def fit_scales(collected: list[Components]) -> tuple[dict, dict]:
+    """Component means and standard deviations for a PerfIndex.
+
+    Lives here rather than in `tools/build_perf_index.py` because it is the
+    rule that decides what a z-score *means*, and it needs a test.
+
+    `map_edge` is fitted differently from the other three, and the reason is
+    the worst measurement bug this scoring code has had. Below `MIN_MAP_GAMES`
+    the component is set to exactly 0.0, meaning *no opinion* -- not "measured
+    and found average". Those are non-measurements, and 98.7% of a 2,574-sample
+    draw were exactly that. Fitting a standard deviation across them measures
+    the width of a spike at zero: 0.00500 against 0.04353 over the players who
+    actually clear the gate, 8.7x too small.
+
+    Dividing by a scale 8.7x too small turned an ordinary map edge into z =
+    -17.8, so a component carrying 15% of the weight -- and no measured
+    predictive power on its own, Spearman -0.010 -- outweighed the other three
+    combined. One real account read 74 on one map and 2 on another off nothing
+    else. Raising MIN_MAP_GAMES from 4 to 6 made it worse, because fewer
+    clearers means more zeros means a smaller divisor; the top-1 sweep used to
+    choose that gate could not see it, since top-1 ranks players within a team
+    where nearly everyone is gated to zero anyway.
+
+    So: the scale comes from the gate-clearing subset, and the mean is pinned
+    to exactly 0.0. `map_edge` is a delta against the player's own rating, so
+    zero is its true centre by construction -- and pinning it keeps "gated
+    implies exactly no contribution" an exact property rather than an accident
+    of the sample mean landing near zero.
+    """
+    means: dict[str, float] = {}
+    stds: dict[str, float] = {}
+    for name in WEIGHTS:
+        sample = collected
+        if name == "map_edge":
+            sample = [c for c in collected if c.n_map_games >= MIN_MAP_GAMES]
+            if len(sample) < MIN_SCALE_SAMPLE:
+                sample = collected
+        vals = [getattr(c, name) for c in sample]
+        mu = sum(vals) / len(vals)
+        var = sum((v - mu) ** 2 for v in vals) / max(len(vals) - 1, 1)
+        means[name] = 0.0 if name == "map_edge" else mu
+        stds[name] = var ** 0.5
+    return means, stds
 
 
 @dataclass(frozen=True)

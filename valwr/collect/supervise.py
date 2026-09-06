@@ -16,13 +16,12 @@ Scheduled Task in docs/ROADMAP.md.
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 import traceback
 from datetime import datetime
 
 from valwr import config
-from valwr.collect import frontier, seed
+from valwr.collect import frontier
 from valwr.collect.client import HenrikClient
 from valwr.collect.crawl import Crawler
 from valwr.collect.keepawake import KeepAwake

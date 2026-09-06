@@ -19,19 +19,26 @@ test set is just overfitting more slowly.
 
 ## Why the linear model
 
-Three independent arguments, and they agree.
+Three independent arguments. The first rules out the obvious objection;
+the other two are what actually decide.
 
-**1. It beats the booster on the held-out test set.** Measured once, on 6,132
-matches:
+**1. The held-out test set does not favour the booster.** Measured once, on
+7,677 matches:
 
 | | Log loss | AUC | Accuracy |
 |---|---|---|---|
-| **Logistic regression** | **0.6883** | **0.558** | **54.3% ± 1.2%** |
-| Gradient boosting | 0.6885 | 0.557 | 54.1% |
+| **Logistic regression** | **0.6875** | **0.557** | **53.4% ± 0.6%** |
+| Gradient boosting | 0.6884 | 0.554 | 53.8% ± 0.6% |
 
-It is not the lowest log loss overall — margin regression reaches 0.6878 —
-but the gap is a third of a standard error, and argument 2 is what settles
-that.
+Read that honestly. The linear model has the joint-lowest log loss of the ten
+candidates and the booster is 0.0009 behind — but the standard error is 0.0013,
+so the gap is two thirds of one. The booster is *ahead* on accuracy, by 0.4
+points, which is likewise inside a standard error. The test set says these two
+are indistinguishable; it does not crown the linear model. Arguments 2 and 3
+are what decide.
+
+Every figure in this table moves with each retrain. `python tools/audit.py`
+re-derives them from `reports/results.json` and names any that have drifted.
 
 **2. The one-standard-error rule selected it.** Seven models finish
 statistically tied. Consecutive runs crowned different winners on the same
@@ -126,8 +133,8 @@ C=0.5   strength alone: auc 0.515  | weight the model gave it: sum -0.0203
 
 **Strength on its own is AUC 0.506–0.515 — barely above a coin flip.** So this
 is not redundancy with the existing features; there is close to no signal in it
-at all. The cause is sparsity: **56.8% of the 162,002 players in this dataset
-appear in exactly one match**, and only 13.4% appear five or more times. A
+at all. The cause is sparsity: **53.5% of the 213,925 players in this dataset
+appear in exactly one match**, and only 16.0% appear five or more times. A
 player seen once has no learnable strength. The downstream model correctly
 assigns the two columns a near-zero weight, and adding them still costs a
 little (+0.0004) because they are two more noisy inputs.
@@ -591,9 +598,35 @@ games -- 57 on Ascent from a single 9/17 game, 77 on Lotus from three. Since
 map history has no measured predictive power, that movement was noise
 presented as insight.
 
-`MIN_MAP_GAMES = 4`: below it `map_edge` is exactly zero, no opinion rather
-than a shrunk guess. The aggregate top-1 rate is unchanged at 29.9%, so this
-removes noise without costing signal.
+`MIN_MAP_GAMES = 6`: below it `map_edge` is exactly zero, no opinion rather
+than a shrunk guess. Top-1 is 29.6% ± 1.0 against 29.9% at a gate of 4 — well
+inside one standard error, so the raise costs no measurable signal. What it
+buys is exposure: the map term now moves 1.3% of samples rather than 14.1%, at
+the same strength when it does fire. Since map history has no measured
+predictive power on its own (Spearman −0.010 over 12,000 player-matches),
+touching fewer players is the right side to err on.
+
+**Raising the gate exposed a worse bug, and briefly made it worse.** A gated
+component is set to exactly 0.0, and the index was fitting `map_edge`'s
+standard deviation across those zeros — 98.7% of the sample. That measures the
+width of a spike at zero: 0.0042 against 0.039 over the players who actually
+clear the gate, so the divisor was **9.4x too small**. Every player who cleared
+the gate got a z-score of ±12 to ±18, and at 15% weight that one component
+outweighed the other three combined. One real account read 74 on one map and 2
+on another off nothing else; after the fix the same account reads 48 and 37.
+
+The gate sweep could not see this. Top-1 ranks players *within a team*, where
+nearly everyone is gated to zero, so a mis-scaled tail moves almost no
+comparisons — the sweep reported 29.5% against 29.7% and called the gates
+equivalent. They are equivalent on that metric and were not equivalent in the
+scores people read.
+
+`potential.fit_scales` now fits that scale on the gate-clearing subset and pins
+the mean to exactly 0.0, so *gated implies no contribution* is an exact
+property rather than an accident of where the sample mean landed. It needs 200
+such samples to trust the subset; the index build had been drawing 15,000 rows,
+which yielded 128, so it silently fell back to the contaminated scale. The
+default draw is now 60,000, which yields about 495.
 
 ### The card
 

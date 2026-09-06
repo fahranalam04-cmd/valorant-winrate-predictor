@@ -413,3 +413,75 @@ def test_detail_returns_none_without_history():
     conn = world.new_connection()
     assert P.detail(conn, "nobody", 1_800_000_000, "Ascent", _norms(conn),
                     an_index()) is None
+
+
+# --- fitting the component scales --------------------------------------
+# `map_edge` is gated: below MIN_MAP_GAMES it is exactly 0.0, meaning "no
+# opinion". Fitting its standard deviation across those zeros measures the
+# width of a spike at zero, and the divisor came out 8.7x too small on real
+# data -- which let a 15%-weight component with no measured predictive power
+# swing a real account from 74 on one map to 2 on another.
+
+def _edge(map_edge, n_map_games):
+    return P.Components(rating=1.0, acs=212.0, kd=1.05, map_edge=map_edge,
+                        n_games=60, n_map_games=n_map_games, tier=10,
+                        account_level=25, dominance=0.5, n_dominance=20)
+
+
+def _mostly_gated(n_clear=400, n_gated=4000, spread=0.05):
+    """A population shaped like the real one: nearly everyone under the gate."""
+    gated = [_edge(0.0, P.MIN_MAP_GAMES - 1) for _ in range(n_gated)]
+    clear = [_edge(spread * (1 if i % 2 else -1), P.MIN_MAP_GAMES + 2)
+             for i in range(n_clear)]
+    return gated + clear
+
+
+def test_map_edge_scale_ignores_the_players_pinned_to_zero():
+    _, stds = P.fit_scales(_mostly_gated(spread=0.05))
+    # The clearers sit at +/-0.05, so their spread is 0.05. Fitting across the
+    # 4,000 zeros as well would give roughly 0.015 -- and a z-score 3x too big.
+    assert stds["map_edge"] == pytest.approx(0.05, rel=0.02)
+
+
+def test_the_gated_majority_still_contributes_exactly_nothing():
+    """The whole point of the gate. If the mean drifted off zero, every gated
+    player would pick up a spurious map term in the direction of the sample."""
+    means, _ = P.fit_scales(_mostly_gated())
+    assert means["map_edge"] == 0.0
+    index = P.PerfIndex(means=means, stds=P.fit_scales(_mostly_gated())[1],
+                        quantiles=[], as_of=0, n=4400)
+    assert index.z("map_edge", 0.0) == 0.0
+
+
+def test_a_gate_clearing_player_gets_a_believable_z_score():
+    """The regression. z was reaching -17.8 on real data; nothing real is 17
+    standard deviations from the mean of anything."""
+    pop = _mostly_gated(spread=0.05)
+    means, stds = P.fit_scales(pop)
+    index = P.PerfIndex(means=means, stds=stds, quantiles=[], as_of=0,
+                        n=len(pop))
+    assert abs(index.z("map_edge", 0.05)) < 3.0
+
+
+def test_the_other_components_are_still_fitted_on_everyone():
+    """Only map_edge is gated. Narrowing the rest would silently change what
+    every other z-score means."""
+    # Gated players carry ordinary acs/kd/rating values; only their map term
+    # is meaningless. Dropping them from those three scales would throw away
+    # 98% of the sample.
+    pop = [_edge(0.0, 0) for _ in range(300)]
+    pop += [_edge(0.05, P.MIN_MAP_GAMES + 1) for _ in range(300)]
+    means, stds = P.fit_scales(pop)
+    assert means["acs"] == pytest.approx(212.0)
+    assert means["rating"] == pytest.approx(1.0)
+    assert stds["acs"] == 0.0, "every sample shares one acs, over all 600"
+
+
+def test_too_few_clearers_falls_back_rather_than_fitting_noise():
+    """Under MIN_SCALE_SAMPLE the subset is itself noise. The full sample is
+    wrong but stable, and build_perf_index prints a warning when this fires."""
+    pop = ([_edge(0.0, 0) for _ in range(2000)]
+           + [_edge(0.05, P.MIN_MAP_GAMES + 1)
+              for _ in range(P.MIN_SCALE_SAMPLE - 1)])
+    _, stds = P.fit_scales(pop)
+    assert stds["map_edge"] < 0.05, "fell back to the full-sample scale"

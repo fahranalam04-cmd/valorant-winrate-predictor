@@ -18,7 +18,7 @@ from valwr.features import player as pf
 from valwr.features import team as tf
 from valwr.sandbox import profiles as P
 from valwr.sandbox.scenarios import BALANCED, scenario, team
-from valwr.sandbox.schema import MatchScenario, PlayerProfile, TeamProfile
+from valwr.sandbox.schema import MatchScenario, PlayerProfile
 
 LEVELS = ("very_low", "low", "neutral", "high", "very_high")
 
