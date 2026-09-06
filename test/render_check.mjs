@@ -163,34 +163,57 @@ render({ status: "match", state: np, top1_rate: 0.296 });
 ck("missing prediction says so",
    /Not enough of the roster/.test(els.stage.innerHTML));
 
-// --- themes ------------------------------------------------------------
+// --- which side a factor favours ---------------------------------------
+// `predict.top_factors` signs toward TEAM_A (Blue), not toward the viewer.
+// Reading the raw sign as "toward you" was backwards in every match played on
+// Red -- half of them -- and nothing caught it until a replay showed five
+// positive factors labelled "toward you" beside a 37.9% chance of winning.
+{
+  const onBlue = JSON.parse(JSON.stringify(state));
+  onBlue.own_team = "Blue"; onBlue.enemy_team = "Red";
+  onBlue.prediction.factors = [{name: "d_acs", value: 0.2}];
+  render({ status: "match", state: onBlue, top1_rate: 0.296 });
+  ck("a positive factor helps you when you are Blue",
+     /toward you/.test(els.stage.innerHTML));
+
+  const onRed = JSON.parse(JSON.stringify(onBlue));
+  onRed.own_team = "Red"; onRed.enemy_team = "Blue";
+  render({ status: "match", state: onRed, top1_rate: 0.296 });
+  ck("the same factor helps THEM when you are Red",
+     /toward them/.test(els.stage.innerHTML)
+     && !/toward you/.test(els.stage.innerHTML));
+
+  const negRed = JSON.parse(JSON.stringify(onRed));
+  negRed.prediction.factors = [{name: "d_acs", value: -0.2}];
+  render({ status: "match", state: negRed, top1_rate: 0.296 });
+  ck("and a negative factor helps you when you are Red",
+     /toward you/.test(els.stage.innerHTML));
+}
 render({ status: "match", state, top1_rate: 0.296 });
-ck("picker built", /data-theme="midnight"/.test(els.themes.innerHTML));
-ck("five themes offered",
-   (els.themes.innerHTML.match(/<button data-theme=/g) || []).length === 5);
-// localStorage throws under node, exactly as it does in a private window.
-ck("unreadable storage lands on the default",
-   body.dataset.theme === DEFAULT_THEME);
-ck("the default carries its own layout",
-   body.dataset.layout === THEMES.find(t => t.id === DEFAULT_THEME).layout);
 
-applyTheme("splash");
-ck("switching sets the theme", body.dataset.theme === "splash");
-ck("splash switches the layout too", body.dataset.layout === "split");
-ck("splash paints the map",
-   (body.style._v["--mapart"] || "")
-     .includes(`/maps/${state.map.toLowerCase()}-splash.jpg`));
+// --- the map background ------------------------------------------------
+render({ status: "match", state, top1_rate: 0.296 });
+const slug = state.map.toLowerCase().replace(/[^a-z0-9]/g, "");
+ck("the background is the map being played",
+   (body.style._v["--mapart"] || "").includes(`/maps/${slug}-splash.jpg`));
 
-applyTheme("tactical");
-ck("tactical is also split", body.dataset.layout === "split");
-applyTheme("bone");
-ck("daylight stacks again", body.dataset.layout === "stack");
-applyTheme("not-a-theme");
-ck("an unknown theme falls back rather than blanking the page",
-   body.dataset.theme === DEFAULT_THEME);
-applyTheme("midnight");
-ck("midnight is still reachable from the picker",
-   body.dataset.theme === "midnight" && body.dataset.layout === "stack");
+// Every map has to swap the art, which is the whole point of the theme.
+for (const name of ["Pearl", "Bind", "Fracture", "Icebox"]){
+  const other = JSON.parse(JSON.stringify(state));
+  other.map = name;
+  render({ status: "match", state: other, top1_rate: 0.296 });
+  ck(`${name} paints its own art`,
+     (body.style._v["--mapart"] || "")
+       .includes(`/maps/${name.toLowerCase()}-splash.jpg`));
+}
+
+const nameless = JSON.parse(JSON.stringify(state));
+nameless.map = null;
+render({ status: "match", state: nameless, top1_rate: 0.296 });
+ck("an unknown map paints nothing rather than a broken url",
+   body.style._v["--mapart"] === "none");
+
+render({ status: "match", state, top1_rate: 0.296 });
 
 console.log(bad ? `\n${bad} FAILED` : "\nall checks passed");
 process.exit(bad ? 1 : 0);

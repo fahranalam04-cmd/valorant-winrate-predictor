@@ -74,10 +74,15 @@ def _prediction(state: dict) -> None:
     print(f"  model: {state['model']}")
     if p["factors"]:
         print("\n  strongest factors:")
+        # `predict.top_factors` signs toward TEAM_A, which is Blue -- not
+        # toward whoever is reading. On Red the sign has to flip before it can
+        # be called "yours", and a bare +/- invited exactly that confusion.
+        own_is_a = state["own_team"] == "Blue"
         for f in p["factors"]:
-            arrow = "+" if f["value"] > 0 else "-"
+            mine = (f["value"] > 0) == own_is_a
             name = f["name"].replace("d_", "")
-            print(f"    {arrow} {name:<26} {abs(f['value']):.3f}")
+            print(f"    {'you ' if mine else 'them'} {name:<26} "
+                  f"{abs(f['value']):.3f}")
 
 
 def _side(state: dict, team: str, title: str) -> int:

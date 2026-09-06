@@ -74,74 +74,65 @@ def test_the_page_escapes_everything_it_prints():
         assert f"esc({field}" in page, f"{field} is printed without esc()"
 
 
-# --- themes ------------------------------------------------------------
+# --- the map background ------------------------------------------------
 
-# The tokens where inheriting the previous theme's value is not a cosmetic
-# slip but an unreadable page: grounds, inks and the two team accents. A
-# theme that redefines the background and forgets the text colour renders
-# one theme's type on another theme's ground.
+# Grounds, inks and the two team accents. The page has one palette now, so
+# these have to live on :root or components fall back to browser defaults.
 CRITICAL = ("--void", "--steel", "--sunk", "--line",
             "--bone", "--bone-dim", "--slate", "--ghost", "--atk", "--def")
 
-
-def _theme_blocks(page):
-    """{theme id: set of tokens it defines}."""
-    out = {}
-    for m in re.finditer(r'body\[data-theme="([a-z]+)"\]\s*\{([^}]*)\}', page):
-        out.setdefault(m.group(1), set()).update(re.findall(r"(--[a-z0-9-]+)\s*:",
-                                                            m.group(2)))
-    return out
+MAPS = ROOT / "valwr" / "dash" / "static" / "maps"
 
 
-def test_every_theme_repaints_the_whole_page():
+def test_the_palette_lives_on_root():
     page = PAGE.read_text(encoding="utf-8")
-    blocks = _theme_blocks(page)
-    assert len(blocks) == 4, (
-        f"expected four alternates beside the default, got {sorted(blocks)}")
-    for name, tokens in blocks.items():
-        missing = [t for t in CRITICAL if t not in tokens]
-        assert not missing, f"theme '{name}' never sets {missing}"
-
-
-def test_the_page_is_correct_with_no_theme_applied():
-    """`midnight` is the bare :root palette and has no theme block of its own.
-
-    That is the property that matters, not which theme opens by default: if
-    the picker never runs, or localStorage is unreadable, or the body attribute
-    is missing for any other reason, the page still renders in a complete
-    palette rather than in browser defaults.
-    """
-    page = PAGE.read_text(encoding="utf-8")
-    assert 'body[data-theme="midnight"]' not in page
     root = re.search(r":root\s*\{([^}]*)\}", page).group(1)
     for token in CRITICAL:
         assert f"{token}:" in root, f":root must define {token}"
 
 
-def test_the_default_theme_is_one_that_exists():
-    """A default naming a theme that is not in the list would leave the page
-    on whatever the fallback happens to be, silently ignoring the setting."""
+def test_there_is_exactly_one_palette():
+    """The picker and its four alternates are gone. A stray data-theme rule
+    would be dead CSS that never applies, since nothing sets the attribute."""
     page = PAGE.read_text(encoding="utf-8")
-    default = re.search(r'const DEFAULT_THEME = "([a-z]+)"', page).group(1)
-    ids = set(re.findall(r'\{id: "([a-z]+)"', page))
-    assert default in ids, f"default '{default}' is not among {sorted(ids)}"
+    assert "data-theme" not in page
+    assert "localStorage" not in page
 
 
-def test_both_fallbacks_land_in_the_same_place():
-    """An unknown id from storage and an unknown id from a caller must resolve
-    to the same theme. They resolved to two different ones for one commit."""
+def test_the_background_is_named_from_the_map():
+    """The file is addressed by the lowercased map name with punctuation
+    stripped, which is exactly what the live state carries -- no lookup."""
     page = PAGE.read_text(encoding="utf-8")
-    apply = page[page.index("function applyTheme"):]
-    apply = apply[:apply.index("function setMapArt")]
-    assert "DEFAULT_THEME" in apply, (
-        "applyTheme falls back to something other than DEFAULT_THEME")
+    fn = page[page.index("function setMapArt"):]
+    fn = fn[:fn.index("function verdict")]
+    assert 'toLowerCase().replace(/[^a-z0-9]/g, "")' in fn
+    assert "/maps/${name}-splash.jpg" in fn
+    assert '"none"' in fn, "a map with no art must resolve to none, not a 404"
 
 
-def test_reading_a_stored_theme_cannot_throw():
-    """localStorage throws outright in a private window rather than returning
-    null, and an uncaught throw here would leave the page blank."""
-    page = PAGE.read_text(encoding="utf-8")
-    read = page[page.index("function readStoredTheme"):]
-    read = read[:read.index("function applyTheme")]
-    assert "try {" in read and "catch" in read
-    assert "DEFAULT_THEME" in read
+@pytest.mark.skipif(not MAPS.is_dir(), reason="art not downloaded")
+def test_every_map_the_database_has_seen_has_a_background():
+    """The point of the theme: Pearl looks like Pearl and Bind like Bind.
+
+    A missing file is not an exception anywhere -- the background simply does
+    not paint -- so nothing would report it but this.
+    """
+    from valwr import config
+    from valwr.store import schema
+
+    s = config.load(require_key=False)
+    if not s.database_path.exists():
+        pytest.skip("no database")
+    conn = schema.connect(s.database_path)
+    played = [r[0] for r in conn.execute(
+        "SELECT DISTINCT map FROM matches WHERE map IS NOT NULL")]
+    conn.close()
+    assert played, "no maps in the database to check"
+
+    missing = []
+    for name in played:
+        slug = "".join(ch for ch in name.lower() if ch.isalnum())
+        if not (MAPS / f"{slug}-splash.jpg").exists():
+            missing.append(name)
+    assert not missing, (
+        f"no splash art for {missing}; run tools/fetch_agent_art.py")

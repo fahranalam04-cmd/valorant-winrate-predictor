@@ -284,3 +284,32 @@ def test_the_stub_detail_carries_everything_a_row_lifts_from_it():
     for key in ("career", "recent", "score", "reason", "flag"):
         assert f'got["{key}"]' not in src or key in stub, (
             f"_player_rows reads got[{key!r}]; add it to _detail()")
+
+
+def test_a_replayed_match_has_the_shape_the_page_renders(tmp_path):
+    """`--match` rebuilds a finished game as the dashboard would have shown
+    it, so it has to carry everything poll_once does -- plus the one thing a
+    live poll cannot have, which is what actually happened.
+    """
+    from valwr.dash import replay
+    conn = _db(tmp_path, named=[(ME, "tester", "0000")], history=[ME])
+    # One stored match, replayed. Its own row must not inform its prediction.
+    row = conn.execute("SELECT match_id FROM matches").fetchone()
+    st = replay.replay_state(
+        conn, row["match_id"],
+        {"best": "logistic regression", "roles": {}, "norms": {},
+         "columns": [], "model": None},
+        None, ME)
+    assert DOCUMENTED_KEYS <= set(st)
+    assert set(st) - DOCUMENTED_KEYS == {"outcome"}
+    assert st["as_of"] == 1000, "as_of must be the match's own start time"
+    assert st["outcome"]["your_agent"] == "Jett"
+    json.dumps(st)
+
+
+def test_replaying_a_match_that_does_not_exist_says_so(tmp_path):
+    import pytest as _pytest
+    from valwr.dash import replay
+    conn = _db(tmp_path)
+    with _pytest.raises(replay.NoSuchMatch):
+        replay.replay_state(conn, "nope", {"best": "x"}, None, ME)

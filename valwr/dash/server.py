@@ -68,8 +68,36 @@ def _demo_payload() -> dict:
             conn.close()
 
 
+def _replay_payload(match_id: str) -> dict:
+    """One finished match, rebuilt as the dashboard would have shown it."""
+    import joblib
+
+    from valwr import config
+    from valwr.dash.replay import replay_state
+    from valwr.rating import potential as pot
+    from valwr.store import schema
+
+    s = config.load(require_key=False)
+    conn = schema.connect(s.database_path)
+    bundle = joblib.load(s.database_path.parent.parent / "models" / "model.joblib")
+    try:
+        index = pot.PerfIndex.load()
+    except FileNotFoundError:
+        index = None
+    row = conn.execute("SELECT puuid FROM players WHERE lower(tag) = lower(?) "
+                       "ORDER BY last_seen_at DESC LIMIT 1",
+                       (getattr(s, "riot_tag", "") or "",)).fetchone()
+    me = row["puuid"] if row else ""
+    try:
+        return {"status": "match",
+                "state": replay_state(conn, match_id, bundle, index, me),
+                "top1_rate": index.top1_rate if index else None, "fresh": True}
+    finally:
+        conn.close()
+
+
 def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
-              demo: bool = False):
+              demo: bool = False, match: str | None = None):
     @asynccontextmanager
     async def lifespan(_app):
         yield
@@ -81,6 +109,7 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
     app.state.ctx = None
     app.state.error = None
     app.state.demo_state = None
+    app.state.replay_state = None
 
     # ONE worker, and always the same one. A SQLite connection belongs to the
     # thread that opened it, and `asyncio.to_thread` draws from a pool with no
@@ -149,6 +178,19 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
         pool = app.state.pool
         try:
             while True:
+                if match:
+                    # A finished match, rebuilt from history. Nothing is
+                    # fetched and nothing about the game client is consulted.
+                    if app.state.replay_state is None:
+                        try:
+                            app.state.replay_state = _replay_payload(match)
+                        except Exception as e:          # noqa: BLE001
+                            app.state.replay_state = {
+                                "status": "error",
+                                "message": f"{type(e).__name__}: {e}"}
+                    await socket.send_text(json.dumps(app.state.replay_state))
+                    await asyncio.sleep(POLL_SECONDS)
+                    continue
                 if demo:
                     # The synthetic state goes through the same renderer as a
                     # real match. Built once -- it never changes -- and the only
@@ -208,6 +250,9 @@ def main(argv=None) -> int:
     ap.add_argument("--demo", action="store_true",
                     help="serve an invented match, to see the page without "
                          "playing one; touches nothing real")
+    ap.add_argument("--match", metavar="ID",
+                    help="replay a finished match from history, scored only "
+                         "on what was knowable before it started")
     ap.add_argument("--deadline", type=float, default=st.DEFAULT_DEADLINE)
     args = ap.parse_args(argv)
 
@@ -220,7 +265,7 @@ def main(argv=None) -> int:
 
     server = uvicorn.Server(uvicorn.Config(
         build_app(no_fetch=args.no_fetch, deadline=args.deadline,
-                  demo=args.demo),
+                  demo=args.demo, match=args.match),
         host=HOST, port=args.port, log_level="warning"))
 
     if not args.no_browser:
