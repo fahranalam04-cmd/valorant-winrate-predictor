@@ -14,7 +14,8 @@ echo.
 echo   Opens a page in your browser showing the current match:
 echo   both win probabilities, both teams ranked, and what drove it.
 echo.
-echo   Local only. Bound to 127.0.0.1, not reachable from your network.
+echo   Local only by default: bound to 127.0.0.1. Use phone.bat if you
+echo   want to read it from a phone on the same wifi.
 echo   Read-only: never writes to the game, never picks agents.
 echo.
 
