@@ -140,9 +140,11 @@ def fetch_maps(client) -> int:
     got = 0
     for m in data:
         name, url = m.get("displayName"), m.get("splash")
-        # The listing carries practice ranges and unreleased entries; only real
-        # competitive maps get a file.
-        if not name or not url or "skirmish" in name.lower():
+        # Every map with art, not just the competitive pool. The live view
+        # follows you into swiftplay, team deathmatch and customs, and a
+        # skirmish arena needs a background as much as Ascent does -- filtering
+        # these out left those modes on a bare gradient.
+        if not name or not url:
             continue
         path = MAPS / f"{slug(name)}-splash.jpg"
         if path.exists():

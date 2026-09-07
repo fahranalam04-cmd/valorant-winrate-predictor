@@ -10,9 +10,17 @@ copy of the prediction logic is the failure `live/predict.py` was written to
 avoid, and it would fail silently here too: every field would still be present
 and still look plausible.
 
-**Bound to 127.0.0.1 and nothing else.** docs/ETHICS-AND-TOS.md forbids
-exposing an endpoint that looks up arbitrary players; this serves the match you
-are in and nothing more, and there is no route that takes a puuid.
+**Bound to 127.0.0.1 by default.** docs/ETHICS-AND-TOS.md forbids exposing an
+endpoint that looks up arbitrary players; this serves the match you are in and
+nothing more, and there is no route that takes a puuid.
+
+`--host` widens that binding, for the one case that needs it: reading the lobby
+on your phone while sat at the same desk. It is opt-in, never the default, and
+it says what it is exposing and to whom. What goes over the wire is the current
+match -- other players' gamertags and their stored statistics -- so it belongs
+on a network you control and nowhere else. The rule it still satisfies is the
+one that matters: nothing here can be asked about a player who is not in the
+match being served.
 """
 
 from __future__ import annotations
@@ -247,6 +255,9 @@ def main(argv=None) -> int:
     ap.add_argument("--no-fetch", action="store_true",
                     help="cache only; never spend API quota")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument("--host", default=HOST,
+                    help="interface to bind. Defaults to 127.0.0.1; pass "
+                         "0.0.0.0 to read it on a phone on the same network")
     ap.add_argument("--demo", action="store_true",
                     help="serve an invented match, to see the page without "
                          "playing one; touches nothing real")
@@ -260,13 +271,25 @@ def main(argv=None) -> int:
 
     url = f"http://{HOST}:{args.port}/"
     print(f"  dashboard on {url}")
-    print("  bound to localhost only -- not reachable from your network.")
+    if args.host == HOST:
+        print("  bound to localhost only -- not reachable from your network.")
+    else:
+        import socket
+        try:
+            lan = socket.gethostbyname(socket.gethostname())
+        except OSError:
+            lan = args.host
+        print(f"  BOUND TO {args.host} -- reachable from your network.")
+        print(f"  On a phone on the same wifi:  http://{lan}:{args.port}/")
+        print("  This serves the current match, including other players'")
+        print("  gamertags and statistics. Only do this on a network you")
+        print("  control, and stop it when you are done.")
     print("  Keep this window open. Ctrl+C to stop.\n")
 
     server = uvicorn.Server(uvicorn.Config(
         build_app(no_fetch=args.no_fetch, deadline=args.deadline,
                   demo=args.demo, match=args.match),
-        host=HOST, port=args.port, log_level="warning"))
+        host=args.host, port=args.port, log_level="warning"))
 
     if not args.no_browser:
         # Opened only once the port is accepting. Firing it before

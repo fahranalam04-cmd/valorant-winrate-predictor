@@ -221,6 +221,37 @@ body{
   text-transform:uppercase;color:var(--ghost);margin-top:3px}
 .st.form b{color:var(--bone-dim)}
 
+/* ---------- phones ------------------------------------------------------
+   The row wants 62px + four 66px stat columns + gaps, about 400px before the
+   name gets any space at all, so on a handset it has to fold. Score keeps the
+   left edge and spans both lines; the name takes the top line; the four stats
+   share the bottom one. Nothing is dropped -- a phone is where you check a
+   lobby you are already in, so the numbers matter more than the spacing. */
+@media(max-width:720px){
+  .shell{padding:14px 12px 48px}
+  .map{font-size:38px}
+  .mapsub{font-size:9.5px;letter-spacing:.16em}
+  .grid{gap:14px;margin-top:14px}
+  .row{grid-template-columns:50px repeat(4,1fr);
+    grid-template-rows:auto auto;height:auto;
+    padding:9px 12px 9px 0;gap:6px 6px}
+  .score{grid-column:1;grid-row:1 / span 2;font-size:26px;padding-left:10px}
+  .who{grid-column:2 / -1;grid-row:1}
+  .st{grid-row:2}
+  .st b{font-size:14px}
+  .st span{font-size:8px;letter-spacing:.1em}
+  .art{left:44px;width:170px}
+  .nm{font-size:14px}
+  .rs{font-size:10.5px;white-space:normal}
+  .oddsbar{height:30px}
+  .oddsbar div{font-size:14px;padding:0 10px}
+  .tname{font-size:16px}
+  .tside{font-size:8.5px}
+  .phero{height:170px}
+  .pbody{padding:12px 13px 15px}
+  .fx .f{grid-template-columns:64px minmax(0,1fr) 46px}
+}
+
 /* ---------- detail panel ------------------------------------------------ */
 .panel{background:var(--steel);border:1px solid var(--line);position:sticky;
   top:18px;overflow:hidden;
