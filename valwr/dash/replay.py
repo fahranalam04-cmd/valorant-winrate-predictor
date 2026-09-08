@@ -23,6 +23,7 @@ from valwr.live import predict as LP
 from valwr.live import state as ST
 from valwr.live.resolve import Resolution
 from valwr.live.roster import LiveMatch, LivePlayer
+from valwr.store import temporal
 
 
 class NoSuchMatch(LookupError):
@@ -90,6 +91,9 @@ def replay_state(conn, match_id: str, bundle: dict, index, own_puuid: str
         "coverage": resolution.coverage, "confidence": resolution.confidence,
         "fetched": 0, "model": bundle.get("best", "?"),
         "warnings": [],
+        # Exact, not inferred: a finished match records who queued with whom.
+        "parties": ST.parties(conn, match, as_of,
+                              exact=temporal.match_parties(conn, match_id)),
         "players": ST._player_rows(ctx, match, as_of),
         "prediction": None,
     }

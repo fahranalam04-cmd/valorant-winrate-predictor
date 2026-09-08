@@ -61,6 +61,19 @@ PROFILES = [
     (41, 11, 188.4, 134, 166, 80, 0.81, 0.191, 0.39, 2),
 ]
 
+# A plausible spread: mostly Platinum with a Diamond and one unranked.
+from valwr.rating import ranks as _r
+RANKS = [_r.describe(t) for t in
+         (18, 16, 0, 15, 13, 20, 16, 0, 15, 12)]
+
+# Two duos and a trio, so both the marker and the grouping are visible.
+PARTIES = [
+    {"members": ["demo-00", "demo-01"], "team": "Blue", "size": 2,
+     "label": "duo", "source": "inferred"},
+    {"members": ["demo-05", "demo-06", "demo-08"], "team": "Red", "size": 3,
+     "label": "trio", "source": "inferred"},
+]
+
 MAP = "Ascent"
 GATE = 6
 
@@ -106,6 +119,7 @@ def demo_state(conn=None) -> dict:
             "known_name": True, "agent": agent, "agent_id": ids.get(agent),
             "role": ROLES.get(agent), "team": team, "is_you": i == 0,
             "score": score, "flag": None, "career": career,
+            "rank": RANKS[i],
             "recent": recent,
             "reason": REASONS[i] or "no history",
         }
@@ -168,6 +182,7 @@ def demo_state(conn=None) -> dict:
         "as_of": 0, "own_team": "Blue", "enemy_team": "Red",
         "team_sizes": {"Blue": 5, "Red": 5}, "coverage": 8,
         "confidence": "medium", "fetched": 0, "model": "logistic regression",
+        "parties": PARTIES,
         "warnings": ["Demo data. These players are invented and no database, "
                      "game client or network was touched to build this."],
         "players": players,

@@ -27,11 +27,11 @@ ME = "me-puuid"
 DOCUMENTED_KEYS = {
     "match_id", "phase", "is_custom", "standard_mode", "map", "mode", "as_of",
     "own_team", "enemy_team", "team_sizes", "coverage", "confidence",
-    "fetched", "model", "warnings", "players", "prediction",
+    "fetched", "model", "warnings", "parties", "players", "prediction",
 }
 
 CARD_KEYS = {"puuid", "name", "known_name", "agent", "role", "team", "is_you",
-             "score", "reason", "flag"}
+             "score", "reason", "flag", "rank"}
 
 
 # The keys `_player_rows` lifts out of `pot.detail`. Kept in one place because
@@ -40,6 +40,11 @@ CARD_KEYS = {"puuid", "name", "known_name", "agent", "role", "team", "is_you",
 def _detail(score):
     return {"score": score, "reason": "r", "flag": None,
             "career": None, "recent": None}
+
+
+def _rank():
+    from valwr.rating import ranks
+    return ranks.describe(16)
 
 
 class _Stub:
@@ -313,3 +318,82 @@ def test_replaying_a_match_that_does_not_exist_says_so(tmp_path):
     conn = _db(tmp_path)
     with _pytest.raises(replay.NoSuchMatch):
         replay.replay_state(conn, "nope", {"best": "x"}, None, ME)
+
+
+# --- rank and parties --------------------------------------------------
+
+def test_a_players_rank_comes_from_their_most_recent_match(tmp_path):
+    """Rank is not something the loading screen hands us; what the stored data
+    has is the tier a player was in each game. The newest is the answer, and
+    it can lag a climb -- which is why the card prints it beside freshness."""
+    from valwr.rating import ranks
+    from valwr.store import temporal
+    conn = _db(tmp_path, history=[ME])
+    conn.execute("UPDATE match_players SET tier = 16 WHERE puuid = ?", (ME,))
+    conn.commit()
+    assert temporal.current_tier(conn, ME, 2000) == 16
+    assert ranks.name(16) == "Platinum 2"
+    assert ranks.short(16) == "P2"
+    assert ranks.describe(16)["division"] == "Platinum"
+    assert ranks.describe(0)["ranked"] is False
+
+
+def test_a_trio_is_found_from_its_pairs(tmp_path):
+    """Grouping is union-find over pairwise evidence, so three players who
+    have each queued with each other collapse into one trio rather than three
+    duos -- and A-with-B plus B-with-C is enough even without A-with-C."""
+    import valwr.live.state as S
+    conn = _db(tmp_path)
+    match = _match()
+    calls = []
+
+    def fake(c, a, b, as_of):
+        calls.append((a, b))
+        return 1 if {a, b} in ({"b1", "b2"}, {"b2", "b3"}) else 0
+
+    import valwr.store.temporal as T
+    old = T.times_partied
+    T.times_partied = fake
+    try:
+        groups = S.parties(conn, match, 1000)
+    finally:
+        T.times_partied = old
+
+    blue = [g for g in groups if g["team"] == "Blue"]
+    assert len(blue) == 1, f"expected one group, got {blue}"
+    assert set(blue[0]["members"]) == {"b1", "b2", "b3"}
+    assert blue[0]["label"] == "trio" and blue[0]["size"] == 3
+    assert blue[0]["source"] == "inferred"
+
+
+def test_solo_players_produce_no_group(tmp_path):
+    """A missing marker means "not established", never "definitely solo" --
+    the inference catches about half of real parties."""
+    import valwr.live.state as S
+    import valwr.store.temporal as T
+    conn = _db(tmp_path)
+    old = T.times_partied
+    T.times_partied = lambda *a: 0
+    try:
+        assert S.parties(conn, _match(), 1000) == []
+    finally:
+        T.times_partied = old
+
+
+def test_exact_parties_beat_inference_when_the_match_is_stored(tmp_path):
+    """A finished match records party ids outright, so a replay never guesses.
+    Passing them in must also stop `times_partied` being consulted at all."""
+    import valwr.live.state as S
+    import valwr.store.temporal as T
+    conn = _db(tmp_path)
+    called = []
+    old = T.times_partied
+    T.times_partied = lambda *a: called.append(a) or 1
+    try:
+        groups = S.parties(conn, _match(), 1000,
+                           exact={"b1": "P", "b2": "P", "r0": "Q", "r1": "Q"})
+    finally:
+        T.times_partied = old
+    assert not called, "exact parties must not fall back to inference"
+    assert {g["source"] for g in groups} == {"exact"}
+    assert sorted(len(g["members"]) for g in groups) == [2, 2]

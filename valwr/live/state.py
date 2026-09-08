@@ -26,6 +26,8 @@ from valwr.collect.limiter import TokenBucket
 from valwr.live import lockfile, predict as P, resolve as R, roster
 from valwr.live import session as S
 from valwr.rating import potential as pot
+from valwr.rating import ranks
+from valwr.store import temporal
 from valwr.store import schema
 
 DEFAULT_DEADLINE = 25.0
@@ -130,6 +132,53 @@ def _warnings(match, own_puuid: str) -> list[str]:
     return out
 
 
+PARTY_LABELS = {2: "duo", 3: "trio", 4: "four", 5: "five-stack"}
+
+
+def parties(conn, match, as_of: int, exact: dict | None = None) -> list[dict]:
+    """Who queued together, as groups.
+
+    Two sources, and the view is told which it got. A finished match records
+    party ids outright, so a replay is exact. A live lobby has no row yet and
+    the client will not say who the enemy queued with, so it is inferred from
+    whether two players have entered a party together before -- 99.8%
+    precise, 53% recall, measured. Absence of a group therefore means "not
+    established", never "solo", and the page says so.
+    """
+    out = []
+    for team in ("Blue", "Red"):
+        side = [p.puuid for p in match.players if p.team == team]
+        # Union-find over the side: pair evidence merges two players into one
+        # group, so a trio is found from its three pairs without special-casing.
+        parent = {p: p for p in side}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i, a in enumerate(side):
+            for b in side[i + 1:]:
+                together = (exact.get(a) is not None and exact.get(a) == exact.get(b)
+                            if exact is not None
+                            else temporal.times_partied(conn, a, b, as_of) > 0)
+                if together:
+                    parent[find(a)] = find(b)
+
+        groups: dict[str, list[str]] = {}
+        for p in side:
+            groups.setdefault(find(p), []).append(p)
+        for members in groups.values():
+            if len(members) > 1:
+                out.append({
+                    "members": members, "team": team, "size": len(members),
+                    "label": PARTY_LABELS.get(len(members), f"{len(members)}-stack"),
+                    "source": "exact" if exact is not None else "inferred",
+                })
+    return out
+
+
 def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
     """Every player in the lobby, scored where we can and honest where we cannot."""
     names = gamertags(ctx.conn, [p.puuid for p in match.players])
@@ -149,6 +198,10 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
             "team": p.team,
             "is_you": p.puuid == ctx.session.puuid,
             "score": None, "reason": "no history", "flag": None,
+            # Rank as of their most recent stored match. It can lag a climb,
+            # which is why the card prints it beside the data's freshness.
+            "rank": ranks.describe(temporal.current_tier(ctx.conn, p.puuid,
+                                                         as_of)),
             # Lifted out of `detail` so the scoreboard row does not have to
             # reach into the breakdown for the numbers it prints on every line.
             "career": None, "recent": None,
@@ -210,6 +263,7 @@ def poll_once(ctx: LiveContext) -> dict | None:
         "fetched": resolution.fetched,
         "model": ctx.model_name,
         "warnings": _warnings(match, ctx.session.puuid),
+        "parties": parties(ctx.conn, match, as_of),
         "players": _player_rows(ctx, match, as_of),
         "prediction": None,
     }

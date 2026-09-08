@@ -275,7 +275,58 @@ def career_totals(conn: sqlite3.Connection, puuid: str, as_of: int) -> Career:
     return _totals(conn, puuid, as_of)
 
 
-# Columns knowable at the loading screen, before a single round is played.
+def current_tier(conn: sqlite3.Connection, puuid: str, as_of: int) -> int | None:
+    """Their competitive tier as of the most recent match we hold.
+
+    Rank at the loading screen is not something the stored data carries
+    directly -- what it has is the tier each player *was* in each match they
+    played. The newest of those is the best available answer, and it is the
+    same column the model already uses as a feature.
+
+    It can lag: a player who climbed since their last stored game shows the
+    older rank. That is why the views print it next to how fresh the data is.
+    """
+    row = conn.execute(
+        "SELECT mp.tier FROM match_players mp "
+        "WHERE mp.puuid = ? AND mp.started_at < ? AND mp.tier IS NOT NULL"
+        + _ONLY_COMPETITIVE +
+        " ORDER BY mp.started_at DESC LIMIT 1",
+        (puuid, as_of, COMPETITIVE)).fetchone()
+    return row["tier"] if row else None
+
+
+def times_partied(conn: sqlite3.Connection, a: str, b: str, as_of: int) -> int:
+    """How many earlier matches these two entered in the same party.
+
+    The client does not tell you who the *enemy* queued with -- that would be
+    a competitive advantage -- so a live lobby can only be inferred from
+    history. Measured over 8,000 same-team pairs in 400 recent matches, "they
+    have shared a party before" identifies a real party with 99.8% precision
+    and 53.2% recall: when it fires it is almost never wrong, and it misses
+    about half. So a view may say "these two queue together" on the strength
+    of it, and must not say "solo" from its silence.
+    """
+    return conn.execute(
+        "SELECT COUNT(*) FROM match_players x "
+        "JOIN match_players y ON x.match_id = y.match_id "
+        "                    AND x.party_id = y.party_id "
+        "WHERE x.puuid = ? AND y.puuid = ? AND x.started_at < ? "
+        "  AND x.party_id IS NOT NULL",
+        (a, b, as_of)).fetchone()[0]
+
+
+def match_parties(conn: sqlite3.Connection, match_id: str) -> dict[str, str]:
+    """puuid -> party id, for a match already stored.
+
+    Exact, unlike the inference above, because a finished match records who
+    queued with whom. Only usable for a replay; a live lobby has no row yet.
+    """
+    return {r["puuid"]: r["party_id"] for r in conn.execute(
+        "SELECT puuid, party_id FROM match_players WHERE match_id = ?",
+        (match_id,)) if r["party_id"]}
+
+
+# Columns knowable at the loading screen, before a single round is played.# Columns knowable at the loading screen, before a single round is played.
 # Deliberately excludes score, kills, deaths, damage, won and the derived
 # components -- those are the outcome of the match being predicted.
 ROSTER_COLUMNS = ("match_id", "puuid", "team", "agent", "party_id",

@@ -65,6 +65,19 @@ ck("side labels", /attacking · first half/.test(out) && /defending · first hal
 ck("known rows marked", (out.match(/class="row known/g) || []).length === known.length);
 ck("unknown rows marked", (out.match(/class="row unknown/g) || []).length === unknown.length);
 ck("YOU marker", /class="tag">YOU/.test(out));
+// Rank and party, the two things a lobby is read for before the numbers.
+ck("every player shows a rank",
+   (out.match(/class="rank /g) || []).length === state.players.length);
+ck("the rank is the short form", out.includes(`>${first.rank.short}<`));
+{
+  const grouped = (state.parties || []).reduce((n, g) => n + g.members.length, 0);
+  ck("a marker for every partied player",
+     (out.match(/class="party"/g) || []).length === grouped);
+  const inferred = (state.parties || []).some(g => g.source === "inferred");
+  ck(inferred ? "inferred parties are qualified in the header"
+              : "exact parties need no qualifier",
+     /class="partynote"/.test(out) === inferred);
+}
 ck("acs on row", out.includes(first.career.acs.toFixed(1)));
 ck("k/d on row", out.includes(first.career.kd.toFixed(2)));
 ck("last-20 on row", out.includes(first.recent.kd.toFixed(2)));

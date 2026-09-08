@@ -214,6 +214,26 @@ body{
 .rs .ag{color:var(--slate)}
 .alert{color:var(--gold);margin-left:6px}
 
+/* Rank sits with the agent name, not in its own column -- the row already
+   carries four numbers and a fifth would not survive a phone. */
+.rank{display:inline-block;padding:0 5px;margin-left:6px;font:700 10px/16px var(--display);
+  letter-spacing:.06em;vertical-align:1px;border:1px solid currentColor}
+.rank.unranked{color:var(--ghost);border-color:var(--line)}
+.rank.iron{color:#8a8f94} .rank.bronze{color:#b1794a}
+.rank.silver{color:#b9c3c9} .rank.gold{color:#e0bb52}
+.rank.platinum{color:#4fc2d6} .rank.diamond{color:#c88ce0}
+.rank.ascendant{color:#3ec98a} .rank.immortal{color:#e2456a}
+.rank.radiant{color:#fff9c4;background:rgba(255,249,196,.10)}
+
+/* A party marker. The letter is what ties members together at a glance --
+   colour alone would fail for anyone who cannot separate the two teams' hues. */
+.party{display:inline-flex;align-items:center;gap:3px;margin-left:7px;
+  padding:0 5px;font:700 9.5px/16px var(--display);letter-spacing:.1em;
+  background:var(--sunk);border:1px solid var(--line);color:var(--bone-dim);
+  vertical-align:1px}
+.party b{color:var(--gold);font-weight:700}
+.partynote{color:var(--ghost);font-size:11px;margin:-2px 0 8px}
+
 .st{position:relative;text-align:center}
 .st b{display:block;font-family:var(--display);font-stretch:condensed;
   font-weight:700;font-size:17px;line-height:1.05}
@@ -393,6 +413,32 @@ function verdict(p){
 }
 
 /* ---------------- roster ---------------- */
+/* Which party a player is in, as a letter. Rebuilt on every render from the
+   state rather than stored, so it cannot go stale against the roster. */
+let PARTY_OF = {};
+function indexParties(s){
+  PARTY_OF = {};
+  const letters = "ABCDEFGH";
+  (s.parties || []).forEach((g, i) => {
+    for (const m of g.members)
+      PARTY_OF[m] = {letter: letters[i % letters.length], label: g.label,
+                     size: g.size, source: g.source};
+  });
+}
+function partyTag(puuid){
+  const g = PARTY_OF[puuid];
+  if (!g) return "";
+  const how = g.source === "exact" ? "queued together"
+            : "have queued together before";
+  return `<span class="party" title="${esc(g.label)} — ${how}">`
+       + `<b>${g.letter}</b>${esc(g.label)}</span>`;
+}
+function rankTag(r){
+  if (!r) return "";
+  const cls = r.division.toLowerCase().replace(/[^a-z]/g, "") || "unranked";
+  return `<span class="rank ${cls}" title="${esc(r.name)}">${esc(r.short)}</span>`;
+}
+
 function rowHTML(p){
   const c = p.career, r = p.recent, known = p.score !== null;
   const stat = (label, val, cls) =>
@@ -405,8 +451,10 @@ function rowHTML(p){
     <div class="score">${known ? p.score : '<span class="u">—</span>'}</div>
     <div class="who">
       <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
+        partyTag(p.puuid)}${
         p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}</div>
       <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>
+        ${rankTag(p.rank)}
         &nbsp;·&nbsp;${esc(p.reason)}</div>
     </div>
     ${stat("acs", c ? n1(c.acs) : "—")}
@@ -539,9 +587,10 @@ function panelHTML(s){
       ${p.agent_id ? `<img src="${artURL(p, "portrait")}" alt=""
           decoding="async" onerror="this.remove()">` : ""}
       <div class="veil"></div>
-      <div class="pid"><div class="pn">${esc(p.name)}</div>
+      <div class="pid"><div class="pn">${esc(p.name)}${partyTag(p.puuid)}</div>
         <div class="pa">${esc(p.agent || "selecting")}${
-          p.role ? " · " + esc(p.role) : ""} · ${esc(p.team)}</div></div>
+          p.role ? " · " + esc(p.role) : ""} · ${esc(p.team)}${
+          p.rank ? " · " + esc(p.rank.name) : ""}</div></div>
     </div>
     <div class="pbody" id="pbody">${body}</div>
   </aside>`;
@@ -570,8 +619,15 @@ function render(msg){
   $("sub").innerHTML = `${esc(phase)} <b>·</b> ${esc(s.mode || "—")} <b>·</b> ` +
     `${s.coverage}/10 known <b>·</b> ${esc(s.confidence)} confidence`;
 
+  indexParties(s);
+
   let head = "";
   for (const w of s.warnings) head += `<div class="warn">${esc(w)}</div>`;
+  if ((s.parties || []).some(g => g.source === "inferred"))
+    head += `<div class="partynote">Party markers are inferred from who has
+      queued together before — the client does not reveal the enemy's parties.
+      When one shows it is almost always right; when none shows it means
+      unestablished, not solo.</div>`;
 
   if (s.prediction){
     const own = s.prediction.own_probability;
