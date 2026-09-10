@@ -70,8 +70,13 @@ def test_the_page_escapes_everything_it_prints():
     assert "const esc = t =>" in page
     # Prefix match: several of these are escaped as esc(f.map || "?").
     for field in ("p.name", "p.agent", "m.name", "f.map", "f.agent",
-                  "a.agent", "p.reason", "f.ago", "p.team"):
+                  "a.agent", "p.reason", "f.ago", "p.team",
+                  # Numbers too: they come from stored API responses, and
+                  # SQLite keeps whatever it was given.
+                  "p.score", "m.gate", "a.games", "s.coverage",
+                  "recent.games", "career.games", "win"):
         assert f"esc({field}" in page, f"{field} is printed without esc()"
+    assert 'const i0 = v => v == null ? "—" : esc(v);' in page
 
 
 # --- the map background ------------------------------------------------

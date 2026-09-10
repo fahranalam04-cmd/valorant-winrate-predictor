@@ -136,7 +136,9 @@ if not "%target%"=="" goto runcustom
 if defined ONESHOT exit /b 1
 goto menu
 :runcustom
-%PY% -m valwr.sandbox run --scenario %target%
+REM Quoted: the name is typed at a prompt, and unquoted a "&" in it would run
+REM whatever followed as a second command.
+%PY% -m valwr.sandbox run --scenario "%target%"
 goto done
 
 :done

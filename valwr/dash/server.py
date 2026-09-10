@@ -21,12 +21,18 @@ match -- other players' gamertags and their stored statistics -- so it belongs
 on a network you control and nowhere else. The rule it still satisfies is the
 one that matters: nothing here can be asked about a player who is not in the
 match being served.
+
+**A bind address is not an access control.** Any web page open in the same
+browser can reach 127.0.0.1, and websockets are exempt from the same-origin
+policy, so `LocalOnly` refuses a request addressed to a domain name (DNS
+rebinding) and a websocket opened from any other origin.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import json
 import threading
 import time
@@ -34,6 +40,7 @@ import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # Imported at MODULE level, deliberately. `from __future__ import annotations`
 # turns every annotation into a string, and FastAPI resolves those against the
@@ -41,9 +48,10 @@ from pathlib import Path
 # name was not there to resolve, so FastAPI fell back to treating the `socket`
 # parameter as a *query parameter* -- and rejected every handshake with
 # 403 Forbidden and "loc: ['query', 'socket'], Field required".
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.websockets import WebSocketClose
 
 from valwr.live import state as st
 
@@ -54,6 +62,88 @@ POLL_SECONDS = 5.0
 STATIC = Path(__file__).resolve().parent / "static"
 AGENTS = STATIC / "agents"
 MAPS = STATIC / "maps"
+
+
+def host_allowed(host: str | None) -> bool:
+    """Loopback by name, or any IP literal. Never a domain name.
+
+    DNS rebinding points an attacker's domain at 127.0.0.1 after their page
+    has loaded, and the browser then treats this server as that domain's own
+    origin -- free to load the page and open the socket. The request still
+    names the host it was sent to, so an unrecognised name is refused. An IP
+    literal cannot be rebound, which is what lets phone.bat's
+    http://192.168.x.x:8787/ through.
+    """
+    if not host:
+        return False
+    try:
+        name = urlsplit(f"//{host}").hostname
+    except ValueError:
+        return False
+    if not name:
+        return False
+    if name == "localhost":
+        return True
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        return False
+    return True
+
+
+def refusal(kind: str, host: str | None, origin: str | None) -> str | None:
+    """Why a request is refused, or None to let it through."""
+    if not host_allowed(host):
+        return f"refused: {host!r} is not a local address"
+    # Browsers attach Origin to every websocket handshake and a page cannot
+    # remove it, so this is what stops another site open in the same browser
+    # from reading the match. A client sending no Origin is not a web page,
+    # and anything that is not a web page could reach the port regardless.
+    if kind == "websocket" and origin is not None:
+        try:
+            netloc = urlsplit(origin).netloc
+        except ValueError:
+            netloc = ""
+        if netloc.lower() != host.lower():
+            return f"refused: websocket from origin {origin!r}"
+    return None
+
+
+class LocalOnly:
+    """ASGI middleware applying `refusal` to every request and handshake."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            headers = {k.decode("latin-1").lower(): v.decode("latin-1")
+                       for k, v in scope.get("headers", [])}
+            reason = refusal(scope["type"], headers.get("host"),
+                             headers.get("origin"))
+            if reason:
+                if scope["type"] == "http":
+                    response = PlainTextResponse(reason, status_code=403)
+                    await response(scope, receive, send)
+                else:
+                    await WebSocketClose(code=1008)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+def content_policy(host: str) -> str:
+    """The page's Content-Security-Policy.
+
+    The page is one file with inline script and style -- no build step, by
+    design -- so this cannot forbid inline script; escaping every value is
+    what stops an injection. What it does is make one worthless: no external
+    script, image, font or connection is allowed, so nothing on the page can
+    be sent anywhere, and no other site can frame it.
+    """
+    return ("default-src 'none'; script-src 'unsafe-inline'; "
+            "style-src 'unsafe-inline'; img-src 'self'; "
+            f"connect-src 'self' ws://{host}; base-uri 'none'; "
+            "form-action 'none'; frame-ancestors 'none'")
 
 
 def _demo_payload() -> dict:
@@ -114,6 +204,7 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
     app = FastAPI(title="valwr live", docs_url=None, redoc_url=None,
                   openapi_url=None,   # minimal surface: two routes, no schema
                   lifespan=lifespan)
+    app.add_middleware(LocalOnly)
     app.state.ctx = None
     app.state.error = None
     app.state.demo_state = None
@@ -152,14 +243,23 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
         return app.state.ctx
 
     @app.get("/")
-    def index():
+    def index(request: Request):
         # no-store, deliberately. Cached, the page outlives the server that
         # served it: with the dashboard stopped the browser happily renders a
         # stale copy whose websocket can never connect, so it reads as "the app
         # is broken" rather than "nothing is running". That cost a real
         # debugging session.
-        return FileResponse(STATIC / "index.html",
-                            headers={"Cache-Control": "no-store, max-age=0"})
+        #
+        # The host is safe to echo into the policy: LocalOnly has already
+        # refused anything that is not localhost or an IP literal.
+        host = request.headers.get("host", HOST)
+        return FileResponse(STATIC / "index.html", headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Content-Security-Policy": content_policy(host),
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Referrer-Policy": "no-referrer",
+        })
 
     # Agent artwork, and nothing else. This is the only route besides the page
     # and the socket, and it is deliberately a directory of static PNGs: it

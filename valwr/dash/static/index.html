@@ -379,10 +379,13 @@ table.tw tr+tr td{border-top:1px solid var(--line-soft)}
 const $ = id => document.getElementById(id);
 const esc = t => String(t == null ? "" : t).replace(/[&<>"]/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const n1 = v => v == null ? "—" : v.toFixed(1);
-const n2 = v => v == null ? "—" : v.toFixed(2);
-const pc = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
-const i0 = v => v == null ? "—" : String(v);
+/* Numbers are escaped too. They are computed from stored API responses, and
+   SQLite keeps whatever it was given -- a "kills" that arrived as markup is
+   still markup. Number() makes a non-number read NaN instead of rendering. */
+const n1 = v => v == null ? "—" : Number(v).toFixed(1);
+const n2 = v => v == null ? "—" : Number(v).toFixed(2);
+const pc = v => v == null ? "—" : (Number(v) * 100).toFixed(1) + "%";
+const i0 = v => v == null ? "—" : esc(v);
 
 let STATE = null, selected = null, top1 = null, tries = 0;
 
@@ -448,7 +451,7 @@ function rowHTML(p){
       aria-pressed="${selected === p.puuid}">
     ${p.agent_id ? `<img class="art" src="${artURL(p, "row")}" alt=""
         decoding="async" onerror="this.remove()">` : ""}
-    <div class="score">${known ? p.score : '<span class="u">—</span>'}</div>
+    <div class="score">${known ? esc(p.score) : '<span class="u">—</span>'}</div>
     <div class="who">
       <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
         partyTag(p.puuid)}${
@@ -496,7 +499,7 @@ function twoUp(career, recent, win){
     same ? "" : `<td class="n f">${b}</td>`}</tr>`;
   return `<table class="tw">
     <thead><tr><th class="l"></th><th>career</th>${
-      same ? "" : `<th>last ${recent.games}</th>`}</tr></thead><tbody>
+      same ? "" : `<th>last ${esc(recent.games)}</th>`}</tr></thead><tbody>
     ${line("Games", i0(career.games), i0(recent && recent.games))}
     ${line("ACS", n1(career.acs), n1(recent && recent.acs))}
     ${line("K/D", n2(career.kd), n2(recent && recent.kd))}
@@ -505,8 +508,8 @@ function twoUp(career, recent, win){
     ${line("K / D / A", `${i0(career.kills)}/${i0(career.deaths)}/${i0(career.assists)}`,
         recent ? `${i0(recent.kills)}/${i0(recent.deaths)}/${i0(recent.assists)}` : "—")}
     </tbody></table>${same && recent ? `<div class="cmp"
-      style="border:0;padding-top:7px"><span class="k">All ${career.games}
-      stored matches fall inside the last ${win}, so form and career are the
+      style="border:0;padding-top:7px"><span class="k">All ${esc(career.games)}
+      stored matches fall inside the last ${esc(win)}, so form and career are the
       same games.</span></div>` : ""}`;
 }
 
@@ -540,11 +543,11 @@ function panelHTML(s){
 
     const mapBlock = m.games
       ? twoUp(m, null, 0) + (m.counts_toward_score ? ""
-          : `<div class="cmp" style="border:0"><span class="k">Under ${m.gate}
+          : `<div class="cmp" style="border:0"><span class="k">Under ${esc(m.gate)}
              games here, so the map does not move the score.</span></div>`)
         + (m.agents && m.agents.length ? `<div class="chips">${
             m.agents.slice(0, 5).map(a =>
-              `<span>${esc(a.agent)} ×${a.games}</span>`).join("")}</div>` : "")
+              `<span>${esc(a.agent)} ×${esc(a.games)}</span>`).join("")}</div>` : "")
       : `<div class="cmp"><span class="k">Never played this map.</span></div>`;
 
     const form = (d.form || []).map(f => `<div class="formrow">
@@ -559,7 +562,7 @@ function panelHTML(s){
     // left, everything describing where and when on the right.
     body = `
       <div class="pcol">
-        <div class="bigscore"><b style="color:${accent}">${p.score}</b>
+        <div class="bigscore"><b style="color:${accent}">${esc(p.score)}</b>
           <span>of 100</span></div>
         <div class="pwhy">${esc(p.reason)}</div>
         ${p.flag ? `<div class="flag">${esc(p.flag.note)}</div>` : ""}
@@ -617,7 +620,7 @@ function render(msg){
   setMapArt();
   const phase = s.is_custom ? "Custom" : s.phase === "pregame" ? "Agent select" : "Live";
   $("sub").innerHTML = `${esc(phase)} <b>·</b> ${esc(s.mode || "—")} <b>·</b> ` +
-    `${s.coverage}/10 known <b>·</b> ${esc(s.confidence)} confidence`;
+    `${esc(s.coverage)}/10 known <b>·</b> ${esc(s.confidence)} confidence`;
 
   indexParties(s);
 

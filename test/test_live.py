@@ -355,8 +355,11 @@ def test_the_dashboard_websocket_accepts_a_connection():
     from fastapi.testclient import TestClient
     from valwr.dash.server import build_app
 
-    with TestClient(build_app(no_fetch=True)) as client:
-        with client.websocket_connect("/ws") as ws:
+    # A real local address: the server refuses TestClient's default
+    # "testserver" host, as it refuses any domain name (DNS rebinding).
+    with TestClient(build_app(no_fetch=True),
+                    base_url="http://127.0.0.1:8787") as client:
+        with client.websocket_connect("ws://127.0.0.1:8787/ws") as ws:
             msg = ws.receive_json()
             # With VALORANT closed this is the error branch, which is fine --
             # the point is that the handshake completed at all.
@@ -367,7 +370,10 @@ def test_the_dashboard_serves_its_page():
     from fastapi.testclient import TestClient
     from valwr.dash.server import build_app
 
-    with TestClient(build_app(no_fetch=True)) as client:
+    # A real local address: the server refuses TestClient's default
+    # "testserver" host, as it refuses any domain name (DNS rebinding).
+    with TestClient(build_app(no_fetch=True),
+                    base_url="http://127.0.0.1:8787") as client:
         r = client.get("/")
         assert r.status_code == 200
         assert "valwr live" in r.text
@@ -554,8 +560,9 @@ def test_the_context_and_the_poll_share_one_thread(monkeypatch):
 
     monkeypatch.setattr(S.st, "open_context", fake_open)
     monkeypatch.setattr(S.st, "poll_once", fake_poll)
-    with TestClient(S.build_app(no_fetch=True)) as client:
-        with client.websocket_connect("/ws") as ws:
+    with TestClient(S.build_app(no_fetch=True),
+                    base_url="http://127.0.0.1:8787") as client:
+        with client.websocket_connect("ws://127.0.0.1:8787/ws") as ws:
             assert ws.receive_json()["status"] == "lobby"
 
     assert seen["opened"] == seen["polled"], \

@@ -282,7 +282,7 @@ first and tells you in plain language if anything is missing.
 ### Tests
 
 ```bash
-pytest -q                          # 335 tests
+pytest -q                          # 359 tests
 python tools/audit.py              # re-derives documented claims, reports drift
 ```
 
@@ -305,7 +305,9 @@ describe, and constants that have drifted apart.
 
 The local client integration is strictly read-only — it reads match state and
 never writes, never automates agent selection, and never touches process memory.
-See [docs/ETHICS-AND-TOS.md](docs/ETHICS-AND-TOS.md).
+See [docs/ETHICS-AND-TOS.md](docs/ETHICS-AND-TOS.md), and
+[SECURITY.md](SECURITY.md) for what each part of the project exposes, how it is
+contained, and how to report a vulnerability.
 
 Not affiliated with or endorsed by Riot Games.
 

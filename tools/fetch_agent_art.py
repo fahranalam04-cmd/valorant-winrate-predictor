@@ -39,6 +39,7 @@ crawler uses. It needs no key.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -54,6 +55,11 @@ TIMEOUT = 30.0
 
 # What to save from each agent entry: (api field, filename suffix).
 WANTED = (("displayIcon", "icon"), ("fullPortrait", "portrait"))
+
+# Filenames are built from a third-party response, so the id has to be exactly
+# a UUID before it goes near a path: "../../x" from a broken or hostile API
+# would otherwise write outside DEST.
+UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 # Riot ships these at print resolution -- the portraits are ~705 KB each, and
 # the scoreboard puts ten of them on screen at once. Nothing is displayed
@@ -222,7 +228,9 @@ def main(argv=None) -> int:
         got = skipped = failed = 0
         for a in agents:
             uuid, name = a.get("uuid"), a.get("displayName", "?")
-            if not uuid:
+            if not isinstance(uuid, str) or not UUID.fullmatch(uuid):
+                if uuid:
+                    print(f"  {name}: id {uuid!r} is not a UUID; skipped")
                 continue
             for field, suffix in WANTED:
                 url = a.get(field)

@@ -228,5 +228,50 @@ ck("an unknown map paints nothing rather than a broken url",
 
 render({ status: "match", state, top1_rate: 0.296 });
 
+// --- hostile input ------------------------------------------------------
+// Other players choose their own names, and every number here was stored from
+// an API response that SQLite did not type-check. Plant markup in every field
+// the page prints -- text and numbers alike -- and require that none of it
+// arrives as markup, while proving it did flow through (escaped).
+{
+  const EVIL = '<img src=x onerror=alert(1)>';
+  const h = JSON.parse(JSON.stringify(state));
+  Object.assign(h, { mode: EVIL, confidence: EVIL, coverage: EVIL,
+                     model: EVIL, warnings: [EVIL] });
+  for (const g of h.parties || []) g.label = EVIL;
+  for (const q of h.players){
+    Object.assign(q, { name: EVIL, agent: EVIL, reason: EVIL, role: EVIL });
+    if (q.score !== null) q.score = EVIL;
+    if (q.rank) Object.assign(q.rank, { short: EVIL, name: EVIL });
+    if (q.career) Object.assign(q.career, { games: EVIL, kills: EVIL, deaths: EVIL, assists: EVIL });
+    if (q.flag) q.flag.note = EVIL;
+    const d = q.detail;
+    if (!d) continue;
+    for (const c of d.components || []) Object.assign(c, { label: EVIL, note: EVIL });
+    // Forced into the branch that prints the gate: it only renders for a
+    // player whose map record is too thin to count, and the demo's is not --
+    // so planting markup there alone tested nothing.
+    Object.assign(d.map, { name: EVIL, gate: EVIL, games: d.map.games || 3,
+                           counts_toward_score: false });
+    for (const a of d.map.agents || []) Object.assign(a, { agent: EVIL, games: EVIL });
+    for (const f of d.form || []) Object.assign(f, { map: EVIL, agent: EVIL, ago: EVIL, kills: EVIL });
+    if (d.freshness) Object.assign(d.freshness, { label: EVIL, games_known: EVIL });
+  }
+  escape();
+  render({ status: "match", state: h, top1_rate: 0.296 });
+  const rows = els.stage.innerHTML + els.sub.innerHTML;
+  fire(h.players.find(q => q.detail).puuid);
+  const panel = els.stage.innerHTML;
+  const all = rows + panel;
+  ck("hostile values never render as markup", !all.includes("<img src=x"),
+     all.slice(Math.max(0, all.indexOf("<img src=x") - 80), all.indexOf("<img src=x") + 40));
+  ck("hostile values still reach the page, escaped",
+     (all.match(/&lt;img src=x/g) || []).length > 20);
+  escape();
+  render({ status: "error", message: EVIL });
+  ck("an error message is escaped too", !els.stage.innerHTML.includes("<img src=x"));
+  render({ status: "match", state, top1_rate: 0.296 });
+}
+
 console.log(bad ? `\n${bad} FAILED` : "\nall checks passed");
 process.exit(bad ? 1 : 0);

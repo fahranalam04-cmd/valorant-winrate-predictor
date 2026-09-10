@@ -2,15 +2,20 @@ name: tests
 
 # The suite is built to run without a database, a trained model or the
 # downloaded artwork: every test that needs one either builds a throwaway
-# SQLite file in a tmp directory or skips itself. Verified -- 310 pass and 1
-# skips on a machine with none of them. So CI needs no secrets and never
-# touches the HenrikDev API.
+# SQLite file in a tmp directory or skips itself, verified on a fresh clone
+# with none of them present. So CI needs no secrets and never touches the
+# HenrikDev API.
 
 on:
   push:
     branches: [main, master]
   pull_request:
   workflow_dispatch:
+
+# Read-only. The job checks out and tests; it writes nothing back, so a
+# compromised dependency running inside it gets a token that can do nothing.
+permissions:
+  contents: read
 
 jobs:
   pytest:

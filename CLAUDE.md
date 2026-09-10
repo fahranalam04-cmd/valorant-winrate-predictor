@@ -19,16 +19,18 @@ and a README that states its own limitations.
 
 ## Status
 
-**Phases 0-6 are done.** Environment, schema and reference data pass;
+**Phases 0-7 are done, with the Phase 9 backtest and write-up. Phase 8 (the
+Claude coach) is not built.** Environment, schema and reference data pass;
 the collector crawls, stratifies by rank band and survives being killed; raw
 JSON normalises idempotently and `store/temporal.py` enforces the `as_of`
-firewall; the rating metric is built and validated; the feature builder and
-its leakage audit pass; the model is trained and measured; the live client
-reads a real match and predicts it. Next is Phase 7 (the browser dashboard).
+firewall; the feature builder and its leakage audit pass; the model is trained
+and measured; the live client reads a real match, and the browser dashboard in
+`valwr/dash/` shows it.
 
-The measured result is weak and that is the honest finding: AUC 0.549,
-accuracy 53.1% +/- 2.0%, and on equal-rank matches nothing beats a coin flip.
-Do not "improve" this by relaxing the audits. See README.
+The measured edge over rank is small and real, including on equal-rank
+matches -- the README's figures are generated, so read them there rather than
+from here. The player rating does **not** beat raw ACS (docs/MODELING.md).
+Do not "improve" either result by relaxing the audits.
 
 Work through `prompts/` in order — each file is one Claude Code session. Do not
 skip ahead; later phases assume earlier acceptance criteria actually pass.
@@ -50,8 +52,9 @@ valwr/          the package
   features/     time-gated feature builder
   model/        baselines, training, calibration, SHAP
   live/         lockfile auth, websocket match detection
-  web/          FastAPI app + static front end
-  coach/        Claude API layer
+  dash/         FastAPI dashboard + static front end
+  sandbox/      synthetic scenarios that probe the trained model
+  coach/        Claude API layer (Phase 8, not built)
 docs/           specs — read these before implementing a phase
 prompts/        one prompt per phase
 test/           pytest
@@ -63,7 +66,7 @@ models/         trained artefacts, gitignored
 
 ```bash
 python -m venv .venv && source .venv/Scripts/activate   # Windows/Git Bash
-pip install -r requirements.txt
+pip install -e ".[dev]"
 cp .env.example .env        # then fill in HENRIK_API_KEY
 python -m valwr.check              # smoke test
 python -m valwr.collect --minutes 60   # crawl (resumable, ctrl-c safe)
@@ -132,8 +135,8 @@ shrinkage toward the population mean, weighted by sample size. Raw rates on
 sparse cells will dominate the model and generalise to nothing.
 
 **5. If the model looks great, it is broken.**
-Realistic performance for this problem is **AUC 0.60–0.68, accuracy 58–64%**.
-Above ~0.75 means leakage. The `shuffled target` check in
+The pre-measurement guess for this problem was AUC 0.60–0.68; the measured
+figure is lower, around 0.56. Above ~0.75 means leakage. The `shuffled target` check in
 `test/test_leakage.py` retrains on shuffled labels and asserts AUC collapses to
 ~0.5 — if it does not, a feature is carrying outcome information. Investigate
 before celebrating.
@@ -161,7 +164,8 @@ never publish a dataset of PUUIDs, never expose a public endpoint that looks up
 someone else's stats. `data/` is gitignored and stays that way.
 
 **10. The coach explains the model. It does not invent analysis.**
-`valwr/coach/` passes the prediction plus its SHAP attributions to Claude. The
+Not built yet (Phase 8). When it is, `valwr/coach/` passes the prediction plus
+its attributions to Claude, anonymised -- never a PUUID or Riot ID. The
 system prompt forbids inventing statistics — the model may only reason over
 supplied numbers. An LLM that makes up plausible-sounding VALORANT stats is
 worse than no coach at all, because it is convincing.
@@ -200,6 +204,13 @@ predictive accuracy. See docs/SANDBOX.md.
 **15. Secrets never enter git.**
 `.env` is gitignored; only `.env.example` is tracked. No key literal in any
 committed file, notebook output, or test fixture.
+
+**16. Binding 127.0.0.1 is not access control.**
+Any web page open in the same browser can reach localhost, and websockets
+ignore the same-origin policy. `dash/server.py`'s `LocalOnly` refuses requests
+addressed to a domain name (DNS rebinding) and websockets from another origin,
+and the page escapes every value it renders -- numbers included. Keep both;
+see SECURITY.md.
 
 ## Style
 
