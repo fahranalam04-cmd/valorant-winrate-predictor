@@ -44,7 +44,7 @@ research = ["xgboost>=2.1", "shap>=0.45", "matplotlib>=3.9"]
 dev = ["pytest>=8.0", "ruff>=0.4"]
 
 [project.urls]
-Repository = "https://github.com/Fahran-Alam/valorant-winrate-predictor"
+Repository = "https://github.com/fahranalam04-cmd/valorant-winrate-predictor"
 
 [tool.setuptools.packages.find]
 include = ["valwr*"]
