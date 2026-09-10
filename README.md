@@ -173,17 +173,76 @@ of review, including my own writing it up as a finding.
 
 ## Setup
 
-Requires a [HenrikDev API key](https://api.henrikdev.xyz/dashboard/) (generated
-via their Discord) and, for the coaching layer, an Anthropic API key.
+Python 3.11+, and a [HenrikDev API key](https://api.henrikdev.xyz/dashboard/)
+(free, generated through their Discord). Node is optional and only used to run
+the dashboard page's own tests.
 
 ```bash
 git clone https://github.com/<user>/valorant-winrate-predictor
 cd valorant-winrate-predictor
-python -m venv .venv && source .venv/Scripts/activate
-pip install -r requirements.txt
-cp .env.example .env      # fill in HENRIK_API_KEY
-python -m valwr.check     # smoke test
+python -m venv .venv && .venv/Scripts/activate      # source .venv/bin/activate on POSIX
+pip install -e .
+cp .env.example .env                                 # then fill in HENRIK_API_KEY
+python -m valwr.check                                # smoke test: key, network, schema
 ```
+
+### Collect a dataset
+
+Nothing works without match history, and there is no shipped database — it
+holds other players' statistics and is not redistributable. You build your own.
+
+```bash
+python -m valwr.collect.seed --self          # seed the frontier from your own account
+crawl.bat                                    # supervised crawl; Ctrl+C to stop
+```
+
+The crawler snowballs outward from your seed: it fetches a player's recent
+matches, stores all ten players from each, and queues the ones it has not seen.
+It self-limits to the API's 30 requests a minute and collects roughly 1,400
+matches an hour. **A few hours gets you a usable model; overnight gets a good
+one.** Progress is logged to `data/crawl.log`.
+
+On Windows, register `watchdog.bat` with Task Scheduler if you want it to
+survive closing the window. One default matters: Task Scheduler stops a task
+after three days unless you tell it not to.
+
+### Train
+
+```bash
+python -m valwr.model.train --rebuild        # build features, fit, select, save
+python tools/build_perf_index.py             # population reference for the 0-100 score
+python tools/validate_potential.py --write-index   # measure and record its hit rate
+```
+
+`train` fits ten candidates, picks by the one-standard-error rule, and writes
+`models/model.joblib` plus a full report to `reports/results.json`. The README
+results block above is generated from that file, so it cannot drift.
+
+### Run it
+
+```bash
+python tools/fetch_agent_art.py    # agent portraits and map splashes, once (~11 MB)
+
+dashboard.bat                      # live view, localhost only
+phone.bat                          # same, readable from a phone on your wifi
+python -m valwr.dash --demo        # invented match, to see the page without playing
+python -m valwr.dash --match <id>  # replay a finished game as it would have looked
+```
+
+The live view needs VALORANT running on the same machine — it reads the local
+client API to learn who is in your lobby. `dashboard.bat` runs a preflight check
+first and tells you in plain language if anything is missing.
+
+### Tests
+
+```bash
+pytest -q                          # 311 tests
+python tools/audit.py              # re-derives documented claims, reports drift
+```
+
+The audit is worth running after any retrain: it catches figures in the docs
+that the new numbers have made stale, artefacts older than the model they
+describe, and constants that have drifted apart.
 
 ## Scope and limitations
 

@@ -23,6 +23,11 @@ models/
 *.cbm
 *.txt.model
 
+# Coverage output -- a binary artefact of running the tests
+.coverage
+.coverage.*
+htmlcov/
+
 # Python
 __pycache__/
 *.py[cod]

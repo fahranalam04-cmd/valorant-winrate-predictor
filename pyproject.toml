@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "valwr"
+version = "1.0.0"
+description = "Predicts VALORANT match outcomes and rates every player in the lobby before the round starts"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Fahran Alam" }]
+keywords = ["valorant", "esports", "machine-learning", "prediction"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Games/Entertainment :: First Person Shooters",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Floors rather than pins, matching requirements.txt. The one worth explaining:
+# joblib's pickle loader uses a NumPy API deprecated in 2.5, and the live path
+# loads that bundle on every start, so the floor moves when upstream fixes it.
+dependencies = [
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "tenacity>=8.2",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "pyarrow>=16.0",
+    "scikit-learn>=1.5",
+    "lightgbm>=4.3",
+    "joblib>=1.4",
+    "websockets>=12.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "psutil>=5.9",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+# Model comparison and the diagnostic plots. Not needed to run the dashboard.
+research = ["xgboost>=2.1", "shap>=0.45", "matplotlib>=3.9"]
+dev = ["pytest>=8.0", "ruff>=0.4"]
+
+[project.urls]
+Repository = "https://github.com/Fahran-Alam/valorant-winrate-predictor"
+
+[tool.setuptools.packages.find]
+include = ["valwr*"]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+filterwarnings = [
+    # joblib -> numpy, see the dependency note above. Ours to fix when it is.
+    "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning",
+]

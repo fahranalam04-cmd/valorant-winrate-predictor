@@ -38,10 +38,11 @@ from valwr.store import normalize, schema
 def local_puuid(conn, name: str, tag: str | None) -> str | None:
     """Find the local account, tolerating a rename.
 
-    A Riot ID is not a stable key -- this account was `OldName#tag` when the
-    crawl started and is `NewName#tag` now, so a name lookup against a
-    configured name silently finds nothing. The PUUID is the stable identifier;
-    the tag survives most renames, so it is the better fallback.
+    A Riot ID is not a stable key. Players rename, and this was hit for real:
+    the account that seeded the crawl had a different name by the time the
+    tooling looked for it, so a lookup against the configured name silently
+    found nothing at all. The PUUID is the stable identifier; the tag survives
+    most renames, so it is the better fallback of the two.
     """
     row = conn.execute("SELECT puuid FROM players WHERE lower(name) = lower(?)",
                        (name,)).fetchone()

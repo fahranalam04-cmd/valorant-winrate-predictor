@@ -202,7 +202,7 @@ never a re-crawl. Compression gets the same result without giving that up.
 ## Sampling bias — the thing to actively manage
 
 Seeding purely from the leaderboard produces an Immortal/Radiant dataset, and a
-model trained on it will not transfer to Fahran's own lobbies.
+model trained on it will not transfer to your own lobbies.
 
 The worry that a self-seeded snowball would be *too narrow* turned out to be
 wrong, and it is worth recording why. A single lobby snapshot looks bounded:
