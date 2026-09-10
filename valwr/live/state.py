@@ -152,7 +152,11 @@ def parties(conn, match, as_of: int, exact: dict | None = None) -> list[dict]:
         # group, so a trio is found from its three pairs without special-casing.
         parent = {p: p for p in side}
 
-        def find(x):
+        # `parent` is passed rather than closed over: the closure is only used
+        # inside this iteration, so capturing it works, but a linter is right
+        # that a loop variable bound by a nested function is a trap waiting
+        # for the day someone moves the definition out of the loop.
+        def find(x, parent=parent):
             while parent[x] != x:
                 parent[x] = parent[parent[x]]
                 x = parent[x]

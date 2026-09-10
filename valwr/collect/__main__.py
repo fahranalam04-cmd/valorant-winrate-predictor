@@ -39,7 +39,7 @@ def report(conn, stats) -> None:
           f"{'   <-- limiter needs tuning' if stats.rate_limit_hits else ''}")
 
     states = frontier.counts_by_state(conn)
-    print(f"\n  frontier: " + "  ".join(f"{k}={v}" for k, v in sorted(states.items())))
+    print("\n  frontier: " + "  ".join(f"{k}={v}" for k, v in sorted(states.items())))
 
     store = raw.storage_summary(conn)
     print(f"  storage:  {store['responses']} responses, "

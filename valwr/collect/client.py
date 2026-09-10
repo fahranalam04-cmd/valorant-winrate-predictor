@@ -37,7 +37,7 @@ class RateLimited(HenrikError):
     def __init__(self, retry_after: float | None):
         self.retry_after = retry_after
         super().__init__(
-            f"rate limited by HenrikDev"
+            "rate limited by HenrikDev"
             + (f", retry after {retry_after}s" if retry_after else "")
         )
 

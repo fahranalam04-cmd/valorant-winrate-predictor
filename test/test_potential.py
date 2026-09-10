@@ -359,7 +359,6 @@ def test_map_edge_is_zero_below_the_gate():
 def test_the_gate_threshold_is_reported_not_hardcoded_twice():
     """Both views name the threshold; only the model should own the number."""
     conn, as_of, norms = _one_player(map_played="Ascent")
-    from valwr.rating.potential import PerfIndex
     d = P.detail(conn, "p", as_of, "Ascent", norms, an_index())
     assert d["map"]["gate"] == P.MIN_MAP_GAMES
 

@@ -66,7 +66,14 @@ def test_exhausted_window_recovers_without_a_new_reading():
 
 def test_limiter_learns_the_real_cost_of_a_request():
     """A fresh matchlist bills several units, not one, because it fans out to
-    Riot instead of serving cache."""
+    Riot instead of serving cache. Pacing to the raw unit ceiling therefore
+    overshoots by about 2x and ends in a stall.
+
+    This existed twice under the same name, so the first copy never ran --
+    Python rebinds the name and pytest only ever collected the second. They
+    asserted the same thing, so nothing was untested, but a silently skipped
+    test is worth deleting rather than leaving to be discovered again.
+    """
     b = TokenBucket(30)
     for r in (28, 26, 24):
         b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": str(r),
@@ -371,15 +378,4 @@ def test_crawler_normalises_inline_so_there_is_one_writer(conn):
 
 # --- adaptive pacing --------------------------------------------------
 
-def test_limiter_learns_the_real_cost_of_a_request():
-    """A size=10 matchlist bills ~2 units, not 1. Pacing to the raw unit
-    ceiling overshoots by 2x and ends in a stall."""
-    b = TokenBucket(30)
-    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "28",
-               "x-ratelimit-reset": "60"})
-    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "26",
-               "x-ratelimit-reset": "60"})
-    b.observe({"x-ratelimit-limit": "30", "x-ratelimit-remaining": "24",
-               "x-ratelimit-reset": "60"})
-    assert 1.5 < b.cost_per_request < 2.5, b.cost_per_request
 

@@ -55,3 +55,30 @@ filterwarnings = [
     # joblib -> numpy, see the dependency note above. Ours to fix when it is.
     "ignore:Setting the shape on a NumPy array has been deprecated:DeprecationWarning",
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+# Deliberately narrow. This project's style is a considered one -- long
+# explanatory comments, prose docstrings, deliberate blank lines -- and a
+# linter's opinions about that are noise. What is worth failing a build over
+# is code that is actually wrong:
+#
+#   E9  syntax and runtime errors
+#   F   pyflakes: undefined names, unused imports, shadowed builtins
+#   B   bugbear: mutable defaults, unused loop variables, except-pass
+#
+# Formatting rules are omitted on purpose, not forgotten.
+select = ["E9", "F", "B"]
+ignore = [
+    "B008",   # function call in a default argument -- used deliberately here
+    "B905",   # zip() without strict= -- fine on equal-length sequences
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tools and tests put `sys.path.insert(0, ".")` before their imports so they
+# run from the repository root without installing anything.
+"tools/*.py" = ["E402"]
+"test/*.py" = ["E402"]

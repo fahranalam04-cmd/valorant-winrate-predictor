@@ -300,7 +300,7 @@ def main(argv=None) -> int:
     rho = spearman([p["raw"] for p in flat], [p["actual"] for p in flat])
     rho_r = spearman([p["c"].rating for p in flat], [p["actual"] for p in flat])
     rho_a = spearman([p["c"].acs for p in flat], [p["actual"] for p in flat])
-    print(f"\n  Spearman correlation with actual performance:")
+    print("\n  Spearman correlation with actual performance:")
     print(f"    potential score        {rho:+.3f}")
     print(f"    existing rating alone  {rho_r:+.3f}")
     print(f"    career ACS alone       {rho_a:+.3f}")

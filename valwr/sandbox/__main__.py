@@ -140,7 +140,10 @@ def cmd_grid(args) -> int:
         raise SystemExit(f"no grid for {args.pair!r}; pairs are {sweeps.PAIRS}")
 
     print(f"\n{left} x {right}   [{p.name}]   values are P(A) %\n")
-    header = f"  {left + ' \\ ' + right:<20}" + "".join(
+    # Built outside the f-string: a backslash inside an f-string expression is
+    # only legal from Python 3.12, and this package supports 3.11.
+    corner = left + " \\ " + right
+    header = f"  {corner:<20}" + "".join(
         f"{lvl:>14}" for lvl in sweeps.GRID)
     print(header)
     for a_level in sweeps.GRID:
@@ -163,7 +166,9 @@ def cmd_potential(args) -> int:
     try:
         index = pot.PerfIndex.load()
     except FileNotFoundError as e:
-        raise SystemExit(f"error: {e}")
+        # `from None`: the traceback would show a missing-file error the user
+        # cannot act on, above the sentence telling them what to run.
+        raise SystemExit(f"error: {e}") from None
 
     for s in _select(args.scenario, args.generated):
         scored = sp.score_scenario(s, bundle, index)

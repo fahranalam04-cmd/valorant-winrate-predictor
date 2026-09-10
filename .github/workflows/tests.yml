@@ -1,0 +1,53 @@
+name: tests
+
+# The suite is built to run without a database, a trained model or the
+# downloaded artwork: every test that needs one either builds a throwaway
+# SQLite file in a tmp directory or skips itself. Verified -- 310 pass and 1
+# skips on a machine with none of them. So CI needs no secrets and never
+# touches the HenrikDev API.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      # Node runs the dashboard page's own script against a real state
+      # dictionary. Without it those tests skip rather than fail, but the page
+      # is the one part a Python test cannot reach, so it is worth having.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Lint
+        run: ruff check valwr tools test
+
+      # Re-derives what the documentation claims and fails on disagreement.
+      # Without a database it checks what it can and reports the rest as
+      # skipped context rather than as problems.
+      - name: Audit documented claims
+        run: python tools/audit.py

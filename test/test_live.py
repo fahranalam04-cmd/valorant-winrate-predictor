@@ -664,12 +664,10 @@ def test_the_dashboard_still_defaults_to_localhost():
     "the match I am in" and "anything on this network", and the state it
     serves carries other players' gamertags and statistics.
     """
-    from valwr.dash import server
-    ap = server.argparse.ArgumentParser(prog="valwr.dash")
-    assert server.HOST == "127.0.0.1"
-    args = server.main.__wrapped__ if hasattr(server.main, "__wrapped__") else None
-    # Parse with no arguments the way `python -m valwr.dash` would.
     import inspect
+
+    from valwr.dash import server
+    assert server.HOST == "127.0.0.1"
     src = inspect.getsource(server.main)
     assert 'ap.add_argument("--host", default=HOST' in src, (
         "--host must default to the localhost constant")

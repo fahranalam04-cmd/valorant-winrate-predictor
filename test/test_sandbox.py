@@ -20,11 +20,10 @@ import math
 import pytest
 
 from valwr.features import player as pf
-from valwr.features import team as tf
 from valwr.sandbox import profiles, runner, scenarios, sweeps, variance, world
 from valwr.sandbox import predictor as pred
 from valwr.sandbox.schema import (InvalidProfile, MatchScenario, PlayerProfile,
-                                  TeamProfile, VarianceSpec)
+                                  TeamProfile)
 
 SAMPLE = ("fair_match", "single_smurf", "bad_map", "good_map",
           "five_stack_vs_solos", "hot_vs_cold_form", "coverage_a_0_of_5",
@@ -134,7 +133,6 @@ def test_a_player_with_no_history_is_neutral_not_terrible(bundle):
     profile with zero games should land on the population prior, and must not
     come back as a 0.0 win rate, which would read as a player who never wins.
     """
-    from valwr.rating.normalize import build_norms
     conn = world.new_connection()
     try:
         norms = bundle["norms"]
