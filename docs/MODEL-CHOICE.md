@@ -599,9 +599,10 @@ map history has no measured predictive power, that movement was noise
 presented as insight.
 
 `MIN_MAP_GAMES = 6`: below it `map_edge` is exactly zero, no opinion rather
-than a shrunk guess. Top-1 is 29.6% ± 1.0 against 29.9% at a gate of 4 — well
-inside one standard error, so the raise costs no measurable signal. What it
-buys is exposure: the map term now moves 1.3% of samples rather than 14.1%, at
+than a shrunk guess. Top-1 on the current index is 30.5% ± 1.0 — inside one
+standard error of the 29.9% measured at a gate of 4 on less data — so the raise
+costs no measurable signal. What it
+buys is exposure: the map term now moves 1.4% of samples rather than 14.1%, at
 the same strength when it does fire. Since map history has no measured
 predictive power on its own (Spearman −0.010 over 12,000 player-matches),
 touching fewer players is the right side to err on.
@@ -626,7 +627,7 @@ the mean to exactly 0.0, so *gated implies no contribution* is an exact
 property rather than an accident of where the sample mean landed. It needs 200
 such samples to trust the subset; the index build had been drawing 15,000 rows,
 which yielded 128, so it silently fell back to the contaminated scale. The
-default draw is now 60,000, which yields about 495.
+default draw is now 60,000, which yields about 546 on the current data.
 
 ### The card
 

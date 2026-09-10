@@ -33,7 +33,7 @@ def main(argv=None) -> int:
     # and quietly not enough for map_edge, which only 1.3% do: it yielded 128
     # gate-clearing samples against the 200 P.fit_scales needs, so the fit fell
     # back to the contaminated full-sample scale and the index looked fine.
-    # 60,000 yields ~495 and costs about 20 seconds.
+    # 60,000 yields ~546 on current data and costs about a minute.
     ap.add_argument("--sample", type=int, default=60000)
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args(argv)

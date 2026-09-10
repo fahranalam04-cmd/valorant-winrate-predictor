@@ -178,7 +178,7 @@ Python 3.11+, and a [HenrikDev API key](https://api.henrikdev.xyz/dashboard/)
 the dashboard page's own tests.
 
 ```bash
-git clone https://github.com/<user>/valorant-winrate-predictor
+git clone https://github.com/Fahran-Alam/valorant-winrate-predictor
 cd valorant-winrate-predictor
 python -m venv .venv && .venv/Scripts/activate      # source .venv/bin/activate on POSIX
 pip install -e .
