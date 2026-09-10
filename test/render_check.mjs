@@ -107,7 +107,10 @@ const select = puuid => { escape(); fire(puuid); };
 fire(first.puuid);
 let p = els.stage.innerHTML;
 ck("panel opens on click", p.includes(first.name) && /class="panel"/.test(p));
-ck("panel portrait", p.includes(`/agents/${first.agent_id}-portrait.png`));
+ck("panel portrait", p.includes(`src="agents/${first.agent_id}-portrait.png"`));
+// Rooted paths broke the page under GitHub Pages' /valorant-winrate-predictor/.
+ck("art paths are relative, so the page works under a sub-path",
+   !p.includes('src="/agents/') && !out.includes('src="/agents/'));
 ck("panel score", new RegExp(`<b style="color:[^"]+">${first.score}</b>`).test(p));
 ck("record & form section", /record &amp; form/.test(p));
 ck("on-map section", p.includes(`on ${state.map}`));
@@ -208,7 +211,7 @@ render({ status: "match", state, top1_rate: 0.296 });
 render({ status: "match", state, top1_rate: 0.296 });
 const slug = state.map.toLowerCase().replace(/[^a-z0-9]/g, "");
 ck("the background is the map being played",
-   (body.style._v["--mapart"] || "").includes(`/maps/${slug}-splash.jpg`));
+   (body.style._v["--mapart"] || "") === `url("maps/${slug}-splash.jpg")`);
 
 // Every map has to swap the art, which is the whole point of the theme.
 for (const name of ["Pearl", "Bind", "Fracture", "Icebox"]){
@@ -217,7 +220,7 @@ for (const name of ["Pearl", "Bind", "Fracture", "Icebox"]){
   render({ status: "match", state: other, top1_rate: 0.296 });
   ck(`${name} paints its own art`,
      (body.style._v["--mapart"] || "")
-       .includes(`/maps/${name.toLowerCase()}-splash.jpg`));
+       .includes(`maps/${name.toLowerCase()}-splash.jpg`));
 }
 
 const nameless = JSON.parse(JSON.stringify(state));

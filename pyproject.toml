@@ -18,29 +18,30 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-# Floors rather than pins, matching requirements.txt. The one worth explaining:
+# Floors rather than pins, and only what is imported. The one worth explaining:
 # joblib's pickle loader uses a NumPy API deprecated in 2.5, and the live path
 # loads that bundle on every start, so the floor moves when upstream fixes it.
 dependencies = [
     "httpx>=0.27",
     "python-dotenv>=1.0",
-    "tenacity>=8.2",
     "pandas>=2.2",
     "numpy>=1.26",
     "pyarrow>=16.0",
     "scikit-learn>=1.5",
     "lightgbm>=4.3",
     "joblib>=1.4",
-    "websockets>=12.0",
     "fastapi>=0.110",
+    # [standard] brings the websocket implementation the dashboard's /ws needs.
     "uvicorn[standard]>=0.29",
-    "psutil>=5.9",
     "Pillow>=10.0",
 ]
 
 [project.optional-dependencies]
-# Model comparison and the diagnostic plots. Not needed to run the dashboard.
-research = ["xgboost>=2.1", "shap>=0.45", "matplotlib>=3.9"]
+# The README charts (python -m valwr.model.analyze). Not needed to run anything.
+research = ["matplotlib>=3.9"]
+# The README screenshots (tools/capture_dashboard.py). Drives an installed
+# Chrome or Edge, so no browser download is needed.
+images = ["playwright>=1.40"]
 dev = ["pytest>=8.0", "ruff>=0.4"]
 
 [project.urls]

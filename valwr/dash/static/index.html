@@ -84,11 +84,24 @@ body .mapsub,body .brand,
 body .verdict{text-shadow:0 1px 10px rgba(0,0,0,.9)}
 body .top{border-bottom-color:rgba(160,195,220,.26)}
 
-/* --- the two teams sit side by side, so the map shows between them --- */
-.rosters{display:grid;
-  grid-template-columns:1fr 1fr;gap:14px;align-items:start}
-@media(max-width:980px){.rosters{
-  grid-template-columns:1fr}}
+/* --- the two teams sit side by side, so the map shows between them ---
+   ...but only when each column can still show a name. A row spends about 400px
+   on its score and four stats before the name gets any width, and the space the
+   rosters get is set by the detail panel beside them (380 or 716px), not by the
+   window. A media query on the window picked side by side at every desktop
+   width, and at 1600px the name column collapsed to nothing. So this is asked
+   of the rosters' own container: side by side with tighter stat columns when
+   there is room for names, one team above the other when there is not. */
+.grid>div:first-child{container-type:inline-size}
+.rosters{display:grid;grid-template-columns:1fr;gap:14px;align-items:start}
+@container (min-width:900px){
+  .rosters{grid-template-columns:1fr 1fr}
+  .rosters .row{grid-template-columns:52px minmax(0,1fr) repeat(4,56px);
+    gap:8px;padding-right:12px}
+  .rosters .score{font-size:27px;padding-left:10px}
+  .rosters .st b{font-size:15.5px}
+  .rosters .st span{letter-spacing:.1em}
+}
 
 *{box-sizing:border-box}
 html,body{height:100%}
@@ -398,11 +411,14 @@ function setMapArt(){
   const name = STATE && STATE.map
     ? STATE.map.toLowerCase().replace(/[^a-z0-9]/g, "") : "";
   document.body.style.setProperty("--mapart",
-    name ? `url("/maps/${name}-splash.jpg")` : "none");
+    name ? `url("maps/${name}-splash.jpg")` : "none");
 }
 
+/* Relative, not rooted: the server mounts these beside the page, and the
+   interactive demo on GitHub Pages lives under /valorant-winrate-predictor/,
+   where a rooted "/agents/" would point at a different site entirely. */
 const artURL = (p, k) =>
-  p.agent_id ? `/agents/${encodeURIComponent(p.agent_id)}-${k}.png` : "";
+  p.agent_id ? `agents/${encodeURIComponent(p.agent_id)}-${k}.png` : "";
 const isAtk = t => t === "Red";
 
 function verdict(p){

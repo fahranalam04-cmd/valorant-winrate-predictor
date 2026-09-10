@@ -1,23 +1,191 @@
 # Which model, and what else was tried
 
-Two questions get asked about this project often enough to answer once,
-properly: *why the linear model rather than the gradient booster*, and
-*what else could raise accuracy*. Both are settled by measurement below.
+Three questions get asked about this project often enough to answer once,
+properly: *what does each model actually do*, *why the linear model rather than
+the gradient booster*, and *what else could raise accuracy*. All three are
+settled by measurement below.
 
 Reproduce everything here with:
 
 ```bash
-python tools/experiments.py --coverage
+python tools/experiments.py --coverage --json       # what was tried, on validation
+python tools/validate_potential.py --json           # the player score
+python tools/validate_potential.py --flag --json    # the above-rank flag
+python tools/model_metrics.py                       # every model, every metric, below
 ```
 
-It reads the feature matrix and the database, writes nothing, and never loads
-`models/model.joblib`. The **test slice is deliberately not scored** — it was
-touched once, by `train.py`. A candidate chosen by repeatedly consulting the
-test set is just overfitting more slowly.
+The experiments read the feature matrix and the database and never load or
+overwrite `models/model.joblib`. **The test slice is scored once, by
+`train.py`, and never used to choose.** `model_metrics.py` recomputes the
+candidates' test predictions from the saved bundle to add precision and recall,
+and first proves they are the same predictions by reproducing every recorded
+log loss — so nothing in the tables below was selected on.
 
 ---
 
-## Why the linear model
+## The models, in plain terms
+
+Every win model answers the same question — *what is the chance Blue wins?* —
+from the same pre-match information, and differs only in how it combines it.
+
+**Coin flip.** Always 50%. The floor: anything scoring below it is broken.
+
+**Rank baselines** — *average rank* and *best player's rank*. One number each
+(how far apart the teams are), turned into a probability by a fitted curve.
+They answer: did matchmaking leave a rank gap worth betting on? Barely — rank
+alone is almost a coin flip, because matchmaking exists to remove that gap.
+
+**Single-stat baselines** — *average player rating* and *average ACS*. The same
+idea with one performance statistic. ACS is included as a diagnostic, to test
+whether the project's own rating measures anything ACS does not. It does not.
+
+**Logistic regression — shipped.** All 52 features at once. Each is a
+difference between the teams — Blue's average ACS minus Red's, best rating,
+worst KAST, rank spread, win rates, map and agent history, roles, parties, form
+— and each gets one learned weight. The weighted sum goes through a logistic
+curve to become a probability. Three details matter: strong regularisation keeps
+weights small on noisy data; there is no intercept and no centring, so swapping
+the teams gives *exactly* `1 − p`; and every prediction can be explained exactly,
+feature by feature, which is what the dashboard shows.
+
+**Gradient boosting (LightGBM).** Hundreds of small decision trees built one
+after another, each correcting the errors of those before it. It can learn
+things the linear model cannot — interactions such as "good on this map *as
+this agent*", and effects that level off — at the cost of needing more signal
+to learn them from, and with no guarantee that swapping the teams mirrors the
+answer.
+
+**Margin regression.** Instead of the binary win/loss, it predicts the round
+margin — 13-3 and 13-11 are the same win but very different evidence — and a
+second small model, fitted on validation, turns that margin into a probability.
+
+**Logistic + margin blend.** The average of the two probabilities, on the idea
+that two models making different mistakes beat either alone.
+
+**Calibrated variants** — *+ isotonic*, *+ Platt*. The logistic model and the
+booster, with their probabilities reshaped by a curve fitted on validation, so
+that "58%" wins 58% of the time. `train.py` tries both and keeps whichever is
+better on validation; for both models that was isotonic.
+
+**Tried and rejected on validation** — each described in its section below:
+exact symmetry against the intercept fit it replaced; training on every match
+both ways round; a learned strength per player (Bradley-Terry); admitting
+matches with less known history; the above-rank flag as a feature; and a model
+restricted to what the live client can observe.
+
+**The two player-level models** answer a different question — not who wins, but
+who plays well. The **potential score** blends ACS, the rating, K/D and a map
+term into a 0–100 percentile. The **above-rank flag** marks players rated well
+above their own rank who also top their lobbies far more often than chance.
+
+## Why logistic regression is the one that ships
+
+1. **It is tied for best.** The top four finish within one standard error of
+   each other on 10,304 held-out matches — log loss 0.6872 to 0.6882, against
+   an error of 0.0012. Choosing the lowest would be choosing noise: the order
+   among them has changed from one retrain to the next.
+2. **Among tied models, the simplest ships.** That is the one-standard-error
+   rule, fixed in `train.py` before results were seen. Margin regression and
+   the blend each add a second model and a validation-fitted link for a gain
+   smaller than the noise.
+3. **It is symmetric by construction.** Swap the teams and it mirrors to
+   machine precision. The booster gives two identical teams different odds.
+4. **It is already calibrated.** Expected calibration error 0.008. Adding an
+   isotonic layer made held-out log loss *worse* (0.6893 against 0.6874) and
+   had it call Blue in three matches out of four.
+5. **It explains itself exactly.** Each feature's contribution is its weight
+   times its standardised value, and they sum to the prediction. The dashboard
+   shows those, not an approximation.
+
+---
+
+## Every model, every metric
+
+<!-- metrics:start -->
+Held-out test set: **10,304 matches**, of which Blue won 50.7%. Precision and recall treat *Blue wins* as the positive class at a 0.5 threshold; PR-AUC's chance level is Blue's win rate (0.507), not 0.5. Generated by `tools/model_metrics.py`.
+
+| Model | What it does | Log loss | AUC | PR-AUC | Precision | Recall | F1 | Accuracy | Calls Blue |
+|---|---|---|---|---|---|---|---|---|---|
+| margin regression | Ridge regression on the round margin (13-3 vs 13-11), mapped to a probability on validation. | 0.6872 | 0.560 | 0.563 | 0.549 | 0.557 | 0.553 | 54.3% | 51.5% |
+| logistic + margin blend | The average of the logistic and margin-regression probabilities. | 0.6873 | 0.560 | 0.563 | 0.551 | 0.551 | 0.551 | 54.4% | 50.8% |
+| **logistic regression (shipped)** | A weighted sum of all 52 team-difference features, through a logistic curve. | **0.6874** | 0.560 | 0.562 | 0.550 | 0.542 | 0.546 | 54.3% | 50.0% |
+| gradient boosting | LightGBM: many small decision trees over the same 52 features. Can learn interactions. | 0.6882 | 0.555 | 0.558 | 0.543 | 0.537 | 0.540 | 53.6% | 50.2% |
+| logistic + isotonic | The logistic model, recalibrated by a stepwise fit on validation. | 0.6893 | 0.557 | 0.552 | 0.531 | 0.784 | 0.634 | 53.9% | 74.9% |
+| gbm + isotonic | The booster, recalibrated by a stepwise fit on validation. | 0.6902 | 0.555 | 0.552 | 0.531 | 0.698 | 0.603 | 53.4% | 66.7% |
+| acs alone | One feature, the gap in average combat score. A diagnostic, not a training candidate. | 0.6908 | 0.539 | 0.549 | 0.538 | 0.529 | 0.533 | 53.0% | 49.9% |
+| avg rating (fitted) | One feature, the gap in average player rating. | 0.6914 | 0.532 | 0.542 | 0.529 | 0.524 | 0.527 | 52.2% | 50.3% |
+| avg rank (fitted) | One feature, the gap in average rank, through a logistic curve. | 0.6928 | 0.507 | 0.517 | 0.509 | 0.544 | 0.526 | 50.2% | 54.3% |
+| best player rank | One feature, the gap between each team's highest rank. | 0.6928 | 0.516 | 0.520 | 0.513 | 0.685 | 0.586 | 51.0% | 67.8% |
+| coin flip | Always 50%. The floor. | 0.6931 | 0.500 | 0.507 | 0.507 | 1.000 | 0.673 | 50.7% | 100.0% |
+
+**Tried on the validation period** (9,079 matches; the test set is never used to choose). A candidate had to beat the incumbent's log loss by more than one standard error (0.0012) to count. Generated by `tools/experiments.py --json`.
+
+| Candidate | Log loss | vs incumbent | AUC | PR-AUC | Precision | Recall | F1 | Accuracy | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| logistic, exact symmetry (shipped) | 0.6863 | +0.0000 | 0.563 | 0.556 | 0.544 | 0.546 | 0.545 | 54.1% | null |
+| logistic, intercept and centring | 0.6863 | -0.0000 | 0.563 | 0.556 | 0.544 | 0.546 | 0.545 | 54.0% | null |
+| logistic, augmented | 0.6863 | -0.0000 | 0.563 | 0.556 | 0.544 | 0.545 | 0.545 | 54.1% | null |
+| gradient booster | 0.6873 | +0.0009 | 0.558 | 0.552 | 0.537 | 0.535 | 0.536 | 53.3% | null |
+| gradient booster, augmented | 0.6863 | -0.0001 | 0.563 | 0.555 | 0.544 | 0.547 | 0.545 | 54.0% | null |
+| logistic, reduced train (C=0.02) (n=25,422) | 0.6870 | +0.0006 | 0.560 | 0.553 | 0.543 | 0.545 | 0.544 | 54.0% | null |
+| logistic + Bradley-Terry (C=0.02) (26,839 fitted strengths) | 0.6870 | +0.0007 | 0.560 | 0.552 | 0.544 | 0.544 | 0.544 | 54.1% | null |
+| Bradley-Terry strength alone (C=0.02) (diagnostic) | 0.6942 | +0.0079 | 0.495 | 0.504 | 0.498 | 0.493 | 0.495 | 49.5% | null |
+| logistic, reduced train (C=0.1) (n=25,422) | 0.6870 | +0.0006 | 0.560 | 0.553 | 0.543 | 0.545 | 0.544 | 54.0% | null |
+| logistic + Bradley-Terry (C=0.1) (26,839 fitted strengths) | 0.6869 | +0.0006 | 0.560 | 0.553 | 0.543 | 0.544 | 0.543 | 54.0% | null |
+| Bradley-Terry strength alone (C=0.1) (diagnostic) | 0.7023 | +0.0159 | 0.495 | 0.504 | 0.500 | 0.497 | 0.499 | 49.7% | null |
+| logistic, reduced train (C=0.5) (n=25,422) | 0.6870 | +0.0006 | 0.560 | 0.553 | 0.543 | 0.545 | 0.544 | 54.0% | null |
+| logistic + Bradley-Terry (C=0.5) (26,839 fitted strengths) | 0.6869 | +0.0006 | 0.560 | 0.553 | 0.544 | 0.546 | 0.545 | 54.1% | null |
+| Bradley-Terry strength alone (C=0.5) (diagnostic) | 0.7497 | +0.0634 | 0.495 | 0.503 | 0.504 | 0.498 | 0.501 | 50.0% | null |
+
+Coverage sweep, on its own fixed validation rows (10,224, standard error 0.0011):
+
+| Training threshold | Log loss | vs shipped | AUC | PR-AUC | Precision | Recall | F1 | Accuracy | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| train coverage >= 5 (shipped) (train 40,001) | 0.6875 | +0.0000 | 0.557 | 0.549 | 0.539 | 0.542 | 0.541 | 53.7% | null |
+| train coverage >= 0 (train 52,292) | 0.6874 | -0.0001 | 0.557 | 0.550 | 0.540 | 0.540 | 0.540 | 53.8% | null |
+| train coverage >= 3 (train 47,062) | 0.6873 | -0.0002 | 0.558 | 0.550 | 0.540 | 0.540 | 0.540 | 53.8% | null |
+| train coverage >= 4 (train 43,655) | 0.6874 | -0.0001 | 0.558 | 0.549 | 0.541 | 0.541 | 0.541 | 53.9% | null |
+| train coverage >= 6 (train 35,307) | 0.6877 | +0.0002 | 0.556 | 0.547 | 0.537 | 0.539 | 0.538 | 53.5% | null |
+
+**The player score** ranks the five players on a team; the question is who had the best game. Measured on 1,500 complete test-period teams. Picking one player per team, precision and recall are the same number -- the top-1 rate, chance 20%. AUC and PR-AUC score every player against *had their team's best game* (base rate 0.200). Generated by `tools/validate_potential.py --json`.
+
+| Ranked by | Top pick right (precision = recall) | AUC | PR-AUC |
+|---|---|---|---|
+| potential score | 30.5% | 0.607 | 0.292 |
+| existing rating alone | 29.9% | 0.602 | 0.289 |
+| career ACS alone | 30.3% | 0.607 | 0.292 |
+| shuffled (control) | 20.3% | 0.506 | 0.207 |
+
+**The above-rank flag** is a yes/no call, checked against *finished in the top third of their lobby* across 8,184 players in 952 test-period lobbies (base rate 0.299). AUC scores the rank-relative rating the flag thresholds. Generated by `tools/validate_potential.py --flag --json`.
+
+| Flags | Precision | Recall | F1 | AUC (rating z) | PR-AUC |
+|---|---|---|---|---|---|
+| 4.9% of players | 0.440 | 0.072 | 0.124 | 0.588 | 0.383 |
+<!-- metrics:end -->
+
+### Reading precision and recall here
+
+This is a two-sided problem, so which side counts as "positive" is arbitrary,
+and precision and recall inherit that arbitrariness where AUC and log loss do
+not. Three things follow:
+
+- **A model that calls Blue about half the time has precision close to recall.**
+  The shipped model calls Blue in 50.0% of matches, and its precision (0.550)
+  and recall (0.542) sit together.
+- **A model that leans to one side buys recall with precision.** The calibrated
+  logistic model calls Blue in 74.9% of matches, which lifts its recall to 0.784
+  while its precision falls to 0.531 and its log loss gets worse. The coin flip,
+  calling Blue every time, has perfect recall and the base-rate precision. High
+  recall here is a symptom, not an achievement.
+- **PR-AUC's chance level is Blue's win rate, 0.507** — not 0.5 — so the shipped
+  model's 0.562 is about as far above chance as its AUC of 0.560 is.
+
+Log loss decides, because the product is a probability. AUC, precision and
+recall are here for completeness, and because a reader will ask.
+
+---
+
+## Why the linear model, in detail
 
 Three independent arguments. The first rules out the obvious objection;
 the other two are what actually decide.
@@ -50,19 +218,19 @@ to come first. See `train.py`.
 **3. The booster is not symmetric, and that is a correctness failure.**
 Swapping the two teams must mirror the prediction: `P(A) + P(B) == 1`. The
 feature vector negates exactly (measured `0.00e+00`), so any asymmetry is
-purely the model. On validation rows:
+purely the model. On 9,079 validation rows:
 
 | Model | Mean mirror error |
 |---|---|
-| **Logistic as now shipped** | **7.2e-18** — machine zero |
-| Logistic as previously shipped | 1.8e-03 |
-| Gradient booster, augmented | 1.1e-02 |
-| Gradient booster | 3.1e-02 |
+| **Logistic as now shipped** | **8.6e-18** — machine zero |
+| Logistic with intercept and centring | 5.2e-04 |
+| Gradient booster, augmented | 9.2e-03 |
+| Gradient booster | 2.4e-02 |
 
 Trees carry no symmetry constraint, and this one learned a side preference from
-noise. It gets identical teams wrong — 0.4831 instead of 0.5000. An earlier
-bundle had it at 0.5138, favouring the *other* side by a similar margin, which
-is what a preference learned from noise looks like when you retrain it.
+noise. It gets identical teams wrong — 49.1% instead of 50.0%. Earlier bundles
+had it at 48.3% and at 51.4%, favouring first one side and then the other,
+which is what a preference learned from noise looks like when you retrain it.
 
 ---
 
@@ -81,8 +249,11 @@ tolerance:
 
 | | Log loss | delta | Mirror error |
 |---|---|---|---|
-| Logistic, with intercept and centering | 0.6893 | — | 1.76e-03 |
-| Logistic, exact symmetry | 0.6893 | +0.0000 | **7.18e-18** |
+| Logistic, with intercept and centring | 0.6863 | — | 5.15e-04 |
+| Logistic, exact symmetry (shipped) | 0.6863 | +0.0000 | **8.61e-18** |
+
+Measured on the current validation slice; when the change was made, on less
+data, the old fit missed the mirror by 1.76e-03 at the same zero cost.
 
 Free. It costs nothing measurable in log loss and turns an approximate
 invariant into an exact one. This is a **correctness** win, not an accuracy
@@ -110,9 +281,11 @@ that have nothing to do with symmetry. The validation measurement above
 
 ## What was tried and did not work
 
-All deltas are validation log loss against the incumbent, standard error
-**0.0022**. Nothing below clears it, so everything below is **null**. Recorded
-anyway — a null result that says *why* is worth more than an unreported one.
+All deltas are validation log loss against the incumbent — the shipped fit —
+on 9,079 validation matches, standard error **0.0012**. Nothing below clears
+it, so everything below is **null**. Recorded anyway — a null result that says
+*why* is worth more than an unreported one. The full table, with AUC,
+precision and recall for each, is in *Every model, every metric* above.
 
 ### Bradley-Terry player strength — the idea with the best odds, and it failed
 
@@ -126,19 +299,20 @@ and it is the textbook model for team-vs-team outcomes. Implemented in
 It does not work here, and the diagnostic says exactly why:
 
 ```
-C=0.02  strength alone: auc 0.506  | weight the model gave it: sum +0.0074
-C=0.1   strength alone: auc 0.511  | weight the model gave it: sum -0.0179
-C=0.5   strength alone: auc 0.515  | weight the model gave it: sum -0.0203
-                                     (mean |weight| on the other 52: 0.039)
+C=0.02  strength alone: auc 0.495  | weight the model gave it: sum -0.0020
+C=0.1   strength alone: auc 0.495  | weight the model gave it: sum +0.0072
+C=0.5   strength alone: auc 0.495  | weight the model gave it: sum +0.0111
+                                     (mean |weight| on the other 52: 0.032)
 ```
 
-**Strength on its own is AUC 0.506–0.515 — barely above a coin flip.** So this
-is not redundancy with the existing features; there is close to no signal in it
-at all. The cause is sparsity, and it is structural rather than a snapshot: **53% of the players in this dataset appear in exactly one
+**Strength on its own is AUC 0.495 — no better than a coin flip**, across all
+26,839 fitted strengths. So this is not redundancy with the existing features;
+there is no signal in it at all. The cause is sparsity, and it is structural rather than a snapshot: **53% of the players in this dataset appear in exactly one
 match**, and only 17% appear five or more times. A
 player seen once has no learnable strength. The downstream model correctly
-assigns the two columns a near-zero weight, and adding them still costs a
-little (+0.0004) because they are two more noisy inputs.
+assigns the two columns a near-zero weight, and the model with them scores the
+same as the same model without them, trained on the same rows (0.6869–0.6870
+against 0.6870).
 
 Two things kept this honest rather than accidentally impressive:
 
@@ -164,45 +338,45 @@ Train on every match twice, as `(X, y)` and `(-X, 1-y)`.
 
 | | Log loss | delta | Mirror error |
 |---|---|---|---|
-| Logistic, augmented | 0.6895 | +0.0002 | 1.05e-17 |
-| Booster, augmented | 0.6871 | −0.0021 | 1.05e-02 |
-| Booster, plain | 0.6887 | −0.0006 | 3.08e-02 |
+| Logistic, augmented | 0.6863 | −0.0000 | 8.0e-18 |
+| Booster, augmented | 0.6863 | −0.0001 | 9.2e-03 |
+| Booster, plain | 0.6873 | +0.0009 | 2.4e-02 |
 
 For the logistic it is redundant — the no-intercept fit already gives exact
-symmetry more cheaply. For the booster it cuts mirror error threefold and
-improves log loss by 0.0021, which lands *just* under the 0.0022 threshold and
-so is still null. It confirms the asymmetry costs the booster something real,
-but even augmented it remains ~15 orders of magnitude worse on the mirror than
-the symmetric logistic.
+symmetry more cheaply. For the booster it cuts mirror error by more than half
+and brings its log loss level with the logistic's — which says the asymmetry
+was costing the booster something real. Level is all it reaches, though, and
+even augmented it remains ~15 orders of magnitude worse on the mirror than the
+symmetric logistic.
 
 ### Coverage threshold — the current value is already right
 
 A match is only used if at least 5 of its 10 players have prior history, which
-discards roughly 25,000 of 44,838 resolved matches. Does admitting the rest
-help? The evaluation set is held **fixed** at coverage ≥ 5 while only the
-training threshold moves — sweeping both would change the validation rows at
-every step and make the log losses incomparable.
+drops 12,291 of 52,292 training-period matches. Does admitting the rest help?
+The evaluation set is held **fixed** at coverage ≥ 5 while only the training
+threshold moves — sweeping both would change the validation rows at every step
+and make the log losses incomparable.
 
 | Training threshold | Train rows | Log loss | delta |
 |---|---|---|---|
-| ≥ 0 | 31,591 | 0.6897 | −0.0002 |
-| ≥ 3 | 26,984 | 0.6897 | −0.0002 |
-| ≥ 4 | 24,251 | 0.6899 | +0.0000 |
-| **≥ 5 (shipped)** | 21,570 | 0.6899 | — |
-| ≥ 6 | 18,291 | 0.6904 | +0.0005 |
+| ≥ 0 | 52,292 | 0.6874 | −0.0001 |
+| ≥ 3 | 47,062 | 0.6873 | −0.0002 |
+| ≥ 4 | 43,655 | 0.6874 | −0.0001 |
+| **≥ 5 (shipped)** | 40,001 | 0.6875 | — |
+| ≥ 6 | 35,307 | 0.6877 | +0.0002 |
 
-Standard error 0.0015; nothing clears it. Admitting low-coverage matches is
+Standard error 0.0011; nothing clears it. Admitting low-coverage matches is
 very slightly positive and well inside noise; tightening to 6 is mildly
 negative. **5 is fine, and now that is measured rather than assumed.**
 
 ### Not attempted, with reasons
 
 XGBoost, CatBoost, random forests and small neural networks were considered and
-skipped deliberately. Seven models already tie within one standard error, and
-the *entire* spread from coin flip (0.6931) to best (0.6878) is 0.0053 log
-loss. LightGBM already represents gradient boosting here and loses to the
+skipped deliberately. Four models already tie within one standard error, and
+the *entire* spread from coin flip (0.6931) to best (0.6872) is 0.0059 log
+loss. LightGBM already represents gradient boosting here and does not beat the
 logistic; XGBoost and CatBoost are the same family with different defaults. A
-neural network needs far more signal than AUC 0.558 offers. Adding them would
+neural network needs far more signal than AUC 0.560 offers. Adding them would
 lengthen the results table without changing any conclusion.
 
 ---
@@ -229,19 +403,20 @@ The claim the live table makes is precisely: *the player at the top of this
 list will have the best game*. So that is what gets measured -- inside real
 five-player teams from the **test** period, with chance at exactly 20%.
 
-| Ranked by | Picks the best of five | vs chance |
-|---|---|---|
-| Career ACS alone | **31.3%** | +11.3 |
-| **Potential score (shipped)** | **30.5%** | +10.5 |
-| Existing rating alone | 28.8% | +8.8 |
-| Shuffled control | 19.1% | -0.9 |
+| Ranked by | Picks the best of five | vs chance | AUC |
+|---|---|---|---|
+| **Potential score (shipped)** | **30.5%** | +10.5 | 0.607 |
+| Career ACS alone | 30.3% | +10.3 | 0.607 |
+| Existing rating alone | 29.9% | +9.9 | 0.602 |
+| Shuffled control | 20.3% | +0.3 | 0.506 |
 
-1,500 teams, standard error 1.0 points. The score beats chance by **10.2
-standard errors**, and the shuffled control lands on 20% as it must.
+1,500 teams, standard error 1.0 points. The score beats chance by **10.1
+standard errors**, and the shuffled control lands on 20% as it must. AUC scores
+every player against *had their team's best game*.
 
 **The honest finding: ACS alone is as good.** The composite does not beat it --
-31.3% against 30.5%, well inside noise, and Spearman agrees (+0.180 against
-+0.179). A first draft that led with `rating` instead scored 29.0% on
+30.5% against 30.3%, well inside noise; the AUCs are identical, and Spearman
+agrees (+0.194 against +0.191). A first draft that led with `rating` instead scored 29.0% on
 validation, worse than the single feature it was built on top of.
 
 Weights were chosen on the **validation** period
@@ -349,7 +524,7 @@ verified on held-out real lobbies.
 
 `tools/build_perf_index.py` picks the cut firing on 5% of the training period
 — about one player per two lobbies — and stores it in the index. It currently
-lands at **z ≥ 0.68**. Controlling the *rate* is what matters; a hand-picked
+lands at **z ≥ 0.70**. Controlling the *rate* is what matters; a hand-picked
 z-score drifts as the population shifts.
 
 ### Does it mean anything? Yes
@@ -361,11 +536,14 @@ flagged player finish in the **top third** by actual performance? Base rate is
 
 | | n | Top-third rate |
 |---|---|---|
-| **Flagged players** | 400 | **46.8%** |
-| Everyone else | 8,109 | 29.1% |
+| **Flagged players** | 400 | **44.0%** |
+| Everyone else | 7,784 | 29.2% |
 
-**+17.7 points, 7.5 standard errors** on the test period — up from +10.9 at
-4.6 for the account-level version. Reproduce with
+**+14.8 points, 6.3 standard errors** on the test period, across 952 lobbies.
+Read as a classifier of "finished in the top third", its **precision is 0.44
+and its recall 0.07** — deliberately: it fires on about one player in twenty,
+so it can only ever catch a small share of strong games, and it is meant to
+be right when it does. Reproduce with
 `python tools/validate_potential.py --flag`.
 
 ### It does not help the win model
@@ -651,10 +829,10 @@ score computed from two-week-old history looked identical to a live one.
 ## The conclusion worth stating plainly
 
 **Model class is not the bottleneck.** Every candidate above is null, and the
-gap between a coin flip and the best model is 0.0053 log loss. The limit is the
+gap between a coin flip and the best model is 0.0059 log loss. The limit is the
 data and the domain: Valorant's matchmaker is *designed* to produce even games,
 so it actively suppresses the signal this project is trying to detect. An AUC
-of 0.558 from pre-match public statistics may be close to the practical
+of 0.560 from pre-match public statistics may be close to the practical
 ceiling.
 
 The remaining levers are more data and better features — not a better

@@ -1,6 +1,12 @@
 # Prompts
 
-One file per phase. Each is sized for a single Claude Code session.
+One file per phase, each sized for a single Claude Code session. **These are
+the original build briefs, kept as a record of how the project was planned.**
+Where the build went a different way — logistic regression shipped instead of a
+gradient booster, exact linear attributions instead of SHAP, polling instead of
+the client websocket, the dashboard in `valwr/dash/` — the briefs are left as
+written and [docs/ROADMAP.md](../docs/ROADMAP.md) records what was built and
+why. Phase 8 has not been built.
 
 ## How to use these
 
@@ -37,14 +43,14 @@ moving on.
 
 ## Order
 
-| File | Phase |
-|---|---|
-| `00-scaffold.md` | environment, deps, reference data |
-| `01-collector.md` | rate-limited snowball crawler |
-| `02-normalize.md` | schema + the temporal store |
-| `03-rating.md` | the player rating metric |
-| `04-features.md` | time-gated feature builder |
-| `05-model.md` | baselines, training, calibration |
-| `06-live-client.md` | lockfile auth, match detection |
-| `07-dashboard.md` | FastAPI + browser front end |
-| `08-coach.md` | Claude API coaching layer |
+| File | Phase | Status |
+|---|---|---|
+| `00-scaffold.md` | environment, deps, reference data | built |
+| `01-collector.md` | rate-limited snowball crawler | built |
+| `02-normalize.md` | schema + the temporal store | built |
+| `03-rating.md` | the player rating metric | built |
+| `04-features.md` | time-gated feature builder | built |
+| `05-model.md` | baselines, training, calibration | built, logistic ships |
+| `06-live-client.md` | lockfile auth, match detection | built, polled |
+| `07-dashboard.md` | FastAPI + browser front end | built, in `valwr/dash/` |
+| `08-coach.md` | Claude API coaching layer | not built |

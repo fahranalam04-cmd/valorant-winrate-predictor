@@ -12,6 +12,12 @@ prediction in plain English.
 > measured on a held-out test set, not estimated. Phase 8, a Claude coaching
 > layer, is not built.
 
+![The live dashboard: both teams, the odds, and one player's card](docs/images/dashboard.jpg)
+
+**[Try the interactive demo](https://fahranalam04-cmd.github.io/valorant-winrate-predictor/)**
+— the real dashboard page in your browser, with invented players. ·
+**[How to read it](docs/DASHBOARD.md)**
+
 ---
 
 ## The problem
@@ -55,8 +61,8 @@ from what matchmaking *does not* account for:
          |
          v
   +----------------+     +------------------+     +-------------------+
-  | player rating  |---->| time-gated       |---->| calibrated model  |
-  | opponent-adj.  |     | feature builder  |     | + SHAP            |
+  | player rating  |---->| time-gated       |---->| logistic model    |
+  | opponent-adj.  |     | feature builder  |     | + attributions    |
   +----------------+     +------------------+     +-------------------+
                                                           |
                                             +-------------+-------------+
@@ -127,7 +133,9 @@ Split by how many of the ten players had prior history: **5-6** 0.542, **7-8** 0
 Why the linear model rather than the gradient booster, and what else was tried
 and rejected — Bradley-Terry player strength, symmetric augmentation, the
 coverage threshold — is in [docs/MODEL-CHOICE.md](docs/MODEL-CHOICE.md), with
-every null result recorded rather than quietly dropped.
+every null result recorded rather than quietly dropped. It also has **AUC,
+PR-AUC, precision, recall and F1 for every model**, including each one tried
+and rejected, and what each model actually does.
 
 ### It beats rank where rank tells you nothing
 
@@ -258,6 +266,7 @@ python -m valwr.model.train --rebuild        # build features, fit, select, save
 python -m valwr.model.analyze                # equal-rank subset, and both README charts
 python tools/build_perf_index.py             # population reference for the 0-100 score
 python tools/validate_potential.py --write-index   # measure and record its hit rate
+python tools/model_metrics.py                # every model, every metric, into docs/MODEL-CHOICE.md
 ```
 
 `train` fits ten candidates, picks by the one-standard-error rule, and writes
@@ -279,10 +288,22 @@ The live view needs VALORANT running on the same machine — it reads the local
 client API to learn who is in your lobby. `dashboard.bat` runs a preflight check
 first and tells you in plain language if anything is missing.
 
+![A walkthrough of the dashboard](docs/images/dashboard-walkthrough.webp)
+
+What is on the page, and what each number means, is in
+[docs/DASHBOARD.md](docs/DASHBOARD.md). In short: both teams' odds and what is
+moving them; all ten players by team with rank, party, a 0–100 score, ACS, K/D,
+last-20 K/D and headshot rate, competitive games only; and a card per player
+with their record, form and history on this map.
+
+The interactive demo is rebuilt with `python tools/build_pages_demo.py`, and
+these images with `python tools/capture_dashboard.py`
+(`pip install -e ".[images]"`).
+
 ### Tests
 
 ```bash
-pytest -q                          # 359 tests
+pytest -q                          # 370 tests
 python tools/audit.py              # re-derives documented claims, reports drift
 ```
 
@@ -299,7 +320,23 @@ describe, and constants that have drifted apart.
 - **The live component only works on the machine running the game**, since it
   reads the local client API.
 - **Player data is not redistributed.** The collected database stays local and
-  is not committed.
+  is not committed. Every published image and the demo use invented players.
+- **No coaching layer.** Phase 8 was planned and deliberately not built; see
+  [docs/ROADMAP.md](docs/ROADMAP.md).
+
+## Documentation
+
+| | |
+|---|---|
+| [DASHBOARD.md](docs/DASHBOARD.md) | Every element of the live page, and where its numbers come from |
+| [MODEL-CHOICE.md](docs/MODEL-CHOICE.md) | Every model and experiment, every metric, and why logistic regression ships |
+| [MODELING.md](docs/MODELING.md) | The prediction problem, features, leakage traps and validation protocol |
+| [DATA.md](docs/DATA.md) | The database, the temporal store, and sampling |
+| [API-NOTES.md](docs/API-NOTES.md) | HenrikDev, valorant-api.com and the local client, as verified |
+| [SANDBOX.md](docs/SANDBOX.md) | Synthetic scenarios that probe the model's behaviour |
+| [ROADMAP.md](docs/ROADMAP.md) | The ten phases as planned, and what was built |
+| [ETHICS-AND-TOS.md](docs/ETHICS-AND-TOS.md) | Ban safety, other players' data, attribution |
+| [SECURITY.md](SECURITY.md) | What is exposed, how it is contained, reporting a vulnerability |
 
 ## Ethics and Terms of Service
 

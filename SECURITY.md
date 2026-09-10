@@ -17,6 +17,7 @@ that could expose a user's API key, their machine, or other players' data.
 | Phone mode (`phone.bat`, `--host 0.0.0.0`) | The same match data, to your local network | Opt-in, and it says so when it starts. Anything on that network can read the page while it runs, so use it on a network you control. |
 | Model files (`models/*.joblib`) | Pickle, which runs code when loaded | Only ever loaded from your own `models/` directory, which you create by training. **Never load a model file someone else sent you.** None is distributed with this repository. |
 | Agent and map art | Downloaded from `valorant-api.com` | Filenames are validated before anything is written, so a malformed response cannot write outside the art directories. |
+| Public demo (GitHub Pages) | A static copy of the dashboard page | Built from invented players only (`valwr/dash/demo.py`); no database, game client or API is involved. Its content policy allows no connection at all. |
 | CI | GitHub Actions | Read-only token, no secrets, and never calls an external API. |
 
 ## Not in scope

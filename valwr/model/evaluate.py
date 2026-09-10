@@ -13,7 +13,9 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
+from sklearn.metrics import (average_precision_score, brier_score_loss,
+                             f1_score, log_loss, precision_score, recall_score,
+                             roc_auc_score)
 
 EPS = 1e-12
 
@@ -27,6 +29,16 @@ class Scores:
     auc: float
     accuracy: float
     ece: float
+    # Precision and recall need a positive class and a threshold. Here it is
+    # "Blue wins" -- the target -- at 0.5, the same call `accuracy` makes. Both
+    # depend on which side is labelled positive in a way AUC and log loss do
+    # not: a model that always says Blue has recall 1.0 and precision equal to
+    # Blue's win rate. `pr_auc` (average precision) is threshold-free, and its
+    # chance level is that win rate, not 0.5.
+    precision: float = float("nan")
+    recall: float = float("nan")
+    f1: float = float("nan")
+    pr_auc: float = float("nan")
 
     def row(self) -> str:
         return (f"  {self.name:<22} {self.log_loss:>8.4f} {self.brier:>8.4f} "
@@ -60,14 +72,21 @@ def score(name: str, y, p) -> Scores:
         auc = roc_auc_score(y, p)
     except ValueError:
         auc = float("nan")
+    called = (p >= 0.5).astype(int)
+    # Average precision is undefined with no positives at all.
+    pr_auc = float(average_precision_score(y, p)) if y.any() else float("nan")
     return Scores(
         name=name,
         n=len(y),
         log_loss=log_loss(y, p, labels=[0, 1]),
         brier=brier_score_loss(y, p),
         auc=auc,
-        accuracy=float(((p >= 0.5).astype(int) == y).mean()),
+        accuracy=float((called == y).mean()),
         ece=expected_calibration_error(y, p),
+        precision=float(precision_score(y, called, zero_division=0.0)),
+        recall=float(recall_score(y, called, zero_division=0.0)),
+        f1=float(f1_score(y, called, zero_division=0.0)),
+        pr_auc=pr_auc,
     )
 
 

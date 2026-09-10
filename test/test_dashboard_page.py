@@ -111,7 +111,8 @@ def test_the_background_is_named_from_the_map():
     fn = page[page.index("function setMapArt"):]
     fn = fn[:fn.index("function verdict")]
     assert 'toLowerCase().replace(/[^a-z0-9]/g, "")' in fn
-    assert "/maps/${name}-splash.jpg" in fn
+    # Relative, so the same page works under the GitHub Pages sub-path.
+    assert 'url("maps/${name}-splash.jpg")' in fn
     assert '"none"' in fn, "a map with no art must resolve to none, not a 404"
 
 

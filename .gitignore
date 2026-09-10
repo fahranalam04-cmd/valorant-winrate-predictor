@@ -16,6 +16,11 @@ data/
 valwr/dash/static/agents/
 valwr/dash/static/maps/
 
+# The interactive demo build. Published to the gh-pages branch by
+# tools/build_pages_demo.py, never committed to main -- it carries a copy of
+# the Riot artwork above.
+site/
+
 # Trained artefacts
 models/
 *.pkl

@@ -220,7 +220,7 @@ sandbox never touching disk or network.
 "A stronger team should be favoured." These print as `MODEL WARNING` in the
 report and set a non-zero exit only under `--strict`. **If the trained model
 violates a reasonable directional assumption, that is surfaced, not tuned
-away.** Three currently fail; see below.
+away.** Five currently fail; see below.
 
 **Observational comparisons — reported only.**
 Composition and party effects, where no universal expected direction is
@@ -239,13 +239,14 @@ either. That left about 1.8e-03 of error, and identical teams scored 0.500130
 rather than 0.5.
 
 `fit_logistic` now fits with `with_mean=False` and `fit_intercept=False`, which
-removes both causes. The shipped model mirrors to machine precision: worst case
-across the whole 159-scenario catalog is **1.1e-16**, and identical teams score
-exactly **0.5000000000**. The test asserts `< 1e-12` rather than a loose
-tolerance, so a regression that reintroduced an intercept would fail it.
+removes both causes. The shipped model mirrors to machine precision across the
+whole 162-scenario catalog, and identical teams score exactly **50.0%**. The
+test asserts `< 1e-12` rather than a loose tolerance, so a regression that
+reintroduced an intercept would fail it.
 
 The tolerance still matters for the other estimators. The gradient booster has
-no symmetry constraint and sits around 3.1e-02 -- see the finding below.
+no symmetry constraint; its worst mirror error across the catalog is 0.133 --
+see the finding below.
 
 ---
 
@@ -256,30 +257,30 @@ difference features. That means:
 
 - single-factor sweeps are monotonic **by construction**
 - pairwise interactions are exactly **zero** by construction
-- mirroring holds automatically to ~3e-4
+- mirroring holds exactly, by construction
 
 So those checks passing says very little about the shipped model. Run
 `--model gbm` for the interesting comparison: a tree ensemble has no symmetry
 constraint, no monotonicity guarantee, and can express real interactions.
 
-Measured on identical teams:
+Measured on identical teams, current bundle:
 
 | Model | P(A) for two identical teams | worst mirror error over the catalog |
 |---|---|---|
-| **logistic (shipped)** | **0.500000** | **1.1e-16** |
-| gbm | 0.483064 | 1.2e-01 |
-| margin | 0.497335 | 5.3e-03 |
+| **logistic (shipped)** | **50.0%** | **0.000000** |
+| gbm | 49.1% | 0.133 (`weak_overall_good_map`) |
+| margin | 50.2% | 0.004 (`fair_match`) |
 
-The gradient booster is biased 1.7 points toward Team B on a perfectly
-symmetric match, and its worst mirror error is fifteen orders of magnitude
-above the shipped model's. Since the raw features are exactly antisymmetric,
-that asymmetry is entirely the model.
+The gradient booster favours Team B by nearly a point on a perfectly symmetric
+match, and on one scenario swapping the teams moves its answer by 13 points.
+Since the raw features are exactly antisymmetric, that asymmetry is entirely
+the model.
 
-The direction is not stable, which is the point. An earlier bundle put the
-booster at 0.5138 -- 1.4 points toward Team *A*. Retraining on more data
-flipped the side it favours while leaving the magnitude intact, which is what
-a preference learned from noise looks like. It is an independent argument for
-the linear model, beyond the one-standard-error rule that selected it.
+The direction is not stable, which is the point. Earlier bundles put the
+booster at 48.3% and at 51.4% -- toward Team B, then toward Team *A*. Retraining
+flips the side it favours, which is what a preference learned from noise looks
+like. It is an independent argument for the linear model, beyond the
+one-standard-error rule that selected it.
 
 ---
 
@@ -375,66 +376,80 @@ byte, so no existing archetype moved and no frozen benchmark shifted.
 
 ---
 
-## The browsable dashboard
+## The scenario export
 
-The terminal report is fine for one scenario and unwieldy for 159. `tools/
-export_dashboard.py` runs the whole catalog through both estimators, adds a
-24-sample variance pass, and writes `reports/sandbox/dashboard_data.json` --
-per scenario: the rosters, both probabilities and both mirror errors, the six
-largest feature differences and the six largest linear contributions (in the
-plain-English names from `report.friendly`), and the variance band.
+The terminal report is fine for one scenario and unwieldy for 162.
+`tools/export_dashboard.py` runs the whole catalog through both estimators, adds
+a 24-sample variance pass, and writes `reports/sandbox/dashboard_data.json` --
+per scenario: the rosters with each player's 0-100 score, both probabilities
+and both mirror errors, the six largest feature differences and linear
+contributions (in the plain-English names from `report.friendly`), and the
+variance band.
 
 ```bash
 python tools/export_dashboard.py
 ```
 
-The JSON is committed so the page can be rebuilt without a model bundle, and
-because a diff on it shows exactly which scenarios moved after a retrain --
-the same job `benchmark compare` does, in a form you can read.
+The JSON is committed because a diff on it shows exactly which scenarios moved
+after a retrain -- the same job `benchmark compare` does, in a form you can
+read. It is a **snapshot**: `tools/audit.py` fails it if it was exported from a
+model or player index other than the ones shipped. (It has nothing to do with
+the live dashboard in `valwr/dash/`.)
 
-It is a **snapshot, not a live view**: re-export after retraining, or the page
-describes a model you no longer ship.
+## Findings
 
-## Findings so far
+The sandbox is meant to surface surprises. These are the current bundle's,
+reported rather than fixed, because a sandbox tuned until it agrees with
+expectations has stopped being a test.
 
-The sandbox is meant to surface surprises. Three so far, all reported rather
-than fixed, because a sandbox tuned until it agrees with expectations has
-stopped being a test.
+### Five directional expectations fail
 
-### Overall win rate is inverted
+| Scenario | Expected | Model says |
+|---|---|---|
+| `bad_map` | Team A, weak on this map, less favoured | A 77% |
+| `map_agent_weak` | Team A less favoured | A 66% |
+| `agent_unfamiliar` | Team A less favoured | A 64% |
+| `cold_streak` | Team A, on a losing run, less favoured | A 55% |
+| `hot_vs_cold_form` | the hot team favoured | the cold team, 53% |
 
-Sweeping `wr` from 0.30 to 0.70 -- with every subset rate tracking it, so the
-player is simply better -- moves P(A) from **53.0% down to 46.0%**. Higher win
-rate, lower predicted chance of winning.
+All five are the same finding from different angles: **map, agent and recent
+form barely move the model**, which is what the held-out data says too -- map
+and agent history rank near the bottom of all feature families in the README.
+A player built as weak on this map is, by the profile's construction, strong
+elsewhere, and the model follows the overall strength. The recent-form cases go
+further the wrong way because recent win rate carries a small *negative* weight
+(below).
 
-The coefficients show why: `d_wr_mean` is **-0.068** while `d_wr_max` is
-**+0.093** and `d_wr_min` is **-0.098**. This is the classic multicollinearity
-sign flip. Win rate is highly correlated with rating, ACS and ADR, so the fit
-loads the signal onto those and lets win rate absorb residual in the opposite
-direction.
+### Overall win rate carries almost nothing
+
+Sweeping `wr` from very low to very high -- every subset rate tracking it, so
+the player is simply better -- moves P(A) from **52.8% to 49.1%**: slightly the
+wrong way, and small. The coefficients show why: `d_wr_mean` is **-0.003**,
+`d_wr_max` **+0.051** and `d_wr_min` **-0.049**. Win rate is highly correlated
+with rating, ACS and ADR, so the fit loads the signal onto those and leaves win
+rate with little and inconsistent weight -- the classic multicollinearity
+pattern.
 
 It is **not** evidence that winning is bad, and no individual coefficient in a
-collinear fit is interpretable on its own. It does mean the model's internal
-attribution should not be read as a causal story, and it is a reason to prefer
-the single-feature rating baseline when explaining a prediction to a human.
+collinear fit is interpretable on its own. It is why the README's feature chart
+shuffles whole feature families instead of reading weights.
 
-### Map strength barely registers, and not monotonically
+For contrast, the `rating` sweep moves P(A) from **18.1% to 81.9%**.
 
-The `wr_map` sweep gives 49.0 / 48.8 / 50.0 / 46.6 / 51.1 across its range --
-non-monotonic and inside a few points of noise, against +28 points for rating.
-The `good_map` scenario, where every player has a 68% map record over 45 games,
-predicts **45.0%**: against the team with the map advantage. That is largely
-the inverted win-rate coefficient bleeding through, since a map specialist also
-has a better overall record.
+### Map strength registers weakly, and now in the right direction
 
-The map x agent interaction behaves better: `map_agent_specialist` predicts
-75.8%, and the sparse-cell version is correctly shrunk.
+The `wr_map` sweep runs **49.0 / 50.2 / 50.0 / 51.5 / 52.4** -- monotonic,
+where earlier bundles gave a noisy, non-monotonic curve, but worth only about
+three points across its whole range. `good_map`, where every Team A player has
+a strong map record, predicts **77.5%**; `map_agent_specialist` predicts
+**66.5%**. Most of that comes from the better overall records those profiles
+imply, not the map itself.
 
 ### The gradient booster is not symmetric
 
 Two identical teams should be a coin flip. The shipped linear model says
-exactly **0.5000000000**. The gradient booster says **0.483064**, with a mirror
-error of 0.034 -- and it fails the mirror check on every sanity scenario.
+exactly **50.0%**. The gradient booster says **49.1%**, and on
+`weak_overall_good_map` swapping the teams moves it by 13 points.
 
 Since the raw feature vector is exactly antisymmetric (measured `0.00e+00`),
 that asymmetry is entirely the model. Trees have no symmetry constraint, and

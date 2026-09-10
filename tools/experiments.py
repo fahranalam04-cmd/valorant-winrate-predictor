@@ -15,13 +15,17 @@ correctly abandoned; the same rule applies to everything below.
     python tools/experiments.py
     python tools/experiments.py --coverage    adds the min_coverage sweep,
                                               which needs tools/build_cov0.py
+    python tools/experiments.py --json        also writes reports/experiments.json,
+                                              which tools/model_metrics.py tabulates
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -33,41 +37,55 @@ from valwr.model import evaluate, split, strength
 from valwr.model.train import RANDOM_STATE, feature_columns, fit_gbm, fit_logistic
 from valwr.store import schema
 
+JSON_OUT = Path(__file__).resolve().parent.parent / "reports" / "experiments.json"
+
 
 class Ledger:
     """Every candidate, judged against one standard error."""
 
-    def __init__(self, incumbent_ll: float, se: float):
+    def __init__(self, incumbent_ll: float, se: float, n: int):
         self.incumbent_ll = incumbent_ll
         self.se = se
-        self.rows: list[tuple] = []
+        self.n = n
+        self.rows: list[dict] = []
 
-    def add(self, name, ll, auc, acc, mirror=None, note=""):
-        delta = ll - self.incumbent_ll          # negative is better
+    def add(self, name, y, p, mirror=None, note=""):
+        sc = evaluate.score(name, y, p)
+        delta = sc.log_loss - self.incumbent_ll          # negative is better
         verdict = "WIN" if delta < -self.se else "null"
-        self.rows.append((name, ll, delta, auc, acc, mirror, verdict, note))
-        return verdict
+        self.rows.append({
+            "name": name, "log_loss": sc.log_loss, "delta": delta,
+            "auc": sc.auc, "pr_auc": sc.pr_auc, "precision": sc.precision,
+            "recall": sc.recall, "f1": sc.f1, "accuracy": sc.accuracy,
+            "mirror": mirror, "verdict": verdict, "note": note})
+        return sc
 
     def table(self) -> str:
         out = [
             "",
-            "=" * 100,
+            "=" * 118,
             "VALIDATION RESULTS   (test slice deliberately not scored)",
-            "=" * 100,
+            "=" * 118,
             f"  incumbent log loss {self.incumbent_ll:.4f}   "
             f"standard error {self.se:.4f}   "
             f"a win must beat it by more than {self.se:.4f}",
             "",
             f"  {'candidate':<36}{'logloss':>9}{'delta':>10}{'auc':>7}"
-            f"{'acc':>8}{'mirror':>11}  verdict",
-            "  " + "-" * 96,
+            f"{'pr-auc':>8}{'prec':>7}{'recall':>8}{'acc':>8}{'mirror':>11}  verdict",
+            "  " + "-" * 114,
         ]
-        for name, ll, delta, auc, acc, mirror, verdict, note in self.rows:
-            m = "-" if mirror is None else f"{mirror:.2e}"
-            out.append(f"  {name:<36}{ll:>9.4f}{delta:>+10.4f}{auc:>7.3f}"
-                       f"{acc:>7.1f}%{m:>11}  {verdict}"
-                       + (f"   {note}" if note else ""))
+        for r in self.rows:
+            m = "-" if r["mirror"] is None else f"{r['mirror']:.2e}"
+            out.append(
+                f"  {r['name']:<36}{r['log_loss']:>9.4f}{r['delta']:>+10.4f}"
+                f"{r['auc']:>7.3f}{r['pr_auc']:>8.3f}{r['precision']:>7.3f}"
+                f"{r['recall']:>8.3f}{r['accuracy'] * 100:>7.1f}%{m:>11}  "
+                f"{r['verdict']}" + (f"   {r['note']}" if r["note"] else ""))
         return "\n".join(out)
+
+    def as_dict(self) -> dict:
+        return {"incumbent_log_loss": self.incumbent_ll, "se": self.se,
+                "n_val": self.n, "rows": self.rows}
 
 
 def mirror_error(model, X) -> float:
@@ -81,21 +99,19 @@ def mirror_error(model, X) -> float:
     return float(np.abs(p + q - 1).mean())
 
 
-def fit_symmetric_logistic(X, y, C):
-    """Logistic with no intercept and no mean-centering.
+def fit_with_intercept(X, y):
+    """The logistic as it shipped before exact symmetry: centred, with intercept.
 
-    The feature vector already negates exactly when the two teams swap. What
-    breaks the mirror is the preprocessing: StandardScaler subtracts a non-zero
-    training mean, and the intercept adds a constant that does not negate.
-    Remove both and P(A) + P(B) == 1 holds by construction rather than to a
-    documented tolerance.
+    Kept as its own candidate so the symmetry change stays measured against
+    what it replaced. `fit_logistic` itself is now the symmetric fit.
     """
     from sklearn.linear_model import LogisticRegression
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
+    from valwr.model.train import LOGISTIC_C
     model = make_pipeline(
-        StandardScaler(with_mean=False),
-        LogisticRegression(max_iter=2000, C=C, fit_intercept=False,
+        StandardScaler(),
+        LogisticRegression(max_iter=2000, C=LOGISTIC_C,
                            random_state=RANDOM_STATE),
     )
     model.fit(X, y)
@@ -183,7 +199,7 @@ def matrix_boundaries(df) -> split.Boundaries:
     )
 
 
-def coverage_sweep(path, led):
+def coverage_sweep(path):
     """Does admitting low-coverage matches to TRAINING help?
 
     The evaluation set is held fixed at coverage >= 5 -- the population the
@@ -204,24 +220,22 @@ def coverage_sweep(path, led):
     def fit_at(k):
         tr = df[(df["slice"] == "train") & (df["coverage"] >= k)]
         m = fit_logistic(tr[cols].to_numpy(float), tr["target"].to_numpy(int))
-        p = m.predict_proba(Xva)[:, 1]
-        return len(tr), evaluate.score(f"cov{k}", yva, p), p
+        return len(tr), m.predict_proba(Xva)[:, 1]
 
     # This sweep scores on its own validation rows, so it gets its own
     # baseline: the threshold currently shipped. Folding it into the main
     # ledger would compare log losses computed on different denominators.
-    n5, base, p5 = fit_at(5)
-    own = Ledger(base.log_loss, evaluate.log_loss_standard_error(yva, p5))
+    n5, p5 = fit_at(5)
+    base = evaluate.score("cov5", yva, p5)
+    own = Ledger(base.log_loss, evaluate.log_loss_standard_error(yva, p5), len(va))
     print(f"  coverage sweep: fixed val of {len(va):,} rows at coverage >= 5, "
           f"baseline is the shipped threshold 5")
-    own.add("train coverage >= 5 (shipped)", base.log_loss, base.auc,
-            base.accuracy * 100, note=f"train {n5:,}")
+    own.add("train coverage >= 5 (shipped)", yva, p5, note=f"train {n5:,}")
     for k in (0, 3, 4, 6):
-        n, sc, _ = fit_at(k)
+        n, p = fit_at(k)
         if n < 500:
             continue
-        own.add(f"train coverage >= {k}", sc.log_loss, sc.auc,
-                sc.accuracy * 100, note=f"train {n:,}")
+        own.add(f"train coverage >= {k}", yva, p, note=f"train {n:,}")
     return own
 
 
@@ -232,6 +246,8 @@ def main(argv=None) -> int:
     ap.add_argument("--bt-c", default="0.02,0.1,0.5",
                     help="L2 strengths to try for Bradley-Terry")
     ap.add_argument("--bt-min-appearances", type=int, default=5)
+    ap.add_argument("--json", action="store_true",
+                    help=f"also write {JSON_OUT.name} for tools/model_metrics.py")
     args = ap.parse_args(argv)
 
     s = config.load(require_key=False)
@@ -251,38 +267,34 @@ def main(argv=None) -> int:
           f"| test {(df['slice'] == 'test').sum():,} (held back)")
 
     # --- the incumbent, and the noise floor it is judged against -----
+    # The incumbent is the shipped fit: symmetric, no intercept, no centring.
     inc = fit_logistic(Xtr, ytr)
     p_inc = inc.predict_proba(Xva)[:, 1]
-    sc = evaluate.score("incumbent", yva, p_inc)
     se = evaluate.log_loss_standard_error(yva, p_inc)
-    led = Ledger(sc.log_loss, se)
-    led.add("logistic (incumbent)", sc.log_loss, sc.auc, sc.accuracy * 100,
+    led = Ledger(evaluate.score("incumbent", yva, p_inc).log_loss, se, len(va))
+    led.add("logistic, exact symmetry (shipped)", yva, p_inc,
             mirror_error(inc, Xva))
 
-    # --- exact symmetry ----------------------------------------------
-    sym = fit_symmetric_logistic(Xtr, ytr, C=0.03)
-    sc = evaluate.score("sym", yva, sym.predict_proba(Xva)[:, 1])
-    led.add("logistic, exact symmetry", sc.log_loss, sc.auc, sc.accuracy * 100,
-            mirror_error(sym, Xva))
+    # --- what the symmetry change replaced -----------------------------
+    old = fit_with_intercept(Xtr, ytr)
+    led.add("logistic, intercept and centring", yva,
+            old.predict_proba(Xva)[:, 1], mirror_error(old, Xva))
 
     # --- symmetric augmentation --------------------------------------
     Xaug = np.vstack([Xtr, -Xtr])
     yaug = np.concatenate([ytr, 1 - ytr])
     aug = fit_logistic(Xaug, yaug)
-    sc = evaluate.score("aug", yva, aug.predict_proba(Xva)[:, 1])
-    led.add("logistic, augmented", sc.log_loss, sc.auc, sc.accuracy * 100,
+    led.add("logistic, augmented", yva, aug.predict_proba(Xva)[:, 1],
             mirror_error(aug, Xva))
 
     t = time.time()
     gbm = fit_gbm(Xtr, ytr, Xva, yva)
-    sc = evaluate.score("gbm", yva, gbm.predict_proba(Xva)[:, 1])
-    led.add("gradient booster", sc.log_loss, sc.auc, sc.accuracy * 100,
+    led.add("gradient booster", yva, gbm.predict_proba(Xva)[:, 1],
             mirror_error(gbm, Xva))
 
     gbm_aug = fit_gbm(Xaug, yaug, Xva, yva)
-    sc = evaluate.score("gbm aug", yva, gbm_aug.predict_proba(Xva)[:, 1])
-    led.add("gradient booster, augmented", sc.log_loss, sc.auc,
-            sc.accuracy * 100, mirror_error(gbm_aug, Xva))
+    led.add("gradient booster, augmented", yva,
+            gbm_aug.predict_proba(Xva)[:, 1], mirror_error(gbm_aug, Xva))
     print(f"  (booster fits took {time.time() - t:.0f}s)")
 
     # --- Bradley-Terry -------------------------------------------------
@@ -302,23 +314,22 @@ def main(argv=None) -> int:
 
         # Fair comparison: the incumbent refitted on the SAME reduced rows.
         base = fit_logistic(Xsub, ytr2)
-        sc_b = evaluate.score("base", yva, base.predict_proba(Xva)[:, 1])
-        led.add(f"logistic, reduced train (C={C})", sc_b.log_loss, sc_b.auc,
-                sc_b.accuracy * 100, mirror_error(base, Xva),
+        led.add(f"logistic, reduced train (C={C})", yva,
+                base.predict_proba(Xva)[:, 1], mirror_error(base, Xva),
                 note=f"n={len(sub):,}")
 
         Xtr2 = np.column_stack([Xsub, s_tr, m_tr])
         Xva2 = np.column_stack([Xva, s_va, m_va])
         bt = fit_logistic(Xtr2, ytr2)
-        sc = evaluate.score("bt", yva, bt.predict_proba(Xva2)[:, 1])
-        led.add(f"logistic + Bradley-Terry (C={C})", sc.log_loss, sc.auc,
-                sc.accuracy * 100, mirror_error(bt, Xva2),
-                note=f"{last.n_players:,} players, {time.time() - t:.0f}s")
+        led.add(f"logistic + Bradley-Terry (C={C})", yva,
+                bt.predict_proba(Xva2)[:, 1], mirror_error(bt, Xva2),
+                note=f"{last.n_players:,} fitted strengths")
 
         # A null result is only worth reporting if it says WHY. Strength on
         # its own separates "no signal at all" from "signal the other 52
         # features already carry", and those call for different conclusions.
-        alone = evaluate.score("bt alone", yva, 1 / (1 + np.exp(-s_va)))
+        alone = led.add(f"Bradley-Terry strength alone (C={C})", yva,
+                        1 / (1 + np.exp(-s_va)), note="diagnostic")
         coef = bt.named_steps["logisticregression"].coef_[0]
         diag.append(
             f"    C={C:<5} strength alone: auc {alone.auc:.3f}  "
@@ -331,7 +342,7 @@ def main(argv=None) -> int:
     if args.coverage:
         path = s.database_path.parent / "features_cov0.parquet"
         if path.exists():
-            cov_led = coverage_sweep(path, led)
+            cov_led = coverage_sweep(path)
         else:
             print(f"  (skipping coverage sweep: {path.name} not built)")
 
@@ -354,6 +365,12 @@ def main(argv=None) -> int:
         print(f"    theta std {th.std():.4f}, range "
               f"{th.min():+.3f} to {th.max():+.3f}")
     print(f"\n  A candidate counts only if delta beats -{se:.4f}.")
+
+    if args.json:
+        payload = led.as_dict()
+        payload["coverage"] = cov_led.as_dict() if cov_led is not None else None
+        JSON_OUT.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        print(f"\n  wrote {JSON_OUT}")
     return 0
 
 

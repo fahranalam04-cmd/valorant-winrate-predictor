@@ -18,18 +18,42 @@ Two controls keep this honest:
     alone. The composite has to beat both, or its extra components are
     decoration and should be dropped rather than shipped.
 
-    python tools/validate_potential.py [--teams 1500]
+    python tools/validate_potential.py [--teams 1500] [--json]
+    python tools/validate_potential.py --flag [--json]
+
+`--json` merges the measurement into reports/player_models.json, which
+tools/model_metrics.py tabulates beside the win-prediction models.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import random
 import sys
 import time
 from collections import defaultdict
+from pathlib import Path
 
 sys.path.insert(0, ".")
+
+JSON_OUT = Path(__file__).resolve().parent.parent / "reports" / "player_models.json"
+
+
+def write_json(key: str, payload: dict) -> None:
+    """Merge one measurement into the shared file, keeping the other."""
+    data = (json.loads(JSON_OUT.read_text(encoding="utf-8"))
+            if JSON_OUT.exists() else {})
+    data[key] = payload
+    JSON_OUT.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    print(f"\n  wrote {key} to {JSON_OUT}")
+
+
+def ranking_scores(labels, scores) -> tuple[float, float]:
+    """(AUC, average precision) of `scores` against binary `labels`."""
+    from sklearn.metrics import average_precision_score, roc_auc_score
+    return (float(roc_auc_score(labels, scores)),
+            float(average_precision_score(labels, scores)))
 
 from valwr import config
 from valwr.model import split
@@ -77,7 +101,7 @@ def top1(teams, key) -> tuple[float, int]:
     return hits / len(teams), hits
 
 
-def flag_check(conn, b, index, norms, seed: int = 42) -> int:
+def flag_check(conn, b, index, norms, seed: int = 42, as_json: bool = False) -> int:
     """Do flagged players actually outperform their lobby?
 
     There is no smurf label in this data, so the flag cannot be validated
@@ -101,6 +125,8 @@ def flag_check(conn, b, index, norms, seed: int = 42) -> int:
     print(f"{len(full):,} complete ten-player lobbies in the test period")
 
     flag_hits = flag_n = plain_hits = plain_n = scanned = 0
+    zs: list[float] = []
+    tops: list[int] = []
     for squad in full:
         as_of = squad[0]["started_at"]
         scored = []
@@ -109,13 +135,17 @@ def flag_check(conn, b, index, norms, seed: int = 42) -> int:
             actual = rate_performance(r, norms)
             if c is None or actual is None:
                 continue
-            scored.append((P.above_rank(index, c).flagged, actual.value))
+            verdict = P.above_rank(index, c)
+            scored.append((verdict.flagged, actual.value,
+                           index.z("rating", c.rating)))
         if len(scored) < 6:
             continue
-        cut = sorted((v for _, v in scored),
+        cut = sorted((v for _, v, _ in scored),
                      reverse=True)[: max(1, len(scored) // 3)][-1]
-        for flagged, v in scored:
+        for flagged, v, z in scored:
             top = v >= cut
+            zs.append(z)
+            tops.append(int(top))
             if flagged:
                 flag_n += 1
                 flag_hits += top
@@ -144,6 +174,28 @@ def flag_check(conn, b, index, norms, seed: int = 42) -> int:
     print(f"  base rate 33.3% by construction; SE on the flagged group "
           f"~{se:.1f} points")
     print(f"  difference      : {delta:+.1f} points  ({delta / se:+.1f} SE)")
+
+    # The flag as a classifier of "finished in the top third". Precision is
+    # the flagged group's top-third rate above; recall is how many of all
+    # top-third finishers it caught, which is small by design -- it fires on
+    # about one player in twenty, so it can never catch most strong games.
+    top_all = flag_hits + plain_hits
+    precision = flag_hits / flag_n
+    recall = flag_hits / top_all if top_all else float("nan")
+    f1 = (2 * precision * recall / (precision + recall)
+          if precision + recall else 0.0)
+    auc, ap = ranking_scores(tops, zs)
+    print(f"  as a classifier : precision {precision:.3f}  recall {recall:.3f}"
+          f"  F1 {f1:.3f}")
+    print(f"  rating z alone  : AUC {auc:.3f}  PR-AUC {ap:.3f}  "
+          f"(base rate {top_all / (flag_n + plain_n):.3f})")
+    if as_json:
+        write_json("flag", {
+            "period": "test", "lobbies": scanned, "players": flag_n + plain_n,
+            "flagged": flag_n, "flag_rate": flag_n / (flag_n + plain_n),
+            "base_rate": top_all / (flag_n + plain_n),
+            "precision": precision, "recall": recall, "f1": f1,
+            "auc": auc, "pr_auc": ap})
     return 0
 
 
@@ -161,6 +213,8 @@ def main(argv=None) -> int:
     ap.add_argument("--flag", action="store_true",
                     help="measure whether the above-rank flag predicts "
                          "outperformance")
+    ap.add_argument("--json", action="store_true",
+                    help=f"merge the result into {JSON_OUT.name}")
     args = ap.parse_args(argv)
 
     if args.sweep and args.period == "test":
@@ -176,7 +230,7 @@ def main(argv=None) -> int:
     print(f"index fitted on {index.n:,} training samples")
 
     if args.flag:
-        return flag_check(conn, b, index, norms)
+        return flag_check(conn, b, index, norms, as_json=args.json)
 
     if args.period == "val":
         window = "started_at >= ? AND started_at < ?"
@@ -304,6 +358,31 @@ def main(argv=None) -> int:
     print(f"    potential score        {rho:+.3f}")
     print(f"    existing rating alone  {rho_r:+.3f}")
     print(f"    career ACS alone       {rho_a:+.3f}")
+
+    # As a classifier: every player is labelled by whether they had their
+    # team's best game. Picking one player per team, a top pick is right
+    # exactly when it is the best, so its precision and recall are the same
+    # number -- the top-1 rate. AUC and average precision score the ranking of
+    # every player rather than only the pick.
+    labels = [int(abs(p["actual"] - max(q["actual"] for q in t)) < 1e-12)
+              for t in teams for p in t]
+    rng3 = random.Random(args.seed + 2)
+    rankers = []
+    for label, a, scores in (
+            ("potential score", acc, [p["raw"] for p in flat]),
+            ("existing rating alone", rat_acc, [p["c"].rating for p in flat]),
+            ("career ACS alone", acs_acc, [p["c"].acs for p in flat]),
+            ("shuffled (control)", shuf_acc, [rng3.random() for _ in flat])):
+        auc, ap_ = ranking_scores(labels, scores)
+        rankers.append({"name": label, "top1": a, "auc": auc, "pr_auc": ap_})
+    base = sum(labels) / len(labels)
+    print(f"\n  Against 'had their team's best game' (base rate {base:.3f}):")
+    for r in rankers:
+        print(f"    {r['name']:<24} top pick right {r['top1'] * 100:5.1f}%"
+              f"  AUC {r['auc']:.3f}  PR-AUC {r['pr_auc']:.3f}")
+    if args.json:
+        write_json("potential", {"period": args.period, "teams": n,
+                                 "positive_rate": base, "rankers": rankers})
 
     print("\n  Reminder: this measures ranking within a team, not whether any "
           "\n  individual number is right. Performance is noisy and strongly "

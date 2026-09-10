@@ -17,13 +17,18 @@ rank-based matchmaking has already equalised the obvious differences. This is
 not a problem where more feature engineering eventually yields 90% accuracy —
 the ceiling is set by how much matchmaking leaves on the table.
 
-### Expected performance
+### Expected, then measured
 
-| Metric | Realistic range |
-|---|---|
-| AUC-ROC | **0.60 – 0.68** |
-| Accuracy | **58 – 64%** |
-| Log loss | ~0.66 – 0.68 |
+| Metric | Expected before any data | Measured, 10,304 held-out matches |
+|---|---|---|
+| AUC-ROC | 0.60 – 0.68 | **0.560** |
+| Accuracy | 58 – 64% | **54.3% ± 1.0%** |
+| Log loss | ~0.66 – 0.68 | **0.6874** (coin flip 0.6931) |
+
+The result landed below the expected range, and the write-up says so rather
+than moving the goalposts. Matchmaking is better at producing even games than
+the estimate assumed; [MODEL-CHOICE.md](MODEL-CHOICE.md) shows every model
+lands in the same place.
 
 **Above AUC 0.75, assume leakage.** Not "be cautious" — assume it, and go
 looking. Every implausibly good result in this problem space has turned out to
@@ -45,13 +50,14 @@ inverted.
 
 **2. Higher average rank wins.** The honest bar, and the one people skip.
 
-**Measured on 2,168 built matches: 52.1%.** That is lower than expected and it
-makes the problem harder, not easier -- matchmaking equalises rank so
-effectively that rank itself barely predicts the winner. The room between 52.1%
-and the ceiling is all the room there is.
+**Measured on the 10,304-match test set: 50.2% accuracy, AUC 0.507** — barely
+distinguishable from the coin flip. Matchmaking equalises rank so effectively
+that rank itself hardly predicts the winner. The room above it is all the room
+there is.
 
-No single feature correlates with the outcome above **|r| = 0.077**. There is no
-shortcut in this data; any real model has to combine weak signals.
+No single feature is a shortcut. The strongest correlates with the outcome only
+weakly (see the note below the ladder), so any real model has to combine many
+weak signals.
 
 **3. Logistic regression, 5–10 features.** Interpretable, fast, and the sanity
 check on the whole feature pipeline. If a linear model on shrunk win rates and
@@ -67,6 +73,13 @@ trees find interactions that the linear model cannot express.
 Report every rung in the README table. Showing the progression is more
 persuasive than showing one number, because it demonstrates you know what your
 model is being compared against.
+
+**How the ladder came out.** Every rung above rank beats it, and the top four
+finish within one standard error of each other. Logistic regression on all 52
+features ships, as the simplest of those. The gradient booster did not earn its
+place: it scored slightly worse and gives two identical teams different odds.
+Both calibrated variants scored worse than the models they wrapped. Every model,
+every metric, and why: [MODEL-CHOICE.md](MODEL-CHOICE.md).
 
 ---
 
@@ -274,27 +287,39 @@ form of the same overfitting.
 has to *mean* something: of matches predicted at 58%, roughly 58% should be won.
 A model can have good AUC and useless calibration.
 
-- Fit isotonic (or Platt) calibration on the validation slice, never on test
+- Fit isotonic and Platt calibration on the validation slice, never on test,
+  and keep whichever scores better there. **As built, neither ships:** the
+  better of the two, isotonic, made held-out log loss worse (0.6893 against
+  0.6874). The raw logistic model is already calibrated to within a point.
 - Produce a **reliability diagram** — predicted probability vs observed
-  frequency, binned. It goes in the README; it is the most convincing single
-  artefact the project can produce.
-- Report expected calibration error (ECE)
+  frequency, in bins of equal count. It is in the README.
+- Report expected calibration error (ECE): **0.008** on the shipped model.
+- Precision, recall and PR-AUC are reported too, with *Blue wins* as the
+  positive class — but for a problem with two symmetric sides they add little
+  beyond AUC and accuracy, and are read with that caveat.
 
-**Attribution.** SHAP values on the final model, for two purposes: a global
-feature-importance plot for the README, and per-match attributions that feed the
-coach in Phase 8. The coach's grounding depends on these being real.
+**Attribution.** SHAP was planned; it is not used, because the shipped model is
+linear. A linear model's attribution is exact: each feature contributes its
+weight times its standardised value, and the contributions sum to the
+prediction's log-odds. Those are what the dashboard shows as "what moves the
+prediction". The README's global chart measures something different on purpose
+— how much held-out log loss rises when a *family* of related features is
+shuffled — because correlated features split credit, and raw weights give the
+player rating a negative sign beside ACS.
 
 ---
 
 ## Things worth checking, beyond the headline number
 
 - **Does it beat the rank baseline where ranks are equal?** Filter to matches
-  where average ranks are within a tier of each other. This is the interesting
-  subset — where matchmaking did its job and the residual signal is all there
-  is. Performance here is the honest measure of whether the features add
-  anything.
+  where average ranks are within half a tier of each other. This is the
+  interesting subset — where matchmaking did its job and the residual signal is
+  all there is. **Answered: yes.** On 4,132 such test matches the model scores
+  AUC 0.568 and 54.6% ± 1.5%, while rank scores AUC 0.493.
 - **Which features actually matter?** If map × agent contributes nothing, say
-  so in the README. A negative result reported clearly is a credibility signal.
+  so in the README. **Answered: it contributes close to nothing,** and the
+  README says so. Combat performance — ACS, the rating, damage — carries most of
+  the signal.
 - **Does performance decay over time?** Train on early data, test on progressively
   later slices. Meta shifts should show up as degradation, and quantifying it
   tells you how often the model needs retraining.

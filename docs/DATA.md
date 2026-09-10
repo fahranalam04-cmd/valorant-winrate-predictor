@@ -67,6 +67,10 @@ CREATE TABLE match_players (
   PRIMARY KEY (match_id, puuid)
 );
 CREATE INDEX idx_mp_puuid ON match_players(puuid);
+-- Abridged. The live table also carries started_at, map, won and
+-- rounds_played (see below), and the per-round statistics the rating uses:
+-- first deaths, multi-kills, trades, KAST rounds and clutches.
+-- valwr/store/schema.py is the full definition.
 
 CREATE TABLE players (
   puuid           TEXT PRIMARY KEY,
@@ -81,10 +85,13 @@ CREATE TABLE players (
 ### The index that matters
 
 ```sql
-CREATE INDEX idx_mp_puuid_time ON match_players(puuid, match_id);
+CREATE INDEX idx_mp_puuid_time  ON match_players(puuid, started_at);
+CREATE INDEX idx_mp_puuid_map   ON match_players(puuid, map, started_at);
+CREATE INDEX idx_mp_puuid_agent ON match_players(puuid, agent, started_at);
 ```
 
-Every feature query is "rows for player X, in matches before time T".
+Every feature query is "rows for player X, in matches before time T" — and
+the map and agent histories add "on this map" or "on this agent" to that.
 
 **Benchmarked, and the honest answer is that it is currently marginal.** At 330
 matches, the denormalised form beats the join by only **1.16x** (9.3 vs 10.9 µs
@@ -158,6 +165,12 @@ directly.** If a feature needs data, it goes through this module. A single
 chokepoint that always demands `as_of` is far more reliable than remembering to
 add a time filter in twenty different places.
 
+**Competitive only, in the same place.** Every history query here also keeps
+only competitive matches, so career ACS, K/D, the last-20 form and the map
+record never mix in swiftplay, customs or rotating modes. It is a correlated
+`EXISTS` against `matches`; the `IN (SELECT …)` form was 534 times slower and
+turned a retrain from 220 matches a second into one.
+
 ### Why this design and not a feature store
 
 The obvious alternative is precomputing rolling aggregates per player. It is
@@ -184,6 +197,11 @@ intermittent crawling, giving 400k–800k player-match rows. That is ample; the
 constraint on this project is feature quality, not sample size.
 
 Set a target and stop. More data does not fix a leaky feature pipeline.
+
+**As collected:** 75,892 matches and 229,254 distinct players, with 758,920
+competitive player-match rows. 53.2% of players appear in exactly one match
+and 16.5% in five or more — the sparsity that makes a learned per-player
+strength useless here ([MODEL-CHOICE.md](MODEL-CHOICE.md)).
 
 ### Storage — measured, not estimated
 

@@ -50,7 +50,7 @@ valwr/          the package
   store/        schema, normalisation, the temporal query layer
   rating/       the player rating metric
   features/     time-gated feature builder
-  model/        baselines, training, calibration, SHAP
+  model/        baselines, training, serving, analysis
   live/         lockfile auth, websocket match detection
   dash/         FastAPI dashboard + static front end
   sandbox/      synthetic scenarios that probe the trained model

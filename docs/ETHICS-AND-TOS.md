@@ -18,8 +18,9 @@ banned" — which is accurate but unhelpfully vague. Concretely:
 - Read the lockfile to authenticate against `127.0.0.1`
 - Read match state: the current match ID, the ten PUUIDs, locked agents, teams
 - Read your own account identity and region
-- Subscribe to the local websocket for match-start events
-- Display information in a **separate browser window**
+- Poll for the current match every few seconds (the client's websocket would
+  be equally acceptable; it is simply not needed)
+- Display information in a **separate browser window**, or on your own phone
 
 ### Forbidden — what this project must never do
 
@@ -56,10 +57,18 @@ being in a training set, even though the data is publicly visible.
 - **The database never leaves this machine.** `data/` is gitignored.
 - **Never publish a dataset** of PUUIDs, Riot IDs, or per-player statistics.
 - **Never expose a public endpoint** that looks up an arbitrary player. The
-  dashboard binds to `127.0.0.1` and stays there.
+  dashboard serves only the match you are in, has no route that takes a player,
+  and binds to `127.0.0.1`. `phone.bat` widens that to your own network — opt-in,
+  announced when it starts, and still refusing requests from other sites. It is
+  never for the internet. See [SECURITY.md](../SECURITY.md).
+- **Party markers are inferred, locally, for your lobby only.** The client does
+  not reveal the enemy's party, so the dashboard infers it from match history
+  already on this machine: two players who have queued together before. It is
+  computed for the ten players in front of you and cannot be searched.
 - **Aggregate freely, identify never.** Model weights, feature importances, and
   distribution statistics are fine to publish. Individual rows are not.
-- If publishing example screenshots, redact or replace Riot IDs.
+- **Every published image and the public demo use invented players**, from
+  `valwr/dash/demo.py`. No real Riot ID appears in a screenshot, and none may.
 
 Note that HenrikDev's leaderboard exposes `is_anonymized` — players who opted
 out of public leaderboard identification. Skip them entirely.
@@ -95,3 +104,8 @@ This is a portfolio project, so the results are a claim about your competence.
 Not affiliated with or endorsed by Riot Games. VALORANT is a trademark of Riot
 Games, Inc. Data via the unofficial HenrikDev API and valorant-api.com, neither
 of which is affiliated with Riot either.
+
+Agent and map artwork is Riot's. It is downloaded locally by
+`tools/fetch_agent_art.py` and never committed to the main branch; the public
+demo and the README screenshots show it under Riot's terms for free fan
+projects, with this attribution.

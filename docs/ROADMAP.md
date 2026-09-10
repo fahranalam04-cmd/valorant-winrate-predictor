@@ -1,14 +1,26 @@
 # Roadmap
 
-Nine phases. Each is one Claude Code session, with a prompt in `prompts/` and
-acceptance criteria that must actually pass before moving on.
+Nine phases, planned before any code existed, each with acceptance criteria
+that had to pass before the next began. This page keeps the plan and records
+what was actually built against it — including where the build deliberately
+went a different way, and why.
 
-The sequencing rule: **the project should look complete at every stopping
-point.** If you stop after Phase 5, you have a validated model and a README with
-real results — a finished portfolio piece. If you stop after Phase 7, you have a
-live tool. Nothing is left as a half-built dependency of something else.
+| Phase | | Status |
+|---|---|---|
+| 0 | Scaffold and environment | Done |
+| 1 | Collector | Done |
+| 2 | Normalisation and the temporal store | Done |
+| 3 | Player rating | Done — one of its three checks no longer passes; see below |
+| 4 | Feature engineering | Done |
+| 5 | Model | Done — logistic regression ships, not gradient boosting |
+| 6 | Live client integration | Done |
+| 7 | Dashboard | Done |
+| 8 | Claude coach | **Not built** |
+| 9 | Backtest and write-up | Done, except the optional Riot production key |
 
-Budget: 1–2 months at an evenings-and-weekends pace.
+The sequencing rule held: **the project looks complete at every stopping
+point.** It stopped after Phase 7 and 9 with a validated model, a live tool and
+a write-up, and nothing half-built depends on Phase 8.
 
 ---
 
@@ -16,34 +28,40 @@ Budget: 1–2 months at an evenings-and-weekends pace.
 
 Set up the package, dependencies, config, and reference data.
 
-- venv, `requirements.txt`, `.env` from `.env.example`
-- **Verify LightGBM / XGBoost / SHAP wheels exist for Python 3.14.** They may
-  not yet. If any fail, recreate the venv on Python 3.12 and note it in the
-  README — do not spend the session fighting a source build.
+- venv, dependencies, `.env` from `.env.example`
+- Verify the ML wheels exist for the local Python
 - Pull agents, maps, tiers, seasons from valorant-api.com into reference tables
 - Smoke-test the HenrikDev key against your own account
-- **Apply for the Enhanced key now.** Approval takes days and triples crawl
-  throughput; the lag is the bottleneck, not the code.
 
 **Done when:** `python -m valwr.check` prints your account, your last 5 matches,
 and counts of 20+ agents and 10+ maps from the reference tables.
+
+**As built.** Dependencies live in `pyproject.toml` (`pip install -e .`).
+LightGBM installed cleanly on Python 3.14, and XGBoost and SHAP turned out not
+to be needed at all — see Phase 5.
 
 ## Phase 1 — Collector
 
 The rate-limited snowball crawler.
 
-- Shared token-bucket limiter — every HenrikDev call goes through it
-- `429` handling: honour `Retry-After`, exponential backoff
-- Seed the frontier from the leaderboard **and** your own PUUID
+- Every HenrikDev call goes through one shared limiter
+- `429` handling: honour `Retry-After`, back off
+- Seed the frontier from your own PUUID (and optionally the leaderboard)
 - For each PUUID: fetch matchlist, store raw, extract the other 9 PUUIDs, queue
   the unseen ones
 - **Rank-stratified**: track `tier_band`, deprioritise over-represented bands
 - Fully resumable — frontier state lives in the database, not memory
-- Log the rank distribution at session end
 
-**Done when:** run for 30 minutes, `kill -9` mid-run, restart — no duplicate
+**Done when:** run for 30 minutes, kill it mid-run, restart — no duplicate
 matches, no lost frontier entries, no stuck `fetching` rows, and the rank
-distribution is spread across bands rather than concentrated at the top.
+distribution is spread across bands.
+
+**As built.** The limiter is a fixed window reconciled against the server's own
+`x-ratelimit-remaining`, not a token bucket: a fresh matchlist costs about ten
+quota units, which three limiter designs all confirmed
+([API-NOTES.md](API-NOTES.md)). Seeding from your own account reached Iron
+through Immortal at 7–12% per band, so leaderboard seeding was unnecessary
+([DATA.md](DATA.md)).
 
 ## Phase 2 — Normalisation and the temporal store
 
@@ -52,43 +70,48 @@ Raw JSON → queryable tables, plus the leakage firewall.
 - Parse `raw_response` into `matches`, `match_players`, `players`
 - Idempotent: re-parsing must not duplicate
 - Build `valwr/store/temporal.py` — the `as_of` query layer
-- Benchmark the hot query; denormalise `started_at` onto `match_players` if the
-  join is slow
 
-**Done when:** assertion suite passes — no orphan rows, every match has exactly
-10 players or is explicitly flagged, per-player timestamps are monotonic, and
-`player_history(puuid, as_of)` provably returns nothing at or after `as_of`.
+**Done when:** no orphan rows, every match has exactly 10 players or is
+explicitly flagged, and `player_history(puuid, as_of)` provably returns nothing
+at or after `as_of`.
+
+**As built.** Every history query is also restricted to competitive matches,
+inside the temporal layer, so no caller can forget it. The filter is a
+correlated `EXISTS` against the matches table: the `IN (SELECT …)` form was 534
+times slower.
 
 ## Phase 3 — Player rating
 
-The Tracker Score replacement, and the headline component of the project.
+A composite of ACS, ADR, first-blood and first-death rate, clutch rate, trade
+participation and multi-kills, normalised within rank band and map, adjusted
+for the opposing team's rank.
 
-- Composite of ACS, ADR, first-blood/first-death rate, headshot %, clutch rate,
-  trade participation, multi-kill rate
-- Normalised **within rank band and within map** — 200 ACS in Iron is not 200
-  ACS in Immortal
-- Adjusted for the average rank of the opposing team
-- Keep it interpretable: a weighted z-score composite, with the weights
-  documented and justified
+**Done when:** three validations pass — the rating relates to rank as designed,
+split-half reliability is decent, and it out-predicts raw ACS on a player's
+next match.
 
-**Done when:** three validations pass — the rating correlates with rank
-(sanity), split-half reliability across a player's history is decent (it is
-measuring something stable, not noise), and it out-predicts raw ACS on a
-player's next-match performance (it is measuring something *useful*).
+**As built, and re-measured on 758,920 player-match rows.** The rating is
+independent of rank by design (r = +0.008) and moderately stable (split-half
+reliability 0.54). **It does not out-predict raw ACS** — the two tie, z = −1.36,
+and alone ACS is marginally ahead at predicting match results. An early run on
+a few hundred players said the rating won; that did not survive more data. It
+stays in the model as one of 52 features. Details in [MODELING.md](MODELING.md).
 
 ## Phase 4 — Feature engineering
 
 The full vector from [MODELING.md](MODELING.md), strictly time-gated.
 
-- Per-player: skill, shrunk history, map/agent/map×agent, form
-- Empirical-Bayes shrinkage on every rate, prior weight tuned on validation
+- Per-player: skill, shrunk history, map, agent and map × agent, form
+- Empirical-Bayes shrinkage on every rate
 - Team aggregations including **standard deviation**, not just mean
 - Composition, party structure, off-role, match context
 - Antisymmetric team-pair representation
 
-**Done when:** the leakage audit in `test/test_leakage.py` passes — for sampled
-matches, every feature value traces to source rows strictly earlier than the
-target — and swapping teams produces exactly `1 - p` on the feature level.
+**Done when:** the leakage audit in `test/test_leakage.py` passes, and swapping
+teams produces exactly `1 - p`.
+
+**As built.** 52 team-difference features. Swapping the teams negates the
+vector exactly, and the shipped model mirrors to machine precision.
 
 ## Phase 5 — Model
 
@@ -96,16 +119,28 @@ Climb the baseline ladder, calibrate, attribute.
 
 - Coin flip → rank baseline → logistic regression → gradient boosting
 - Time-ordered splits; test slice touched once
-- Isotonic calibration fit on validation
-- Log loss, Brier, AUC, accuracy, ECE, reliability diagram
-- SHAP: global importance plot, per-match attributions
+- Log loss, Brier, AUC, accuracy, calibration error, reliability diagram
 - **Shuffled-target check must collapse to ~0.5**
-- Fill in the README results table with measured numbers
 
-**Done when:** gradient boosting beats the rank baseline on log loss on the
-held-out test set, the reliability diagram is close to the diagonal, and the
-shuffled-target check passes. This is the point at which the project is a
-complete portfolio piece.
+**Done when:** gradient boosting beats the rank baseline on held-out log loss,
+the reliability diagram is close to the diagonal, and the shuffled-target check
+passes.
+
+**As built — three deliberate departures.**
+
+- **Logistic regression ships, not gradient boosting.** The booster does beat
+  the rank baseline (0.6882 against 0.6928), but so do three simpler models,
+  all within one standard error of each other. The simplest of those ships.
+  The booster also fails the mirror test: it gives two identical teams
+  different odds. [MODEL-CHOICE.md](MODEL-CHOICE.md) has every model and every
+  metric.
+- **No calibration layer.** Isotonic recalibration, fitted on validation, made
+  held-out log loss worse (0.6893 against 0.6874). The raw model is already
+  calibrated to within a point — expected calibration error 0.008.
+- **No SHAP.** For a linear model, each feature's contribution is exactly its
+  weight times its standardised value, and those contributions sum to the
+  prediction. That is what the dashboard shows. SHAP would approximate a number
+  that can be computed exactly.
 
 ## Phase 6 — Live client integration
 
@@ -113,55 +148,66 @@ Detect a real match and resolve its ten players.
 
 - Lockfile parse, basic auth against `127.0.0.1`, TLS verification off for
   localhost only
-- Entitlements + access token; region from the `-ares-deployment` process arg
-- Websocket subscription, watching pregame and core-game URI prefixes
-- `Pregame_GetMatch` / `CoreGame_FetchMatch` → 10 PUUIDs, agents, teams
-- **Handle the rate-limit squeeze**: cache-first, own-team-first priority,
-  degrade to partial-data predictions with a wider confidence band, pre-warm
-  between matches
+- Roster from pregame and core-game: 10 PUUIDs, agents, teams
+- Cache first, own team first, degrade to partial predictions
 - **Read-only.** See [ETHICS-AND-TOS.md](ETHICS-AND-TOS.md).
 
 **Done when:** load into a real or custom match and the ten players resolve,
-with a prediction produced before the first round — including the degraded path
-when some players are uncached.
+with a prediction before the first round — including the degraded path.
+
+**As built.** The client is polled every five seconds rather than subscribed
+to over its websocket; it is simpler and just as fast at this cadence. The
+shard comes from `/riotclient/region-locale`, not the process command line. A
+player whose newest stored match is over two hours old is refetched, your own
+account always is, and two matchlist pages are fetched so a "last 20" really
+is the last twenty.
 
 ## Phase 7 — Dashboard
 
-FastAPI + websocket, vanilla JS front end, bound to `127.0.0.1`.
+FastAPI and a websocket, vanilla JS, no build step, bound to `127.0.0.1`.
 
-- Two team win probabilities, prominent
-- Per-player cards: rating, rank, map and agent history, resolved/unresolved
-- Top positive and negative factors from SHAP, in plain language
-- Confidence indicator reflecting how much data was available
-- No build step
+**Done when:** the server is running, the browser is open, you load into a
+match, and the page updates live without a refresh.
 
-**Done when:** `uvicorn` running, browser open, load into a match, and the page
-updates live without a refresh.
+**As built**, in `valwr/dash/`, with more than the brief asked for:
+
+- both teams' odds, the verdict, and the factors moving the prediction
+- all ten players by team, with rank, party (duo, trio…), a 0–100 score,
+  career ACS, K/D, last-20 K/D and headshot rate — competitive games only
+- a card per player: score breakdown, career against recent form, record on
+  this map, last matches, and how fresh the data is
+- the map's own art as the background
+- `--demo` (invented players), `--match <id>` (replay a finished game as it
+  would have looked), and `phone.bat` (read it from a phone on your wifi)
+- refuses other sites and DNS rebinding; see [SECURITY.md](../SECURITY.md)
+
+[DASHBOARD.md](DASHBOARD.md) explains every element. An interactive demo runs
+on GitHub Pages.
 
 ## Phase 8 — Claude coach
 
-Grounded natural-language coaching.
+Grounded natural-language coaching: the prediction, its attributions, both
+compositions and the map, passed to Claude, with a system prompt that forbids
+inventing statistics and a check that every number it quotes is in its input.
 
-- Load the `claude-api` skill first for current model IDs and patterns
-- Input: prediction, SHAP attributions, both comps, map, per-player summaries
-- **System prompt forbids inventing statistics** — reason only over supplied
-  numbers. A coach that fabricates plausible VALORANT stats is worse than none,
-  because it is convincing.
-- Two outputs: strategic advice, and a plain-English explanation of the
-  prediction
-- One cached call per match; cache by `match_id`
+**Not built.** Most predictions fall between 40% and 60%, and the features a
+coach would most naturally advise on — map and agent history — measured close
+to zero. A fluent coach explaining a near coin flip risks the exact failure the
+brief warns about: confident advice resting on noise. The dashboard already
+explains each prediction in plain language. If it is built, the brief in
+`prompts/08-coach.md` stands.
 
-**Done when:** given a real match, it returns coherent advice that cites only
-numbers actually present in the prediction payload — verified by checking a
-sample of its claims against the input.
-
-## Phase 9 — Backtest and writeup (stretch)
+## Phase 9 — Backtest and write-up
 
 - Replay historical matches through the full live path, end to end
-- README results section: reliability diagram, feature importances, the
-  equal-rank subset result, honest limitations
-- Optionally apply to Riot for a production key + RSO, now that a prototype
-  exists to show them
+- README results: reliability diagram, what the model relies on, the
+  equal-rank result, honest limitations
+- Optionally apply to Riot for a production key and RSO
+
+**As built.** `tools/backtest_live.py` replays held-out matches exactly as the
+client delivers them; it found and closed a leak before producing a number.
+The README carries the calibration chart, the importance chart and the
+equal-rank result. The production-key application was not made.
 
 ---
 
@@ -200,5 +246,6 @@ twice, earning 429s. Check with `stop.bat` before starting a new one.
 - **In-round prediction.** Economy and round state are a different, much larger
   project.
 - **A hosted public version.** It would mean serving other players' data from a
-  server — see [ETHICS-AND-TOS.md](ETHICS-AND-TOS.md).
+  server — see [ETHICS-AND-TOS.md](ETHICS-AND-TOS.md). The public demo uses
+  invented players for exactly this reason.
 - **Any form of gameplay automation.** Not a scope decision; a ban-safety one.

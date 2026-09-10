@@ -313,47 +313,53 @@ GET /chat/v1/session              # local: your own puuid
 Remote `pd`/`glz` calls need both the access token (`Authorization: Bearer …`)
 and the entitlements token (`X-Riot-Entitlements-JWT: …`).
 
-Region/shard comes from the `-ares-deployment=` argument on the running client
-process — read it via `psutil` rather than hardcoding, so the app does not break
-if the account moves region.
+The region and shard come from `/riotclient/region-locale` — see the
+corrections above. Nothing reads the process command line.
 
-### Match detection
+### Match detection — polled
 
-Subscribe to the local websocket and watch:
+**As built, the client is polled every five seconds** (`valwr/live/roster.py`):
+
 ```
-OnJsonApiEvent_riot-messaging-service_v1_message
+GET  {glz}/core-game/v1/players/{puuid}        # CoreGame_FetchPlayer -> match id
+GET  {glz}/pregame/v1/players/{puuid}          # Pregame_GetPlayer    -> match id
 ```
-Match the event URI prefix:
 
-| URI prefix | Phase |
-|---|---|
-| `ares-pregame/pregame/v1/matches/` | agent select |
-| `ares-core-game/core-game/v1/matches/` | in game |
+A 404 from both is "not in a match". With a match id, fetch the roster:
 
-Then fetch the roster:
 ```
-GET  {glz}/pregame/v1/matches/{matchid}        # Pregame_GetMatch
 GET  {glz}/core-game/v1/matches/{matchid}      # CoreGame_FetchMatch
+GET  {glz}/pregame/v1/matches/{matchid}        # Pregame_GetMatch
 ```
-These give the ten PUUIDs, locked agents, and team assignment — everything the
-feature builder needs as input.
 
-Polling fallback: `Pregame_GetPlayer` / `CoreGame_FetchPlayer` return the
-current match ID on request, for when the websocket connection drops.
+These give the ten PUUIDs, locked agents, team assignment, map and mode —
+everything the feature builder needs. During agent select only your own team
+is visible.
+
+The client can also push these events over its local websocket
+(`OnJsonApiEvent_riot-messaging-service_v1_message`, URI prefixes
+`ares-pregame/pregame/v1/matches/` and `ares-core-game/core-game/v1/matches/`).
+It is not used: at a five-second cadence polling is just as timely, and it
+survives the client restarting without reconnect logic.
 
 ### The rate-limit squeeze at match start
 
 Ten unknown PUUIDs, each needing history, against 30 req/min, in the ~30 seconds
 of agent select. This cannot be solved by fetching faster. Solve it by:
 
-1. **Cache first.** History from hours ago is fine. Most lobbies contain players
-   already in the local database from the crawl.
-2. **Priority order.** Fetch your own team first, then enemies — partial output
-   beats no output.
-3. **Degrade, do not fail.** Predict from whoever resolved, and widen the
-   confidence band to reflect missing data. Show which players are unresolved.
-4. **Pre-warm.** Queue recent teammates and opponents for background refresh
-   between matches, when there is rate budget to spare.
+1. **Cache first.** Measured against real lobbies, about 7 of 10 players are
+   already in the local database, because the crawl was seeded from the same
+   account and collects the people it queues against.
+2. **Priority order.** Your own account always, then your own team, then
+   enemies — partial output beats no output.
+3. **Refresh what is stale.** A player whose newest stored match is more than
+   two hours old, or who has fewer than five, is refetched within the budget —
+   two matchlist pages, so the dashboard's "last 20" really is twenty games.
+4. **Degrade, do not fail.** Predict from whoever resolved, lower the stated
+   confidence, and show which players are unknown.
+
+Pre-warming between matches was planned and not needed: cache coverage made
+it redundant.
 
 ---
 
