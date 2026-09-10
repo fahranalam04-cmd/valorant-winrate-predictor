@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>valwr live — broadcast — interactive demo</title>
+<style>
+/* ==========================================================================
+   Palette taken from VALORANT's own UI rather than invented: the signature
+   red, the deep desaturated navy the menus sit on, and the warm off-white
+   Riot uses for type. Attack red / defend cyan is the in-game side language.
+
+   Type is Bahnschrift -- Microsoft's DIN, already installed on Windows -- for
+   the condensed uppercase that game reads in, with Segoe UI carrying body
+   text. Nothing is fetched: this page must not make a network request while
+   you are loading into a match, which is the same reason the agent art is
+   downloaded ahead of time rather than hotlinked.
+   ========================================================================== */
+:root{
+  /* One palette. Panels are near-opaque so they carry their own readability,
+     which is what lets the scrim over the map stay light -- an earlier version
+     dimmed the page to 93% black to protect the type and buried the artwork
+     along with it. */
+  --void:#070a0e; --steel:rgba(10,15,22,.90); --steel-2:rgba(17,25,35,.90);
+  --sunk:rgba(6,9,13,.84);
+  --line:rgba(140,175,200,.30); --line-soft:rgba(140,175,200,.16);
+  --bone:#f4f7fa; --bone-dim:#bccbd7; --slate:#8fa2b1; --ghost:#63727f;
+  --val:#ff4655; --atk:#ff5865; --def:#38d8e4; --val-deep:#3d1218;
+  --gold:#e7c27d; --win:#3ad6a0;
+  --display:"Bahnschrift","DIN Alternate","Oswald","Segoe UI",system-ui,sans-serif;
+  --body:"Segoe UI",system-ui,-apple-system,sans-serif;
+}
+
+/* ==========================================================================
+   THEMES.  Every one of these redefines tokens only -- no component below
+   names a colour directly, so a theme cannot half-apply and leave one panel
+   in the previous palette. `midnight` is the set above and stays the default;
+   the others are additive and reversible from the picker in the header.
+   ========================================================================== */
+
+/* --- the map behind everything ----------------------------------------
+   The map's own key art, blurred and dimmed hard enough that type still
+   passes contrast on it, with the panels frosted so the art reads through.
+   --mapart is set from JS per match; with no art the gradient alone stands. */
+
+/* Two layers, and the order matters. The vignette darkens the edges where
+   type sits closest to the artwork and stays light through the middle, so the
+   map is legible as a place rather than as texture. Blur is 3px, not 11 --
+   enough to keep detail from competing with small text, not so much that
+   Ascent stops looking like Ascent. */
+body::before{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  backdrop-filter:blur(3px) saturate(1.14) contrast(1.04);
+  background:
+    radial-gradient(128% 86% at 50% 14%,
+      rgba(5,8,12,.16) 0%, rgba(5,8,12,.44) 46%, rgba(5,8,12,.80) 100%),
+    linear-gradient(180deg, rgba(5,8,12,.18) 0%, rgba(5,8,12,.36) 55%,
+      rgba(5,8,12,.62) 100%)}
+/* Roughly 30% darkened behind the map name and 92% at the lower corners. The
+   bright maps -- Breeze, Sunset -- are what set the top figure: any lighter
+   and the small uppercase subheading stops holding against sand. */
+
+/* The page gets more air in this theme than the others, because the gaps are
+   where the map is actually seen. */
+body .shell{padding:26px 30px 72px}
+body .grid{gap:26px}
+.rosters{gap:22px}
+body .team{margin-bottom:26px}
+body .row{margin-bottom:7px}
+
+body .row,body .panel,
+body .fx{backdrop-filter:blur(9px) saturate(1.1);
+  box-shadow:0 6px 22px rgba(0,0,0,.42)}
+/* The agent art inside a row now has the map behind it as well, so it steps
+   back to keep the two from fighting. */
+body .art{opacity:.34}
+body .row.known{border-top:1px solid rgba(255,255,255,.05)}
+
+/* Header type sits directly on the artwork, so it carries its own shadow
+   rather than relying on the scrim. */
+body .map{
+  text-shadow:0 2px 4px rgba(0,0,0,.55),0 6px 30px rgba(0,0,0,.85)}
+body .mapsub,body .brand,
+body .verdict{text-shadow:0 1px 10px rgba(0,0,0,.9)}
+body .top{border-bottom-color:rgba(160,195,220,.26)}
+
+/* --- the two teams sit side by side, so the map shows between them ---
+   ...but only when each column can still show a name. A row spends about 400px
+   on its score and four stats before the name gets any width, and the space the
+   rosters get is set by the detail panel beside them (380 or 716px), not by the
+   window. A media query on the window picked side by side at every desktop
+   width, and at 1600px the name column collapsed to nothing. So this is asked
+   of the rosters' own container: side by side with tighter stat columns when
+   there is room for names, one team above the other when there is not. */
+.grid>div:first-child{container-type:inline-size}
+.rosters{display:grid;grid-template-columns:1fr;gap:14px;align-items:start}
+@container (min-width:900px){
+  .rosters{grid-template-columns:1fr 1fr}
+  .rosters .row{grid-template-columns:52px minmax(0,1fr) repeat(4,56px);
+    gap:8px;padding-right:12px}
+  .rosters .score{font-size:27px;padding-left:10px}
+  .rosters .st b{font-size:15.5px}
+  .rosters .st span{letter-spacing:.1em}
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background-color:var(--void);color:var(--bone);
+  font:15px/1.5 var(--body);
+  /* The map being played, set from the state as `--mapart`.
+     This lives in the base rule rather than a later one on purpose. It used
+     to sit in its own `body{...}` block above, which lost outright: this rule
+     comes later in the sheet, and both `background:` and `background-image:`
+     here reset it to the weave. Equal specificity, so source order decided,
+     and the map never painted. */
+  background-image:var(--mapart,none);
+  background-size:cover;
+  background-position:center 26%;
+  background-attachment:fixed;
+  background-repeat:no-repeat;
+}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.disp{font-family:var(--display);font-stretch:condensed;letter-spacing:.02em}
+
+.shell{max-width:1760px;margin:0 auto;padding:20px 22px 64px}
+
+/* ---------- header ------------------------------------------------------ */
+.top{display:flex;align-items:flex-end;gap:22px;flex-wrap:wrap;
+  padding-bottom:14px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:9px;font:600 11px/1 var(--display);
+  letter-spacing:.34em;text-transform:uppercase;color:var(--slate)}
+.pulse{width:6px;height:6px;background:var(--win);
+  clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}
+.pulse.off{background:var(--val)}
+.mapwrap{flex:1;min-width:240px}
+.map{font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:58px;line-height:.9;letter-spacing:.01em;text-transform:uppercase;
+  margin:6px 0 0}
+.mapsub{color:var(--slate);font:600 10.5px/1 var(--display);letter-spacing:.24em;
+  text-transform:uppercase;margin-top:8px}
+.mapsub b{color:var(--bone-dim);font-weight:600}
+
+/* the odds strip -- angled ends, the way Riot cuts every bar in the game */
+.odds{margin-top:18px}
+.oddsbar{display:flex;height:36px;overflow:hidden;
+  clip-path:polygon(9px 0,100% 0,calc(100% - 9px) 100%,0 100%)}
+.oddsbar div{display:flex;align-items:center;padding:0 15px;
+  font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:17px;letter-spacing:.06em;color:#080d12;
+  transition:width .5s cubic-bezier(.4,0,.2,1)}
+.oddsbar .atk{background:var(--atk)}
+.oddsbar .def{background:var(--def);justify-content:flex-end}
+.verdict{margin-top:8px;color:var(--bone-dim);font-size:12.5px}
+.verdict b{color:var(--bone)}
+
+.warn{margin-top:11px;padding:9px 13px;background:rgba(231,194,125,.07);
+  border-left:2px solid var(--gold);color:#d8c49c;font-size:12.5px}
+
+/* ---------- layout ------------------------------------------------------ */
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:20px;
+  margin-top:20px;align-items:start}
+/* Above this width the detail panel takes two columns instead of one long
+   scroll. A lobby is read in the fifteen seconds before the barriers drop;
+   anything that needs scrolling in that window may as well not be there. */
+@media(min-width:1500px){.grid{grid-template-columns:minmax(0,1fr) 716px}}
+@media(max-width:1080px){.grid{grid-template-columns:minmax(0,1fr)}}
+
+/* ---------- team ------------------------------------------------------- */
+.team{margin-bottom:20px}
+.tbar{display:flex;align-items:center;gap:12px;margin-bottom:9px}
+.tname{font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:19px;letter-spacing:.16em;text-transform:uppercase;line-height:1}
+.tside{font:600 9.5px/1 var(--display);letter-spacing:.2em;
+  text-transform:uppercase;color:var(--slate);padding-top:2px}
+.trule{flex:1;height:1px}
+.tcount{font:600 9.5px/1 var(--display);letter-spacing:.16em;color:var(--ghost);
+  text-transform:uppercase}
+.atkc .tname{color:var(--atk)}
+.atkc .trule{background:linear-gradient(90deg,var(--atk),transparent)}
+.defc .tname{color:var(--def)}
+.defc .trule{background:linear-gradient(90deg,var(--def),transparent)}
+
+/* ---------- a player row ------------------------------------------------ */
+.row{position:relative;display:grid;
+  grid-template-columns:62px minmax(0,1fr) repeat(4,66px);
+  align-items:center;gap:12px;height:66px;margin-bottom:5px;
+  background:var(--steel);border:0;width:100%;text-align:left;
+  padding:0 16px 0 0;cursor:pointer;color:inherit;font:inherit;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%);
+  transition:background .14s ease,transform .14s ease}
+.row::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:var(--ghost);transition:width .14s ease,background .14s ease}
+.atkc .row.known::before{background:var(--atk)}
+.defc .row.known::before{background:var(--def)}
+.row.known{background:var(--steel-2)}
+.row:hover{background:#1b2734}
+.row:hover::before{width:5px}
+.row.sel{background:#1e2b3a}
+.row.sel::before{width:7px}
+.row:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.row.unknown{background:var(--sunk)}
+.row.unknown .nm,.row.unknown .st b{color:var(--ghost)}
+.row.unknown .rs{color:#33424f}
+
+/* agent art bleeding out of the left, masked so it never fights the name */
+.art{position:absolute;left:52px;top:0;height:100%;width:230px;
+  object-fit:cover;object-position:center 12%;opacity:.44;pointer-events:none;
+  -webkit-mask-image:linear-gradient(90deg,#000 0,#000 26%,transparent 88%);
+  mask-image:linear-gradient(90deg,#000 0,#000 26%,transparent 88%)}
+.row.unknown .art{opacity:.13;filter:grayscale(1)}
+
+.score{position:relative;font-family:var(--display);font-stretch:condensed;
+  font-weight:700;font-size:31px;line-height:1;text-align:center;
+  padding-left:14px}
+.score .u{font-size:20px;color:var(--ghost)}
+.atkc .row.known .score{color:var(--atk)}
+.defc .row.known .score{color:var(--def)}
+
+.who{position:relative;min-width:0}
+.nm{font-weight:600;font-size:15.5px;line-height:1.2;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.tag{font-family:var(--display);font-size:9.5px;font-weight:700;
+  letter-spacing:.16em;color:var(--gold);margin-left:7px;vertical-align:1px}
+.rs{color:var(--bone-dim);font-size:11.5px;line-height:1.35;margin-top:1px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rs .ag{color:var(--slate)}
+.alert{color:var(--gold);margin-left:6px}
+
+/* Rank sits with the agent name, not in its own column -- the row already
+   carries four numbers and a fifth would not survive a phone. */
+.rank{display:inline-block;padding:0 5px;margin-left:6px;font:700 10px/16px var(--display);
+  letter-spacing:.06em;vertical-align:1px;border:1px solid currentColor}
+.rank.unranked{color:var(--ghost);border-color:var(--line)}
+.rank.iron{color:#8a8f94} .rank.bronze{color:#b1794a}
+.rank.silver{color:#b9c3c9} .rank.gold{color:#e0bb52}
+.rank.platinum{color:#4fc2d6} .rank.diamond{color:#c88ce0}
+.rank.ascendant{color:#3ec98a} .rank.immortal{color:#e2456a}
+.rank.radiant{color:#fff9c4;background:rgba(255,249,196,.10)}
+
+/* A party marker. The letter is what ties members together at a glance --
+   colour alone would fail for anyone who cannot separate the two teams' hues. */
+.party{display:inline-flex;align-items:center;gap:3px;margin-left:7px;
+  padding:0 5px;font:700 9.5px/16px var(--display);letter-spacing:.1em;
+  background:var(--sunk);border:1px solid var(--line);color:var(--bone-dim);
+  vertical-align:1px}
+.party b{color:var(--gold);font-weight:700}
+.partynote{color:var(--ghost);font-size:11px;margin:-2px 0 8px}
+
+.st{position:relative;text-align:center}
+.st b{display:block;font-family:var(--display);font-stretch:condensed;
+  font-weight:700;font-size:17px;line-height:1.05}
+.st span{display:block;font:600 8.5px/1 var(--display);letter-spacing:.15em;
+  text-transform:uppercase;color:var(--ghost);margin-top:3px}
+.st.form b{color:var(--bone-dim)}
+
+/* ---------- phones ------------------------------------------------------
+   The row wants 62px + four 66px stat columns + gaps, about 400px before the
+   name gets any space at all, so on a handset it has to fold. Score keeps the
+   left edge and spans both lines; the name takes the top line; the four stats
+   share the bottom one. Nothing is dropped -- a phone is where you check a
+   lobby you are already in, so the numbers matter more than the spacing. */
+@media(max-width:720px){
+  .shell{padding:14px 12px 48px}
+  .map{font-size:38px}
+  .mapsub{font-size:9.5px;letter-spacing:.16em}
+  .grid{gap:14px;margin-top:14px}
+  .row{grid-template-columns:50px repeat(4,1fr);
+    grid-template-rows:auto auto;height:auto;
+    padding:9px 12px 9px 0;gap:6px 6px}
+  .score{grid-column:1;grid-row:1 / span 2;font-size:26px;padding-left:10px}
+  .who{grid-column:2 / -1;grid-row:1}
+  .st{grid-row:2}
+  .st b{font-size:14px}
+  .st span{font-size:8px;letter-spacing:.1em}
+  .art{left:44px;width:170px}
+  .nm{font-size:14px}
+  .rs{font-size:10.5px;white-space:normal}
+  .oddsbar{height:30px}
+  .oddsbar div{font-size:14px;padding:0 10px}
+  .tname{font-size:16px}
+  .tside{font-size:8.5px}
+  .phero{height:170px}
+  .pbody{padding:12px 13px 15px}
+  .fx .f{grid-template-columns:64px minmax(0,1fr) 46px}
+}
+
+/* ---------- detail panel ------------------------------------------------ */
+.panel{background:var(--steel);border:1px solid var(--line);position:sticky;
+  top:18px;overflow:hidden;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 16px),calc(100% - 16px) 100%,0 100%)}
+@media(max-width:1080px){.panel{position:static}}
+.phero{position:relative;height:214px;overflow:hidden;background:var(--sunk)}
+.phero img{position:absolute;left:50%;top:-6%;height:112%;
+  transform:translateX(-50%);object-fit:contain}
+.phero .veil{position:absolute;inset:0;
+  background:linear-gradient(180deg,transparent 30%,var(--steel) 96%)}
+.phero .stripe{position:absolute;left:0;top:0;bottom:0;width:4px}
+.pid{position:absolute;left:0;right:0;bottom:0;padding:0 16px 12px}
+.pid .pn{font-size:20px;font-weight:600;line-height:1.15;
+  text-shadow:0 2px 10px rgba(0,0,0,.9)}
+.pid .pa{font:600 10px/1 var(--display);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--bone-dim);margin-top:6px;text-shadow:0 2px 10px rgba(0,0,0,.9)}
+.pbody{padding:14px 16px 18px;max-height:calc(100vh - 272px);overflow-y:auto}
+@media(max-width:1080px){.pbody{max-height:none}}
+@media(min-width:1500px){
+  .pbody{display:grid;grid-template-columns:1.02fr .98fr;gap:0 22px;
+    align-items:start;max-height:calc(100vh - 250px)}
+  .pcol>.sect:first-child{margin-top:2px;padding-top:0}
+}
+.pcol{min-width:0}
+.pbody::-webkit-scrollbar{width:7px}
+.pbody::-webkit-scrollbar-thumb{background:var(--line)}
+
+.bigscore{display:flex;align-items:flex-end;gap:11px;margin-bottom:4px}
+.bigscore b{font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:48px;line-height:.82}
+.bigscore span{font:600 9.5px/1 var(--display);letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ghost);padding-bottom:5px}
+.pwhy{color:var(--bone-dim);font-size:12.5px;margin-bottom:2px}
+
+.sect{display:flex;align-items:center;gap:9px;margin:16px 0 8px;
+  font:600 9.5px/1 var(--display);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ghost)}
+.sect::after{content:"";flex:1;height:1px;background:var(--line-soft)}
+
+.cmp{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;
+  padding:3px 0;border-bottom:1px solid var(--line-soft)}
+.cmp:last-child{border-bottom:0}
+.cmp .k{color:var(--slate)}
+.cmp .v{text-align:right;white-space:nowrap;font-weight:600}
+.cmp .v.up{color:var(--win)} .cmp .v.dn{color:var(--val)}
+.cmp .v.mute{color:var(--ghost);font-weight:400}
+
+table.tw{width:100%;font-size:12.5px;border-collapse:collapse}
+table.tw th{font:600 8.5px/1 var(--display);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ghost);padding:0 0 6px;text-align:right}
+table.tw th.l{text-align:left}
+table.tw td{padding:3px 0;color:var(--slate)}
+table.tw td.n{text-align:right;color:var(--bone);font-weight:600}
+table.tw td.n.f{color:var(--bone-dim)}
+table.tw tr+tr td{border-top:1px solid var(--line-soft)}
+
+.chips span{display:inline-block;background:var(--sunk);border:1px solid var(--line-soft);
+  padding:2px 8px;margin:3px 4px 0 0;font-size:11px;color:var(--bone-dim)}
+.formrow{display:flex;justify-content:space-between;gap:9px;font-size:11.5px;
+  padding:3px 0;color:var(--bone-dim);border-bottom:1px solid var(--line-soft)}
+.formrow:last-child{border-bottom:0}
+.formrow .w{color:var(--win);font-weight:700} .formrow .l{color:var(--val);font-weight:700}
+.formrow .when{color:var(--ghost)}
+.flag{margin-top:11px;padding:9px 12px;background:rgba(255,70,85,.08);
+  border-left:2px solid var(--val);color:#ffb0b7;font-size:11.5px}
+.stale{color:var(--gold)}
+.hint{padding:56px 20px;text-align:center;color:var(--ghost);font-size:12.5px;
+  line-height:1.7}
+.hint .kbd{font-family:var(--display);border:1px solid var(--line);
+  padding:1px 6px;color:var(--slate)}
+
+/* ---------- factors ----------------------------------------------------- */
+.fx{background:var(--steel);border:1px solid var(--line);padding:13px 16px;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%)}
+.fx h2{font:600 9.5px/1 var(--display);letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ghost);margin:0 0 9px}
+.fx .f{display:grid;grid-template-columns:76px minmax(0,1fr) 54px;gap:10px;
+  align-items:center;padding:3px 0;font-size:12.5px}
+.fx .dir{font:600 8.5px/1 var(--display);letter-spacing:.13em;text-transform:uppercase}
+.fx .track{height:3px;background:var(--sunk);position:relative}
+.fx .track i{position:absolute;top:0;bottom:0;left:50%;transform:translateX(-50%)}
+.fx .mag{text-align:right;color:var(--slate)}
+.fx .toA{color:var(--atk)} .fx .toB{color:var(--def)}
+
+.idle{padding:90px 20px;text-align:center;color:var(--slate)}
+.foot{margin-top:22px;padding-top:13px;border-top:1px solid var(--line);
+  color:var(--ghost);font-size:11.5px;line-height:1.7;max-width:96ch}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="top">
+    <div class="mapwrap">
+      <div class="brand"><span class="pulse off" id="pulse"></span>valwr live</div>
+      <h1 class="map" id="map">—</h1>
+      <div class="mapsub" id="sub">connecting</div>
+    </div>
+  </div>
+  <div id="stage"><div class="idle">connecting…</div></div>
+  <div class="foot" id="foot"></div>
+</div>
+
+<style>
+.demo-bar{position:fixed;left:12px;bottom:12px;z-index:50;display:flex;
+  flex-wrap:wrap;align-items:center;gap:8px 16px;max-width:calc(100vw - 24px);
+  padding:10px 16px 10px 14px;background:rgba(7,10,14,.94);
+  border:1px solid rgba(255,255,255,.14);border-left:3px solid var(--atk,#ff4655);
+  color:var(--bone,#ece8e1);font:12px/1.35 Bahnschrift,"DIN Alternate","Segoe UI",system-ui,sans-serif}
+.demo-bar b{color:var(--atk,#ff4655);font-weight:600;text-transform:uppercase;
+  letter-spacing:.14em;font-size:11px}
+.demo-bar label{display:flex;align-items:center;gap:6px;color:var(--slate,#8b97a3);
+  text-transform:uppercase;letter-spacing:.1em;font-size:10.5px}
+.demo-bar select{background:#0f151d;color:var(--bone,#ece8e1);
+  border:1px solid rgba(255,255,255,.22);padding:3px 6px;font:inherit;
+  font-size:12px;text-transform:none;letter-spacing:0}
+.demo-bar select:focus-visible{outline:2px solid var(--atk,#ff4655);outline-offset:1px}
+.demo-bar .fine{flex-basis:100%;color:var(--slate,#8b97a3);font-size:11px}
+.demo-bar a{color:var(--bone,#ece8e1)}
+.demo-room{height:150px}
+body.demo-clean .demo-bar,body.demo-clean .demo-room{display:none}
+@media (max-width:720px){.demo-bar{left:6px;right:6px;bottom:6px;gap:6px 10px}
+  .demo-room{height:230px}}
+</style>
+<script>
+(function(){
+"use strict";
+const BASE = {"match_id": "demo", "phase": "coregame", "is_custom": false, "standard_mode": true, "map": "Ascent", "mode": "BombGameMode", "as_of": 0, "own_team": "Blue", "enemy_team": "Red", "team_sizes": {"Blue": 5, "Red": 5}, "coverage": 8, "confidence": "medium", "fetched": 0, "model": "logistic regression", "parties": [{"members": ["demo-00", "demo-01"], "team": "Blue", "size": 2, "label": "duo", "source": "inferred"}, {"members": ["demo-05", "demo-06", "demo-08"], "team": "Red", "size": 3, "label": "trio", "source": "inferred"}], "warnings": ["Demo data. These players are invented and no database, game client or network was touched to build this."], "players": [{"puuid": "demo-00", "name": "Meridian#na1", "known_name": true, "agent": "Jett", "agent_id": "add6443a-41bd-e414-f6ad-e58d267f4e95", "role": "Duelist", "team": "Blue", "is_you": true, "score": 82, "flag": null, "career": {"games": 412, "wins": 227, "losses": 185, "kills": 6103, "deaths": 4980, "assists": 1844, "acs": 251.4, "kd": 1.23, "headshot_rate": 0.281, "win_rate": 0.55}, "rank": {"tier": 18, "name": "Diamond 1", "short": "D1", "division": "Diamond", "ranked": true}, "recent": {"games": 20, "wins": 12, "losses": 8, "kills": 296, "deaths": 241, "assists": 89, "acs": 261.5, "kd": 1.3, "headshot_rate": 0.2866, "win_rate": 0.594}, "reason": "consistently strong", "detail": {"score": 82, "raw": 0.0, "reason": "consistently strong", "components": [{"key": "acs", "label": "combat score", "value": 251.4, "z": 1.1, "note": "well above average", "weight": 0.45, "contribution": 0.5}, {"key": "rating", "label": "overall rating", "value": 1.06, "z": 0.4, "note": "above average", "weight": 0.25, "contribution": 0.1}, {"key": "kd", "label": "kills per death", "value": 1.23, "z": 0.6, "note": "above average", "weight": 0.15, "contribution": 0.09}, {"key": "map_edge", "label": "map adjustment", "value": 0.01, "z": 0.3, "note": "above average", "weight": 0.15, "contribution": 0.05}], "career": {"games": 412, "wins": 227, "losses": 185, "kills": 6103, "deaths": 4980, "assists": 1844, "acs": 251.4, "kd": 1.23, "headshot_rate": 0.281, "win_rate": 0.55}, "recent": {"games": 20, "wins": 12, "losses": 8, "kills": 296, "deaths": 241, "assists": 89, "acs": 261.5, "kd": 1.3, "headshot_rate": 0.2866, "win_rate": 0.594}, "recent_window": 20, "map": {"games": 34, "wins": 18, "losses": 16, "kills": 503, "deaths": 410, "assists": 152, "acs": 241.3, "kd": 1.17, "headshot_rate": 0.2726, "win_rate": 0.539, "name": "Ascent", "counts_toward_score": true, "gate": 6, "agents": [{"agent": "Jett", "games": 32}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Ascent", "agent": "Jett", "acs": 289.1, "kills": 21, "deaths": 14, "won": true, "ago": "2 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 206.1, "kills": 12, "deaths": 18, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Jett", "acs": 256.4, "kills": 17, "deaths": 16, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 412, "seconds_old": 7200, "label": "last match 2 hours ago", "stale": false}}}, {"puuid": "demo-01", "name": "halcyon#0000", "known_name": true, "agent": "Omen", "agent_id": "8e253930-4c05-31dd-1b6c-968525494517", "role": "Controller", "team": "Blue", "is_you": false, "score": 67, "flag": null, "career": {"games": 188, "wins": 96, "losses": 92, "kills": 2610, "deaths": 2430, "assists": 998, "acs": 224.8, "kd": 1.07, "headshot_rate": 0.243, "win_rate": 0.51}, "rank": {"tier": 16, "name": "Platinum 2", "short": "P2", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 277, "deaths": 258, "assists": 106, "acs": 233.8, "kd": 1.13, "headshot_rate": 0.2479, "win_rate": 0.5508}, "reason": "high combat score", "detail": {"score": 67, "raw": 0.0, "reason": "high combat score", "components": [{"key": "acs", "label": "combat score", "value": 224.8, "z": 1.1, "note": "well above average", "weight": 0.45, "contribution": 0.5}, {"key": "rating", "label": "overall rating", "value": 1.06, "z": 0.4, "note": "above average", "weight": 0.25, "contribution": 0.1}, {"key": "kd", "label": "kills per death", "value": 1.07, "z": 0.6, "note": "above average", "weight": 0.15, "contribution": 0.09}, {"key": "map_edge", "label": "map adjustment", "value": 0.01, "z": 0.3, "note": "above average", "weight": 0.15, "contribution": 0.05}], "career": {"games": 188, "wins": 96, "losses": 92, "kills": 2610, "deaths": 2430, "assists": 998, "acs": 224.8, "kd": 1.07, "headshot_rate": 0.243, "win_rate": 0.51}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 277, "deaths": 258, "assists": 106, "acs": 233.8, "kd": 1.13, "headshot_rate": 0.2479, "win_rate": 0.5508}, "recent_window": 20, "map": {"games": 12, "wins": 6, "losses": 6, "kills": 166, "deaths": 155, "assists": 63, "acs": 215.8, "kd": 1.02, "headshot_rate": 0.2357, "win_rate": 0.4998, "name": "Ascent", "counts_toward_score": true, "gate": 6, "agents": [{"agent": "Omen", "games": 10}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Ascent", "agent": "Omen", "acs": 258.5, "kills": 21, "deaths": 14, "won": true, "ago": "2 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 184.3, "kills": 12, "deaths": 18, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Omen", "acs": 229.3, "kills": 17, "deaths": 16, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 188, "seconds_old": 7200, "label": "last match 2 hours ago", "stale": false}}}, {"puuid": "demo-02", "name": "nine lives#eu2", "known_name": true, "agent": "Sage", "agent_id": "569fdd95-4d10-43ab-ca70-79becc718b46", "role": "Sentinel", "team": "Blue", "is_you": false, "score": null, "flag": null, "career": null, "rank": {"tier": 0, "name": "Unranked", "short": "--", "division": "Unranked", "ranked": false}, "recent": null, "reason": "no history", "detail": null}, {"puuid": "demo-03", "name": "Tessellate#kr1", "known_name": true, "agent": "Sova", "agent_id": "320b2a48-4d9b-a075-30f1-1f93a9b638fa", "role": "Initiator", "team": "Blue", "is_you": false, "score": 54, "flag": null, "career": {"games": 96, "wins": 45, "losses": 51, "kills": 1290, "deaths": 1355, "assists": 612, "acs": 209.1, "kd": 0.95, "headshot_rate": 0.219, "win_rate": 0.47}, "rank": {"tier": 15, "name": "Platinum 1", "short": "P1", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 10, "losses": 10, "kills": 268, "deaths": 282, "assists": 127, "acs": 217.5, "kd": 1.01, "headshot_rate": 0.2234, "win_rate": 0.5076}, "reason": "middle of the pack", "detail": {"score": 54, "raw": 0.0, "reason": "middle of the pack", "components": [{"key": "acs", "label": "combat score", "value": 209.1, "z": 1.1, "note": "well above average", "weight": 0.45, "contribution": 0.5}, {"key": "rating", "label": "overall rating", "value": 1.06, "z": 0.4, "note": "above average", "weight": 0.25, "contribution": 0.1}, {"key": "kd", "label": "kills per death", "value": 0.95, "z": 0.6, "note": "above average", "weight": 0.15, "contribution": 0.09}, {"key": "map_edge", "label": "map adjustment", "value": 0.01, "z": 0.3, "note": "above average", "weight": 0.15, "contribution": 0.05}], "career": {"games": 96, "wins": 45, "losses": 51, "kills": 1290, "deaths": 1355, "assists": 612, "acs": 209.1, "kd": 0.95, "headshot_rate": 0.219, "win_rate": 0.47}, "recent": {"games": 20, "wins": 10, "losses": 10, "kills": 268, "deaths": 282, "assists": 127, "acs": 217.5, "kd": 1.01, "headshot_rate": 0.2234, "win_rate": 0.5076}, "recent_window": 20, "map": {"games": 8, "wins": 4, "losses": 4, "kills": 107, "deaths": 112, "assists": 51, "acs": 200.7, "kd": 0.9, "headshot_rate": 0.2124, "win_rate": 0.4606, "name": "Ascent", "counts_toward_score": true, "gate": 6, "agents": [{"agent": "Sova", "games": 6}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Ascent", "agent": "Sova", "acs": 240.5, "kills": 21, "deaths": 14, "won": true, "ago": "2 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 171.5, "kills": 12, "deaths": 18, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Sova", "acs": 213.3, "kills": 17, "deaths": 16, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 96, "seconds_old": 7200, "label": "last match 2 hours ago", "stale": false}}}, {"puuid": "demo-04", "name": "brief candle#ap1", "known_name": true, "agent": "Killjoy", "agent_id": "1e58de9c-4950-5125-93e9-a0aee9f98746", "role": "Sentinel", "team": "Blue", "is_you": false, "score": 46, "flag": null, "career": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 196.3, "kd": 0.86, "headshot_rate": 0.198, "win_rate": 0.42}, "rank": {"tier": 13, "name": "Gold 2", "short": "G2", "division": "Gold", "ranked": true}, "recent": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 204.2, "kd": 0.91, "headshot_rate": 0.202, "win_rate": 0.4536}, "reason": "below par lately, but only 4 games", "detail": {"score": 46, "raw": 0.0, "reason": "below par lately, but only 4 games", "components": [{"key": "acs", "label": "combat score", "value": 196.3, "z": 1.1, "note": "well above average", "weight": 0.45, "contribution": 0.5}, {"key": "rating", "label": "overall rating", "value": 1.06, "z": 0.4, "note": "above average", "weight": 0.25, "contribution": 0.1}, {"key": "kd", "label": "kills per death", "value": 0.86, "z": 0.6, "note": "above average", "weight": 0.15, "contribution": 0.09}, {"key": "map_edge", "label": "map adjustment", "value": 0.01, "z": 0.3, "note": "not counted -- 1 game on this map, 6 needed", "weight": 0.15, "contribution": 0.0}], "career": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 196.3, "kd": 0.86, "headshot_rate": 0.198, "win_rate": 0.42}, "recent": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 204.2, "kd": 0.91, "headshot_rate": 0.202, "win_rate": 0.4536}, "recent_window": 20, "map": {"games": 1, "wins": 0, "losses": 1, "kills": 13, "deaths": 15, "assists": 7, "acs": 188.4, "kd": 0.82, "headshot_rate": 0.1921, "win_rate": 0.4116, "name": "Ascent", "counts_toward_score": false, "gate": 6, "agents": [{"agent": "Killjoy", "games": 1}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Ascent", "agent": "Killjoy", "acs": 225.7, "kills": 21, "deaths": 14, "won": true, "ago": "2 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 161.0, "kills": 12, "deaths": 18, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Killjoy", "acs": 200.2, "kills": 17, "deaths": 16, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 4, "seconds_old": 7200, "label": "last match 2 hours ago", "stale": false}}}, {"puuid": "demo-05", "name": "Yarrow#na2", "known_name": true, "agent": "Reyna", "agent_id": "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc", "role": "Duelist", "team": "Red", "is_you": false, "score": 91, "flag": {"note": "Finishes top-2 in 71% of their lobbies, against 20% by chance. Well above what this rank explains."}, "career": {"games": 74, "wins": 53, "losses": 21, "kills": 1249, "deaths": 812, "assists": 261, "acs": 288.7, "kd": 1.54, "headshot_rate": 0.334, "win_rate": 0.71}, "rank": {"tier": 20, "name": "Diamond 3", "short": "D3", "division": "Diamond", "ranked": true}, "recent": {"games": 20, "wins": 15, "losses": 5, "kills": 337, "deaths": 219, "assists": 70, "acs": 300.2, "kd": 1.63, "headshot_rate": 0.3407, "win_rate": 0.7668}, "reason": "wins duels", "detail": {"score": 91, "raw": 0.0, "reason": "wins duels", "components": [{"key": "acs", "label": "combat score", "value": 288.7, "z": 1.1, "note": "well above average", "weight": 0.45, "contribution": 0.5}, {"key": "rating", "label": "overall rating", "value": 1.06, "z": 0.4, "note": "above average", "weight": 0.25, "contribution": 0.1}, {"key": "kd", "label": "kills per death", "value": 1.54, "z": 0.6, "note": "above average", "weight": 0.15, "contribution": 0.09}, {"key": "map_edge", "label": "map adjustment", "value": 0.01, "z": 0.3, "note": "above average", "weight": 0.15, "contribution": 0.05}], "career": {"games": 74, "wins": 53, "losses": 21, "kills": 1249, "deaths": 812, "assists": 261, "acs": 288.7, "kd": 1.54, "headshot_rate": 0.334, "win_rate": 0.71}, "recent": {"games": 20, "wins": 15, "losses": 5, "kills": 337, "deaths": 219, "assists": 70, "acs": 300.2, "kd": 1.63, "headshot_rate": 0.3407, "win_rate": 0.7668}, "recent_window": 20, "map": {"games": 9, "wins": 6, "losses": 3, "kills": 151, "deaths": 98, "assists": 31, "acs": 277.2, "kd": 1.46, "headshot_rate": 0.324, "win_rate": 0.6958, "name": "Ascent", "counts_toward_score": true, "gate": 6, "agents": [{"agent": "Reyna", "games": 7}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Ascent", "agent": "Reyna", "acs": 332.0, "kills": 21, "deaths": 14, "won": true, "ago": "2 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 236.7, "kills": 12, "deaths": 18, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Reyna", "acs": 294.5, "kills": 17, "deaths": 16, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 74, "seconds_old": 7200, "label": "last match 2 hours ago", "stale": false}}}, {"puuid": "demo-06", "name": "Ossuary#eu1", "known_name": true, "agent": "Fade", "agent_id": "dade69b4-4f5a-8528-247b-219e5a1facd6", "role": "Initiator", "team": "Red", "is_you": false, "score": 63, "flag": null, "career": {"games": 260, "wins": 130, "losses": 130, "kills": 3520, "deaths": 3380, "assists": 1502, "acs": 218.2, "kd": 1.04, "headshot_rate": 0.236, "win_rate": 0.5}, "rank": {"tier": 16, "name": "Platinum 2", "short": "P2", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 270, "deaths": 260, "assists": 115, "acs": 226.9, "kd": 1.1, "headshot_rate": 0.2407, "win_rate": 0.54}, "reason": "consistently strong", "detail": {"score": 63, "raw": 0.0, "reason": "consistently strong", "components": [{"key": "acs", "label": "combat score", "value": 218.2, "z": 1.1, "note": "well above average", "weight": 0.45, "contribution": 0.5}, {"key": "rating", "label": "overall rating", "value": 1.06, "z": 0.4, "note": "above average", "weight": 0.25, "contribution": 0.1}, {"key": "kd", "label": "kills per death", "value": 1.04, "z": 0.6, "note": "above average", "weight": 0.15, "contribution": 0.09}, {"key": "map_edge", "label": "map adjustment", "value": 0.01, "z": 0.3, "note": "above average", "weight": 0.15, "contribution": 0.05}], "career": {"games": 260, "wins": 130, "losses": 130, "kills": 3520, "deaths": 3380, "assists": 1502, "acs": 218.2, "kd": 1.04, "headshot_rate": 0.236, "win_rate": 0.5}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 270, "deaths": 260, "assists": 115, "acs": 226.9, "kd": 1.1, "headshot_rate": 0.2407, "win_rate": 0.54}, "recent_window": 20, "map": {"games": 21, "wins": 10, "losses": 11, "kills": 284, "deaths": 273, "assists": 121, "acs": 209.5, "kd": 0.99, "headshot_rate": 0.2289, "win_rate": 0.49, "name": "Ascent", "counts_toward_score": true, "gate": 6, "agents": [{"agent": "Fade", "games": 19}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Ascent", "agent": "Fade", "acs": 250.9, "kills": 21, "deaths": 14, "won": true, "ago": "2 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 178.9, "kills": 12, "deaths": 18, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Fade", "acs": 222.6, "kills": 17, "deaths": 16, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 260, "seconds_old": 7200, "label": "last match 2 hours ago", "stale": false}}}, {"puuid": "demo-07", "name": "pale fire#na3", "known_name": true, "agent": "Cypher", "agent_id": "117ed9e3-49f3-6512-3ccf-0cada7e3823b", "role": "Sentinel", "team": "Red", "is_you": false, "score": null, "flag": null, "career": null, "rank": {"tier": 0, "name": "Unranked", "short": "--", "division": "Unranked", "ranked": false}, "recent": null, "reason": "no history", "detail": null}, {"puuid": "demo-08", "name": "Quietus#ap2", "known_name": true, "agent": "Breach", "agent_id": "5f8d3a7f-467b-97f3-062c-13acf203c006", "role": "Initiator", "team": "Red", "is_you": false, "score": 58, "flag": null, "career": {"games": 143, "wins": 70, "losses": 73, "kills": 1902, "deaths": 1930, "assists": 870, "acs": 213.6, "kd": 0.99, "headshot_rate": 0.227, "win_rate": 0.49}, "rank": {"tier": 15, "name": "Platinum 1", "short": "P1", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 266, "deaths": 269, "assists": 121, "acs": 222.1, "kd": 1.05, "headshot_rate": 0.2315, "win_rate": 0.5292}, "reason": "middle of the pack", "detail": {"score": 58, "raw": 0.0, "reason": "middle of the pack", "components": [{"key": "acs", "label": "combat score", "value": 213.6, "z": 1.1, "note": "well above average", "weight": 0.45, "contribution": 0.5}, {"key": "rating", "label": "overall rating", "value": 1.06, "z": 0.4, "note": "above average", "weight": 0.25, "contribution": 0.1}, {"key": "kd", "label": "kills per death", "value": 0.99, "z": 0.6, "note": "above average", "weight": 0.15, "contribution": 0.09}, {"key": "map_edge", "label": "map adjustment", "value": 0.01, "z": 0.3, "note": "above average", "weight": 0.15, "contribution": 0.05}], "career": {"games": 143, "wins": 70, "losses": 73, "kills": 1902, "deaths": 1930, "assists": 870, "acs": 213.6, "kd": 0.99, "headshot_rate": 0.227, "win_rate": 0.49}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 266, "deaths": 269, "assists": 121, "acs": 222.1, "kd": 1.05, "headshot_rate": 0.2315, "win_rate": 0.5292}, "recent_window": 20, "map": {"games": 11, "wins": 5, "losses": 6, "kills": 146, "deaths": 148, "assists": 66, "acs": 205.1, "kd": 0.94, "headshot_rate": 0.2202, "win_rate": 0.4802, "name": "Ascent", "counts_toward_score": true, "gate": 6, "agents": [{"agent": "Breach", "games": 9}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Ascent", "agent": "Breach", "acs": 245.6, "kills": 21, "deaths": 14, "won": true, "ago": "2 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 175.2, "kills": 12, "deaths": 18, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Breach", "acs": 217.9, "kills": 17, "deaths": 16, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 143, "seconds_old": 7200, "label": "last match 2 hours ago", "stale": false}}}, {"puuid": "demo-09", "name": "Winterlight#eu3", "known_name": true, "agent": "Neon", "agent_id": "bb2a4828-46eb-8cd1-e765-15848195d751", "role": "Duelist", "team": "Red", "is_you": false, "score": 41, "flag": null, "career": {"games": 11, "wins": 4, "losses": 7, "kills": 134, "deaths": 166, "assists": 80, "acs": 188.4, "kd": 0.81, "headshot_rate": 0.191, "win_rate": 0.39}, "rank": {"tier": 12, "name": "Gold 1", "short": "G1", "division": "Gold", "ranked": true}, "recent": {"games": 11, "wins": 5, "losses": 6, "kills": 134, "deaths": 166, "assists": 80, "acs": 195.9, "kd": 0.86, "headshot_rate": 0.1948, "win_rate": 0.4212}, "reason": "loses duels", "detail": {"score": 41, "raw": 0.0, "reason": "loses duels", "components": [{"key": "acs", "label": "combat score", "value": 188.4, "z": 1.1, "note": "well above average", "weight": 0.45, "contribution": 0.5}, {"key": "rating", "label": "overall rating", "value": 1.06, "z": 0.4, "note": "above average", "weight": 0.25, "contribution": 0.1}, {"key": "kd", "label": "kills per death", "value": 0.81, "z": 0.6, "note": "above average", "weight": 0.15, "contribution": 0.09}, {"key": "map_edge", "label": "map adjustment", "value": 0.01, "z": 0.3, "note": "not counted -- 2 games on this map, 6 needed", "weight": 0.15, "contribution": 0.0}], "career": {"games": 11, "wins": 4, "losses": 7, "kills": 134, "deaths": 166, "assists": 80, "acs": 188.4, "kd": 0.81, "headshot_rate": 0.191, "win_rate": 0.39}, "recent": {"games": 11, "wins": 5, "losses": 6, "kills": 134, "deaths": 166, "assists": 80, "acs": 195.9, "kd": 0.86, "headshot_rate": 0.1948, "win_rate": 0.4212}, "recent_window": 20, "map": {"games": 2, "wins": 1, "losses": 1, "kills": 24, "deaths": 30, "assists": 14, "acs": 180.9, "kd": 0.77, "headshot_rate": 0.1853, "win_rate": 0.3822, "name": "Ascent", "counts_toward_score": false, "gate": 6, "agents": [{"agent": "Neon", "games": 1}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Ascent", "agent": "Neon", "acs": 216.7, "kills": 21, "deaths": 14, "won": true, "ago": "2 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 154.5, "kills": 12, "deaths": 18, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Neon", "acs": 192.2, "kills": 17, "deaths": 16, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 11, "seconds_old": 7200, "label": "last match 2 hours ago", "stale": false}}}], "prediction": {"own_probability": 0.5731, "win_probability": 0.5731, "factors": [{"name": "d_rank", "value": 0.182}, {"name": "d_acs", "value": -0.061}, {"name": "d_kd", "value": 0.044}]}};
+const MAPS = ["Ascent", "Abyss", "Bind", "Breeze", "Corrode", "Fracture", "Haven", "Icebox", "Lotus", "Pearl", "Split", "Sunset"];
+const TOP1 = 0.3047;
+const qs = new URLSearchParams(location.search);
+const view = {map: MAPS.includes(qs.get("map")) ? qs.get("map") : BASE.map,
+              side: qs.get("side") === "Red" ? "Red" : "Blue",
+              phase: qs.get("phase") === "pregame" ? "pregame" : "coregame",
+              known: qs.get("known") === "thin" ? "thin" : "full",
+              status: qs.get("status") === "lobby" ? "lobby" : "match"};
+let socket = null;
+
+/* The four switches, applied to a copy of the invented match. */
+function build(){
+  const s = JSON.parse(JSON.stringify(BASE));
+  s.map = view.map;
+  s.phase = view.phase;
+  for (const p of s.players) if (p.detail) p.detail.map.name = view.map;
+
+  if (view.known === "thin"){
+    // A lobby of strangers: only four of the ten have history. Parties are
+    // inferred from shared history, so nobody unknown can be in one.
+    const keep = new Set(["demo-00", "demo-03", "demo-05", "demo-08"]);
+    for (const p of s.players) if (!keep.has(p.puuid))
+      Object.assign(p, {score: null, career: null, recent: null, detail: null,
+                        flag: null, reason: "no history"});
+    s.parties = s.parties.filter(g => g.members.every(m => keep.has(m)));
+    s.coverage = keep.size;
+    s.confidence = "low";
+  }
+
+  const you = s.players.find(p => p.team === view.side);
+  for (const p of s.players) p.is_you = p === you;
+  s.own_team = view.side;
+  s.enemy_team = view.side === "Blue" ? "Red" : "Blue";
+  const blue = BASE.prediction.win_probability;
+  s.prediction.win_probability = blue;
+  s.prediction.own_probability = view.side === "Blue" ? blue : 1 - blue;
+  return {status: "match", state: s, top1_rate: TOP1, fresh: false};
+}
+
+function send(){
+  if (!socket || !socket.onmessage) return;
+  const msg = view.status === "lobby" ? {status: "lobby"} : build();
+  socket.onmessage({data: JSON.stringify(msg)});
+}
+
+/* Stands in for the connection to `python -m valwr.dash`. The page assigns
+   its handlers after constructing the socket, so delivery waits a tick. */
+window.WebSocket = class {
+  constructor(){ socket = this; setTimeout(() => { if (this.onopen) this.onopen(); send(); }, 50); }
+  close(){}
+};
+
+window.__demo = {
+  set(key, value){ if (key in view){ view[key] = value; sync(); send(); } },
+  view: () => ({...view}),
+};
+
+const bar = document.createElement("div");
+bar.className = "demo-bar";
+bar.setAttribute("role", "region");
+bar.setAttribute("aria-label", "Demo controls");
+const option = (v, text) => `<option value="${v}">${text}</option>`;
+bar.innerHTML = `<b>Interactive demo</b>
+  <label>Map <select data-k="map">${MAPS.map(m => option(m, m)).join("")}</select></label>
+  <label>You are <select data-k="side">${option("Blue", "Blue · defending")}${option("Red", "Red · attacking")}</select></label>
+  <label>Phase <select data-k="phase">${option("coregame", "In game")}${option("pregame", "Agent select")}</select></label>
+  <label>Players known <select data-k="known">${option("full", "8 of 10")}${option("thin", "4 of 10")}</select></label>
+  <label>Status <select data-k="status">${option("match", "In a match")}${option("lobby", "In the menus")}</select></label>
+  <span class="fine">Invented players. Click any row for the full card; Esc closes it.
+    The real dashboard runs on your own PC while you play &mdash;
+    <a href="https://github.com/fahranalam04-cmd/valorant-winrate-predictor">source and setup</a>.
+    Agent and map art &copy; Riot Games. Not affiliated with or endorsed by Riot Games.</span>`;
+
+function sync(){
+  for (const el of bar.querySelectorAll("select")) el.value = view[el.dataset.k];
+}
+for (const el of bar.querySelectorAll("select"))
+  el.addEventListener("change", () => window.__demo.set(el.dataset.k, el.value));
+sync();
+
+const room = document.createElement("div");
+room.className = "demo-room";
+document.body.appendChild(room);
+document.body.appendChild(bar);
+if (qs.has("clean")) document.body.classList.add("demo-clean");
+})();
+</script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = t => String(t == null ? "" : t).replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+/* Numbers are escaped too. They are computed from stored API responses, and
+   SQLite keeps whatever it was given -- a "kills" that arrived as markup is
+   still markup. Number() makes a non-number read NaN instead of rendering. */
+const n1 = v => v == null ? "—" : Number(v).toFixed(1);
+const n2 = v => v == null ? "—" : Number(v).toFixed(2);
+const pc = v => v == null ? "—" : (Number(v) * 100).toFixed(1) + "%";
+const i0 = v => v == null ? "—" : esc(v);
+
+let STATE = null, selected = null, top1 = null, tries = 0;
+
+/* The map's own key art is the background, so it changes with the match.
+   `--mapart` is set from the state rather than from a stylesheet because the
+   map is only known at runtime; the file is named by the lowercased map name,
+   which is exactly what the live state carries. A map with no art on disk
+   resolves to `none` and the gradient scrim stands on its own. */
+function setMapArt(){
+  const name = STATE && STATE.map
+    ? STATE.map.toLowerCase().replace(/[^a-z0-9]/g, "") : "";
+  document.body.style.setProperty("--mapart",
+    name ? `url("maps/${name}-splash.jpg")` : "none");
+}
+
+/* Relative, not rooted: the server mounts these beside the page, and the
+   interactive demo on GitHub Pages lives under /valorant-winrate-predictor/,
+   where a rooted "/agents/" would point at a different site entirely. */
+const artURL = (p, k) =>
+  p.agent_id ? `agents/${encodeURIComponent(p.agent_id)}-${k}.png` : "";
+const isAtk = t => t === "Red";
+
+function verdict(p){
+  const e = Math.abs(p - .5);
+  if (e < .015) return "Too close to call";
+  const s = p > .5 ? "Your side is" : "The enemy is";
+  if (e < .05) return s + " marginally ahead";
+  if (e < .12) return s + " favoured";
+  if (e < .25) return s + " clearly favoured";
+  return s + " heavily favoured";
+}
+
+/* ---------------- roster ---------------- */
+/* Which party a player is in, as a letter. Rebuilt on every render from the
+   state rather than stored, so it cannot go stale against the roster. */
+let PARTY_OF = {};
+function indexParties(s){
+  PARTY_OF = {};
+  const letters = "ABCDEFGH";
+  (s.parties || []).forEach((g, i) => {
+    for (const m of g.members)
+      PARTY_OF[m] = {letter: letters[i % letters.length], label: g.label,
+                     size: g.size, source: g.source};
+  });
+}
+function partyTag(puuid){
+  const g = PARTY_OF[puuid];
+  if (!g) return "";
+  const how = g.source === "exact" ? "queued together"
+            : "have queued together before";
+  return `<span class="party" title="${esc(g.label)} — ${how}">`
+       + `<b>${g.letter}</b>${esc(g.label)}</span>`;
+}
+function rankTag(r){
+  if (!r) return "";
+  const cls = r.division.toLowerCase().replace(/[^a-z]/g, "") || "unranked";
+  return `<span class="rank ${cls}" title="${esc(r.name)}">${esc(r.short)}</span>`;
+}
+
+function rowHTML(p){
+  const c = p.career, r = p.recent, known = p.score !== null;
+  const stat = (label, val, cls) =>
+    `<div class="st ${cls || ""}"><b class="num">${val}</b><span>${label}</span></div>`;
+  return `<button class="row ${known ? "known" : "unknown"}${
+      selected === p.puuid ? " sel" : ""}" data-puuid="${esc(p.puuid)}"
+      aria-pressed="${selected === p.puuid}">
+    ${p.agent_id ? `<img class="art" src="${artURL(p, "row")}" alt=""
+        decoding="async" onerror="this.remove()">` : ""}
+    <div class="score">${known ? esc(p.score) : '<span class="u">—</span>'}</div>
+    <div class="who">
+      <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
+        partyTag(p.puuid)}${
+        p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}</div>
+      <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>
+        ${rankTag(p.rank)}
+        &nbsp;·&nbsp;${esc(p.reason)}</div>
+    </div>
+    ${stat("acs", c ? n1(c.acs) : "—")}
+    ${stat("k/d", c ? n2(c.kd) : "—")}
+    ${stat("last 20", r ? n2(r.kd) : "—", "form")}
+    ${stat("hs%", c ? pc(c.headshot_rate) : "—")}
+  </button>`;
+}
+
+function teamHTML(s, team){
+  const players = s.players.filter(p => p.team === team);
+  if (!players.length) return "";
+  const atk = isAtk(team);
+  const side = s.standard_mode ? (atk ? "attacking · first half"
+                                      : "defending · first half") : "";
+  const known = players.filter(p => p.score !== null).length;
+  return `<section class="team ${atk ? "atkc" : "defc"}">
+    <div class="tbar">
+      <span class="tname">${esc(team)}</span>
+      <span class="tside">${esc(side)}</span>
+      <span class="trule"></span>
+      <span class="tcount">${s.own_team === team ? "your side · " : ""}${
+        known}/${players.length} known</span>
+    </div>
+    ${players.map(rowHTML).join("")}
+  </section>`;
+}
+
+/* ---------------- panel ---------------- */
+/* `recent` is null when this renders a single tally -- the per-map block --
+   and a Career when it compares record against form. The note below only
+   makes sense in the second case: with no window there is nothing for the
+   games to fall inside, and it printed "the last 0" under every map. */
+function twoUp(career, recent, win){
+  if (!career || !career.games)
+    return `<div class="cmp"><span class="k">no games on record</span></div>`;
+  const same = !recent || recent.games >= career.games;
+  const line = (k, a, b) => `<tr><td>${k}</td><td class="n">${a}</td>${
+    same ? "" : `<td class="n f">${b}</td>`}</tr>`;
+  return `<table class="tw">
+    <thead><tr><th class="l"></th><th>career</th>${
+      same ? "" : `<th>last ${esc(recent.games)}</th>`}</tr></thead><tbody>
+    ${line("Games", i0(career.games), i0(recent && recent.games))}
+    ${line("ACS", n1(career.acs), n1(recent && recent.acs))}
+    ${line("K/D", n2(career.kd), n2(recent && recent.kd))}
+    ${line("Headshot %", pc(career.headshot_rate), pc(recent && recent.headshot_rate))}
+    ${line("Win rate", pc(career.win_rate), pc(recent && recent.win_rate))}
+    ${line("K / D / A", `${i0(career.kills)}/${i0(career.deaths)}/${i0(career.assists)}`,
+        recent ? `${i0(recent.kills)}/${i0(recent.deaths)}/${i0(recent.assists)}` : "—")}
+    </tbody></table>${same && recent ? `<div class="cmp"
+      style="border:0;padding-top:7px"><span class="k">All ${esc(career.games)}
+      stored matches fall inside the last ${esc(win)}, so form and career are the
+      same games.</span></div>` : ""}`;
+}
+
+function panelHTML(s){
+  const p = s.players.find(x => x.puuid === selected);
+  if (!p) return `<aside class="panel"><div class="hint">
+      Select any player for their agent, career record,<br>
+      recent form and how they play ${esc(s.map || "this map")}.
+      <div style="margin-top:14px"><span class="kbd">ESC</span> closes</div>
+    </div></aside>`;
+
+  const accent = isAtk(p.team) ? "var(--atk)" : "var(--def)";
+  const d = p.detail;
+  let body;
+
+  if (!d){
+    body = `<div class="pcol" style="grid-column:1/-1"><div class="hint"
+      style="padding:30px 0">
+      <b style="color:var(--bone-dim)">No match history.</b><br>
+      They are in the lobby and counted in the prediction,<br>
+      but nothing is known about how they play.</div></div>`;
+  } else {
+    const m = d.map;
+    const comps = d.components.map(c => {
+      const gated = c.key === "map_edge" && !m.counts_toward_score;
+      const cls = gated ? "mute" : c.contribution > 0 ? "up"
+                : c.contribution < 0 ? "dn" : "mute";
+      return `<div class="cmp"><span class="k">${esc(c.label)}</span>
+        <span class="v ${cls}">${esc(c.note)}</span></div>`;
+    }).join("");
+
+    const mapBlock = m.games
+      ? twoUp(m, null, 0) + (m.counts_toward_score ? ""
+          : `<div class="cmp" style="border:0"><span class="k">Under ${esc(m.gate)}
+             games here, so the map does not move the score.</span></div>`)
+        + (m.agents && m.agents.length ? `<div class="chips">${
+            m.agents.slice(0, 5).map(a =>
+              `<span>${esc(a.agent)} ×${esc(a.games)}</span>`).join("")}</div>` : "")
+      : `<div class="cmp"><span class="k">Never played this map.</span></div>`;
+
+    const form = (d.form || []).map(f => `<div class="formrow">
+        <span>${esc(f.map || "?")} <span class="when">·</span> ${esc(f.agent || "?")}</span>
+        <span><span class="${f.won === null ? "" : f.won ? "w" : "l"}">${
+          f.won === null ? "–" : f.won ? "W" : "L"}</span>
+          <span class="num">&nbsp;${n1(f.acs)}</span>
+          <span class="num">&nbsp;${i0(f.kills)}/${i0(f.deaths)}</span>
+          <span class="when">&nbsp;${esc(f.ago)}</span></span></div>`).join("");
+
+    // Split by kind, not by length: everything explaining the number on the
+    // left, everything describing where and when on the right.
+    body = `
+      <div class="pcol">
+        <div class="bigscore"><b style="color:${accent}">${esc(p.score)}</b>
+          <span>of 100</span></div>
+        <div class="pwhy">${esc(p.reason)}</div>
+        ${p.flag ? `<div class="flag">${esc(p.flag.note)}</div>` : ""}
+        <div class="sect">what makes the score</div>${comps}
+        <div class="sect">record &amp; form</div>
+        ${twoUp(d.career, d.recent, d.recent_window || 20)}
+      </div>
+      <div class="pcol">
+        <div class="sect">on ${esc(m.name)}</div>${mapBlock}
+        ${form ? `<div class="sect">last matches</div>${form}` : ""}
+        <div class="sect">data</div>
+        <div class="cmp"><span class="k">Freshness</span>
+          <span class="v ${d.freshness.stale ? "stale" : ""}">${
+            esc(d.freshness.label)}</span></div>
+        <div class="cmp"><span class="k">Matches on record</span>
+          <span class="v">${i0(d.freshness.games_known)}</span></div>
+        <div class="cmp"><span class="k">Queues counted</span>
+          <span class="v">competitive only</span></div>
+      </div>`;
+  }
+
+  return `<aside class="panel">
+    <div class="phero">
+      <div class="stripe" style="background:${accent}"></div>
+      ${p.agent_id ? `<img src="${artURL(p, "portrait")}" alt=""
+          decoding="async" onerror="this.remove()">` : ""}
+      <div class="veil"></div>
+      <div class="pid"><div class="pn">${esc(p.name)}${partyTag(p.puuid)}</div>
+        <div class="pa">${esc(p.agent || "selecting")}${
+          p.role ? " · " + esc(p.role) : ""} · ${esc(p.team)}${
+          p.rank ? " · " + esc(p.rank.name) : ""}</div></div>
+    </div>
+    <div class="pbody" id="pbody">${body}</div>
+  </aside>`;
+}
+
+/* ---------------- page ---------------- */
+function render(msg){
+  if (msg.status === "error"){
+    $("map").textContent = "—"; $("sub").textContent = msg.message;
+    $("stage").innerHTML = `<div class="idle">${esc(msg.message)}</div>`;
+    return;
+  }
+  if (msg.status === "lobby"){
+    $("map").textContent = "STANDBY"; $("sub").textContent = "waiting for a match";
+    $("stage").innerHTML = `<div class="idle">Queue, or start a custom game.</div>`;
+    STATE = null; return;
+  }
+
+  const s = STATE = msg.state;
+  if (msg.top1_rate != null) top1 = msg.top1_rate;
+  if (selected && !s.players.some(p => p.puuid === selected)) selected = null;
+
+  $("map").textContent = s.map || "UNKNOWN MAP";
+  setMapArt();
+  const phase = s.is_custom ? "Custom" : s.phase === "pregame" ? "Agent select" : "Live";
+  $("sub").innerHTML = `${esc(phase)} <b>·</b> ${esc(s.mode || "—")} <b>·</b> ` +
+    `${esc(s.coverage)}/10 known <b>·</b> ${esc(s.confidence)} confidence`;
+
+  indexParties(s);
+
+  let head = "";
+  for (const w of s.warnings) head += `<div class="warn">${esc(w)}</div>`;
+  if ((s.parties || []).some(g => g.source === "inferred"))
+    head += `<div class="partynote">Party markers are inferred from who has
+      queued together before — the client does not reveal the enemy's parties.
+      When one shows it is almost always right; when none shows it means
+      unestablished, not solo.</div>`;
+
+  if (s.prediction){
+    const own = s.prediction.own_probability;
+    const atkPct = isAtk(s.own_team) ? own : 1 - own;
+    head += `<div class="odds"><div class="oddsbar">
+        <div class="atk" style="width:${atkPct * 100}%">${(atkPct * 100).toFixed(0)}% RED</div>
+        <div class="def" style="width:${(1 - atkPct) * 100}%">BLUE ${
+          ((1 - atkPct) * 100).toFixed(0)}%</div></div>
+      <div class="verdict"><b>${verdict(own)}</b> — you are on ${esc(s.own_team)}.
+        Model: ${esc(s.model)}.</div></div>`;
+  } else {
+    head += `<div class="warn">Not enough of the roster known to predict yet.</div>`;
+  }
+
+  let fx = "";
+  if (s.prediction && s.prediction.factors.length){
+    /* `predict.top_factors` signs these toward TEAM_A -- Blue -- not toward
+       whoever is looking at the screen. Reading the raw sign as "toward you"
+       was backwards in every match played on Red, which is half of them: the
+       Lotus replay showed five positive factors labelled "toward you" beside
+       a 37.9% chance of winning. */
+    const ownIsBlue = s.own_team === "Blue";
+    const max = Math.max(...s.prediction.factors.map(f => Math.abs(f.value)), .001);
+    fx = `<div class="fx"><h2>What moves the prediction</h2>` +
+      s.prediction.factors.map(f => {
+        const favoursBlue = f.value > 0;
+        const toOwn = favoursBlue === ownIsBlue;
+        const atk = !favoursBlue;        // Red attacks, Blue defends
+        const w = Math.abs(f.value) / max * 50;
+        return `<div class="f">
+          <span class="dir ${atk ? "toA" : "toB"}">${toOwn ? "toward you" : "toward them"}</span>
+          <span class="track"><i style="width:${w}%;background:${
+            atk ? "var(--atk)" : "var(--def)"};${
+            toOwn ? "left:50%;transform:none" : "right:50%;left:auto;transform:none"}"></i></span>
+          <span class="mag num">${Math.abs(f.value).toFixed(3)}</span></div>`;
+      }).join("") + `</div>`;
+  }
+
+  const keep = $("pbody"), sc = keep ? keep.scrollTop : 0;
+  $("stage").innerHTML = head + `<div class="grid">
+      <div><div class="rosters">${teamHTML(s, "Red")}${teamHTML(s, "Blue")}</div>${fx}</div>
+      ${panelHTML(s)}</div>`;
+  const now = $("pbody"); if (now) now.scrollTop = sc;
+
+  $("foot").innerHTML =
+    `Scores are percentiles — 70 means likely to outperform 70% of players. ` +
+    (top1 != null ? `Picks the strongest of five ${(top1 * 100).toFixed(1)}% of
+      the time against 20% by chance: a real edge, not a reliable one. ` : "") +
+    `Career figures are raw totals; the score shrinks them toward the population
+     average, so a player with few games will show a career ACS that differs
+     from their score component. `
+    + `<b>Competitive only, and pooled.</b> Every figure here — ACS, K/D, the
+     last 20, headshot %, the map record — counts ranked games and nothing
+     else; swiftplay, customs and the rotating queues are excluded in the
+     query, not by luck. K/D is total kills over total deaths, the same way a
+     tracker computes it. Where a figure still differs from one, the cause is
+     coverage rather than arithmetic: a player whose history we have not
+     fetched deeply enough shows a "last 20" padded with older games. `
+    + `Read-only — never writes to the game.`;
+}
+
+document.addEventListener("click", e => {
+  const b = e.target.closest("button.row");
+  if (!b || !STATE) return;
+  selected = b.dataset.puuid === selected ? null : b.dataset.puuid;
+  render({status: "match", state: STATE, top1_rate: top1});
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && selected){
+    selected = null;
+    if (STATE) render({status: "match", state: STATE, top1_rate: top1});
+  }
+});
+
+function connect(){
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { $("pulse").className = "pulse"; tries = 0; };
+  ws.onmessage = e => render(JSON.parse(e.data));
+  ws.onclose = () => {
+    $("pulse").className = "pulse off";
+    tries++;
+    // "disconnected" on its own is the least useful thing this can say. After
+    // two failed attempts the likely cause is that nothing is listening at all
+    // -- the page having been restored from cache -- so say that, and say what
+    // to do about it. Guessing at this cost a real debugging session.
+    $("sub").textContent = tries < 2 ? "reconnecting…"
+      : "cannot reach the dashboard server";
+    if (tries >= 2) $("stage").innerHTML = `<div class="idle">
+      <b style="color:var(--bone)">The dashboard server is not running.</b><br><br>
+      This page is still open, but nothing is listening on this port —
+      most likely the window running it was closed, or it never started.<br><br>
+      Start it again with <b>dashboard.bat</b>, and keep that window open
+      while you use this page.</div>`;
+    setTimeout(connect, 3000);
+  };
+}
+connect();
+</script>
+</body>
+</html>
