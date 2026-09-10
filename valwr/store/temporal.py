@@ -32,8 +32,18 @@ from dataclasses import dataclass
 # the failure would be silent: every number would still look plausible.
 COMPETITIVE = "competitive"
 
+# Written as a correlated EXISTS against the matches primary key, and the form
+# matters enormously. The first version was `mp.match_id IN (SELECT match_id
+# FROM matches WHERE mode = ?)`, which rebuilds a list of every match in the
+# database on each execution: 199 ms per history lookup against 0.37 ms for
+# this one, measured over 200 players with identical rows returned. Every
+# feature row runs several of these, so the retrain after that change managed
+# one match per second -- about twenty hours for the full set -- and the live
+# view paid the same cost on every lookup. EXISTS checks only the rows the
+# (puuid, started_at) index already found, one primary-key probe each.
 _ONLY_COMPETITIVE = (
-    " AND mp.match_id IN (SELECT match_id FROM matches WHERE mode = ?)")
+    " AND EXISTS (SELECT 1 FROM matches m"
+    " WHERE m.match_id = mp.match_id AND m.mode = ?)")
 
 
 _SELECT = """
@@ -351,9 +361,8 @@ def match_roster(conn, match_id: str) -> list[sqlite3.Row]:
 def population_win_rate(conn, as_of: int) -> float:
     """Prior for shrinkage. ~0.5 by construction, but measure rather than assume."""
     row = conn.execute(
-        "SELECT COUNT(*) games, COALESCE(SUM(won), 0) wins FROM match_players "
-        "WHERE started_at < ? AND won IS NOT NULL "
-        "AND match_id IN (SELECT match_id FROM matches WHERE mode = ?)",
+        "SELECT COUNT(*) games, COALESCE(SUM(won), 0) wins FROM match_players mp "
+        "WHERE mp.started_at < ? AND mp.won IS NOT NULL" + _ONLY_COMPETITIVE,
         (as_of, COMPETITIVE)).fetchone()
     return (row["wins"] / row["games"]) if row["games"] else 0.5
 
@@ -391,7 +400,8 @@ def lobby_dominance(conn: sqlite3.Connection, puuid: str, as_of: int,
                           > 1.0 * mp.score / mp.rounds_played) AS better
             FROM match_players mp
             WHERE mp.puuid = ? AND mp.started_at < ? AND mp.rounds_played > 0
-              AND mp.match_id IN (SELECT match_id FROM matches WHERE mode = ?)
+              AND EXISTS (SELECT 1 FROM matches m
+                          WHERE m.match_id = mp.match_id AND m.mode = ?)
               -- Only matches where we actually hold a lobby to compare
               -- against. Without this a partially-scraped match counts as a
               -- win by default, and a synthetic solo match scores a perfect

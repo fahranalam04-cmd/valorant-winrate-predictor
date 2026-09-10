@@ -199,3 +199,28 @@ def test_only_competitive_matches_are_counted(tmp_path):
     assert temporal.recent_totals(conn, "p", NOW, last_n=20).games == 2
     assert len(temporal.player_history(conn, "p", NOW)) == 2
     assert temporal.record(conn, "p", NOW).games == 2
+
+
+def test_the_competitive_filter_never_scans_the_matches_table(tmp_path):
+    """A performance regression that looked like a correctness fix.
+
+    The competitive-only filter was first written as `match_id IN (SELECT
+    match_id FROM matches WHERE mode = ?)`, which rebuilds a list of every
+    match on each execution. Every result was right and every test passed,
+    while each history lookup went from 0.03 ms to 199 ms. The retrain that
+    followed ran at one match per second -- roughly twenty hours for the full
+    set -- and the live view paid the same cost silently.
+
+    The rewrite probes the matches primary key per row: 0.37 ms, 534x faster,
+    identical rows. This pins the query *plan*, not a timing, so it cannot be
+    flaky: nothing in a history lookup may scan a whole table.
+    """
+    conn = _db(tmp_path, [ONE, TWO])
+    sql = (temporal._SELECT + temporal._ONLY_COMPETITIVE
+           + " ORDER BY mp.started_at DESC LIMIT 20")
+    plan = [row[-1] for row in conn.execute(
+        "EXPLAIN QUERY PLAN " + sql, ("p", NOW, temporal.COMPETITIVE))]
+    scans = [line for line in plan if line.startswith("SCAN")]
+    assert not scans, f"history lookup scans a table: {scans}"
+    assert any("matches" in line or " m " in line + " " for line in plan), (
+        "the competitive filter is missing from the plan entirely")
