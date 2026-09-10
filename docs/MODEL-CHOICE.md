@@ -23,24 +23,25 @@ Three independent arguments. The first rules out the obvious objection;
 the other two are what actually decide.
 
 **1. The held-out test set does not favour the booster.** Measured once, on
-7,677 matches:
+10,304 matches:
 
-| | Log loss | AUC | Accuracy |
+| | Log loss | AUC | Accuracy (95% CI) |
 |---|---|---|---|
-| **Logistic regression** | **0.6875** | **0.557** | **53.4% ± 0.6%** |
-| Gradient boosting | 0.6884 | 0.554 | 53.8% ± 0.6% |
+| **Logistic regression** | **0.6874** | **0.560** | **54.3% ± 1.0%** |
+| Gradient boosting | 0.6882 | 0.555 | 53.6% ± 1.0% |
 
-Read that honestly. The linear model has the joint-lowest log loss of the ten
-candidates and the booster is 0.0009 behind — but the standard error is 0.0013,
-so the gap is two thirds of one. The booster is *ahead* on accuracy, by 0.4
-points, which is likewise inside a standard error. The test set says these two
-are indistinguishable; it does not crown the linear model. Arguments 2 and 3
-are what decide.
+Read that honestly. Logistic regression is not even the lowest log loss of the
+ten candidates — margin regression is, at 0.6872 — and the booster trails
+logistic by 0.0008 against a standard error of 0.0012, two thirds of one.
+Logistic now leads on accuracy by 0.7 points, also inside the noise; on the
+previous bundle the booster led by 0.4, which is exactly what noise looks like
+when you retrain. The test set says these are indistinguishable; it does not
+crown the linear model. Arguments 2 and 3 are what decide.
 
 Every figure in this table moves with each retrain. `python tools/audit.py`
 re-derives them from `reports/results.json` and names any that have drifted.
 
-**2. The one-standard-error rule selected it.** Seven models finish
+**2. The one-standard-error rule selected it.** Four models finish
 statistically tied. Consecutive runs crowned different winners on the same
 data, because the gaps are smaller than the noise — so the rule ships the
 *simplest* model within one standard error of the best, not whichever happened
@@ -465,7 +466,14 @@ That is the strongest evidence yet that the limit is the problem, not the
 pipeline: matchmaking exists to make these games close, and it succeeds. More
 of the same data buys precision on the estimate, not a better estimate.
 
-Two things worth noting from the run. The one-standard-error rule still ships
+**It held a second time.** A week later the crawler had grown the training set
+another 38%, to 40,001 matches, with a 10,304-match test set. Log loss went
+from 0.6875 to 0.6874 — a change of 0.1 standard errors. Accuracy rose to 54.3%
+and AUC to 0.560, but on a newer and larger test set those are not like for
+like, and log loss, the metric the model is selected on, did not move. Two
+independent growth runs, both null.
+
+Two things worth noting from the first run. The one-standard-error rule still ships
 logistic regression, now with **5 models tied** rather than 4. And the coverage
 gradient came back **non-monotonic again** (5-6: 0.551, 7-8: 0.543, 9-10:
 0.572) after being monotonic on the previous bundle — the flip-flop across
