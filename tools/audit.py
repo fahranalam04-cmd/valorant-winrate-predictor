@@ -119,6 +119,63 @@ def check_artefacts(rep: Report) -> None:
                             f"the index is now {live} -- re-export with "
                             f"tools/export_dashboard.py")
 
+    # The README embeds both charts. They sat two weeks older than the model
+    # they claimed to describe, and were drawn from a model that did not ship,
+    # with nothing to say so -- a file's age is lost on clone, so provenance
+    # is written into the PNG itself and read back here.
+    from valwr.model.analyze import STAMP_KEY
+    for chart in ("reliability.png", "importance.png"):
+        path = ROOT / "reports" / chart
+        if not path.exists():
+            continue
+        raw = png_text(path).get(STAMP_KEY)
+        try:
+            drawn = json.loads(raw) if raw else None
+        except ValueError:
+            drawn = None
+        if drawn is None:
+            rep.problem(f"reports/{chart}",
+                        "records no model it was drawn from -- regenerate "
+                        "with python -m valwr.model.analyze")
+        elif (drawn.get("model"), drawn.get("norms_as_of")) != (
+                bundle.get("best"), norms_as_of):
+            rep.problem(f"reports/{chart}",
+                        f"drawn from {drawn.get('model')!r} at norms "
+                        f"{drawn.get('norms_as_of')}, but the bundle ships "
+                        f"{bundle.get('best')!r} at {norms_as_of} -- "
+                        f"regenerate with python -m valwr.model.analyze")
+
+
+def png_text(path: pathlib.Path) -> dict[str, str]:
+    """A PNG's tEXt and iTXt chunks, without an imaging library.
+
+    The audit runs in CI on the dev extras alone, with no Pillow or matplotlib.
+    """
+    import struct
+    import zlib
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return {}
+    out: dict[str, str] = {}
+    i = 8
+    while i + 8 <= len(data):
+        length, kind = struct.unpack(">I4s", data[i:i + 8])
+        body = data[i + 8:i + 8 + length]
+        if kind == b"tEXt":
+            key, _, text = body.partition(b"\0")
+            out[key.decode("latin-1")] = text.decode("latin-1")
+        elif kind == b"iTXt":
+            key, _, rest = body.partition(b"\0")
+            compressed, rest = rest[0], rest[2:]
+            _, _, rest = rest.partition(b"\0")      # language tag
+            _, _, text = rest.partition(b"\0")      # translated keyword
+            out[key.decode("latin-1")] = (
+                zlib.decompress(text) if compressed else text).decode("utf-8")
+        elif kind == b"IEND":
+            break
+        i += 12 + length
+    return out
+
 
 # --- 2. figures quoted in prose ----------------------------------------
 

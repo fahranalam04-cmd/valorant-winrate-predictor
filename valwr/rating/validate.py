@@ -24,6 +24,22 @@ def _corr(xs: list[float], ys: list[float]) -> float | None:
     return num / (dx * dy) if dx and dy else None
 
 
+def dependent_corr_z(r_a: float, r_b: float, r_ab: float, n: int) -> float:
+    """z for r_a - r_b, two correlations with the same target over the same n.
+
+    Meng, Rosenthal & Rubin (1992). The two predictors here -- prior rating
+    and prior ACS -- are strongly correlated with each other, so treating
+    their correlations with the target as independent badly overstates how
+    uncertain the gap is. `r_ab` is the correlation between the predictors.
+    """
+    import math
+    r2 = (r_a ** 2 + r_b ** 2) / 2
+    f = min(1.0, (1 - r_ab) / (2 * (1 - r2)))
+    h = (1 - f * r2) / (1 - r2)
+    return ((math.atanh(r_a) - math.atanh(r_b))
+            * math.sqrt((n - 3) / (2 * (1 - r_ab) * h)))
+
+
 def _rated_rows(conn, as_of, norms, min_matches):
     """{puuid: [(started_at, rating, acs), ...]} for players with enough history."""
     rows = conn.execute(
@@ -95,10 +111,17 @@ def check_predicts_next_match(conn, as_of, norms, min_matches=4) -> dict:
         tgt.append(last[1])
         from_rating.append(mean(m[1] for m in prior))
         from_acs.append(mean(m[2] for m in prior))
+    rating_r = _corr(from_rating, tgt)
+    acs_r = _corr(from_acs, tgt)
+    between = _corr(from_rating, from_acs)
+    z = (dependent_corr_z(rating_r, acs_r, between, len(tgt))
+         if None not in (rating_r, acs_r, between) else None)
     return {
         "players": len(tgt),
-        "rating_r": _corr(from_rating, tgt),
-        "acs_r": _corr(from_acs, tgt),
+        "rating_r": rating_r,
+        "acs_r": acs_r,
+        "between_r": between,
+        "z": z,
     }
 
 
@@ -141,9 +164,18 @@ def main(argv=None) -> int:
     print("3. predicts next match better than raw ACS?")
     print(f"   players={r['players']:,}  rating r={fmt(r['rating_r'])}"
           f"  acs r={fmt(r['acs_r'])}")
-    if r["rating_r"] is not None and r["acs_r"] is not None:
-        verdict = "rating wins" if r["rating_r"] > r["acs_r"] else "ACS wins -- rating earned nothing"
-        print(f"   -> {verdict}")
+    if r["z"] is not None:
+        # A gap of 0.003 on 50,000 players once printed "ACS wins -- rating
+        # earned nothing". Whether a gap is real is a significance question,
+        # and the two predictors are correlated, so it needs the dependent test.
+        if abs(r["z"]) < 1.96:
+            verdict = "no significant difference"
+        elif r["z"] > 0:
+            verdict = "rating wins"
+        else:
+            verdict = "ACS wins -- rating earned nothing"
+        print(f"   predictors correlate r={fmt(r['between_r'])}; "
+              f"gap z={r['z']:+.2f}  -> {verdict}")
     return 0
 
 

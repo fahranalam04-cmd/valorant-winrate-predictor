@@ -16,8 +16,11 @@ import sqlite3
 import time
 from dataclasses import dataclass
 
+import pandas as pd
+
 from valwr.features import build as fb
 from valwr.live.roster import LiveMatch
+from valwr.model import serving
 from valwr.live.resolve import Resolution
 
 TEAM_A = fb.TEAM_A          # "Blue" -- the perspective the target is defined from
@@ -97,18 +100,9 @@ def predict(conn: sqlite3.Connection, match: LiveMatch, bundle: dict,
     if mf is None:
         return None
 
-    cols = bundle["columns"]
-    x = [[mf.values.get(c, 0.0) for c in cols]]
-
     name = bundle["best"]
-    estimator = bundle["estimators"].get(name) or bundle["estimators"]["logistic"]
-    if callable(estimator) and not hasattr(estimator, "predict_proba"):
-        # A fitted single-feature baseline is a plain callable over a frame.
-        import pandas as pd
-        p_a = float(estimator(pd.DataFrame(
-            {c: [mf.values.get(c, 0.0)] for c in cols}))[0])
-    else:
-        p_a = float(estimator.predict_proba(x)[0][1])
+    frame = pd.DataFrame([{c: mf.values.get(c, 0.0) for c in bundle["columns"]}])
+    p_a = float(serving.probabilities(bundle, frame)[0])
 
     own_team = match.team_of(own_puuid) or TEAM_A
     own_p = p_a if own_team == TEAM_A else 1.0 - p_a

@@ -98,17 +98,27 @@ spread aggregations were added to catch.
 
 ### The rating, validated
 
-Built and measured (`python -m valwr.rating.validate`), on 5,680 player-match
-rows:
+Built and measured (`python -m valwr.rating.validate`), re-run on 758,920
+player-match rows:
 
 | Check | Result | Reading |
 |---|---|---|
-| Rank correlation | **r = +0.013** | As designed. Near-zero is *correct* — the rating normalises within band on purpose, so it measures performance against peers. A strong r would mean it is a rank proxy, and rank is already a separate feature. |
-| Split-half reliability | **r = +0.420**, Spearman-Brown **+0.592** | Measuring something stable rather than noise, but only moderately. Should improve with more matches per player. |
-| Beats raw ACS at next match | rating **+0.345** vs ACS **+0.304** | The rating wins — but by 0.04, which is a real edge and a small one. Worth stating plainly rather than dressing up. |
+| Rank correlation | **r = +0.008** (20,000 rows) | As designed. Near-zero is *correct* — the rating normalises within band on purpose, so it measures performance against peers. A strong r would mean it is a rank proxy, and rank is already a separate feature. |
+| Split-half reliability | **r = +0.368**, Spearman-Brown **+0.538** (n = 30,065 with six or more rated matches) | Measuring something stable rather than noise, but only moderately. |
+| Beats raw ACS at next match | rating **+0.198** vs ACS **+0.201** (n = 49,511 with four or more) | **No.** The two predictors correlate at 0.90, and the gap is z = −1.36 by the dependent-correlation test: a tie. |
 
-Reliability near 0.59 is respectable, not strong. Both it and the ACS margin
-are computed on a few hundred players and should be re-run as the crawl grows.
+**The first run of this table was wrong in the direction that flattered the
+rating.** On 5,680 rows it reported split-half reliability of 0.59 and the
+rating beating ACS by +0.345 to +0.304. Re-run on a hundred times the data,
+reliability fell to 0.54 and the edge over ACS vanished. The first figures were
+small-sample noise, written up as a finding.
+
+The same holds where it matters more, predicting match results. Alone, the
+team rating difference scores log loss 0.6914 on the 10,304-match test set, and
+the team ACS difference scores 0.6908: ACS is ahead, by 1.5 standard errors on
+a paired comparison, which is not significant either. The rating stays in the
+model as one of 52 features, but the claim that it measures something ACS
+does not is not supported.
 
 ### Per player
 

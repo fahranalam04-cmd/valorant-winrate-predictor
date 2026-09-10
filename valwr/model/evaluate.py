@@ -99,13 +99,16 @@ def log_loss_standard_error(y, p) -> float:
 
 
 def reliability_table(y, p, bins: int = 10) -> list[tuple[float, float, int]]:
-    """(mean predicted, observed frequency, count) per bin, for the diagram."""
+    """(mean predicted, observed frequency, count) per bin, for the diagram.
+
+    Equal-count bins, not equal-width. Predictions crowd around 0.5, so bins
+    spaced evenly between the extremes spent most of the range on a handful of
+    outliers: the diagram once plotted points built from 6 and 25 matches,
+    which read as calibration failures and were only small samples.
+    """
     y = np.asarray(y, dtype=float)
     p = np.asarray(p, dtype=float)
-    edges = np.linspace(p.min(), p.max(), bins + 1)
-    out = []
-    for lo, hi in zip(edges[:-1], edges[1:]):
-        m = (p >= lo) & (p < hi if hi < edges[-1] else p <= hi)
-        if m.sum() >= 5:
-            out.append((float(p[m].mean()), float(y[m].mean()), int(m.sum())))
-    return out
+    order = np.argsort(p, kind="stable")
+    return [(float(p[chunk].mean()), float(y[chunk].mean()), int(len(chunk)))
+            for chunk in np.array_split(order, min(bins, len(p)))
+            if len(chunk)]

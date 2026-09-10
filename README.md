@@ -4,12 +4,13 @@ Predicts each team's win probability the moment you load into a VALORANT match,
 using only what is knowable before the first round — then explains the
 prediction in plain English.
 
-> **Status: Phases 0–6 and 9 complete.** The live path has been run against
-> real matches and replayed end to end over 2,500 held-out ones, where it
-> tracks the training path to within about one standard error
+> **Status: Phases 0–7 complete, with the Phase 9 backtest and write-up.** The
+> live dashboard runs against real matches, and the live path has been
+> replayed end to end over 2,500 held-out ones, where it tracks the training
+> path to within about one standard error
 > ([docs/MODEL-CHOICE.md](docs/MODEL-CHOICE.md)). The results below are
-> measured on a held-out test set, not estimated. The browser dashboard and
-> coaching layer (Phases 7–8) are not built yet.
+> measured on a held-out test set, not estimated. Phase 8, a Claude coaching
+> layer, is not built.
 
 ---
 
@@ -62,8 +63,8 @@ from what matchmaking *does not* account for:
                                             v                           v
                                    +----------------+          +----------------+
                                    | live dashboard |          | Claude coach   |
-                                   | localhost      |          | grounded in    |
-                                   |                |          | attributions   |
+                                   | localhost      |          | (Phase 8,      |
+                                   |                |          |  not built)    |
                                    +----------------+          +----------------+
 ```
 
@@ -74,8 +75,15 @@ available to third-party developers. Rather than work around that, this project
 builds its own rating: a composite of ACS, ADR, first-blood and first-death
 rate, clutch rate, trade participation, and multi-kill rate — normalised
 *within rank band and map*, then adjusted for the average rank of the opposing
-team. Validated by split-half reliability across each player's history, and by
-whether it out-predicts raw ACS on a player's next match.
+team.
+
+Checked against every player with enough rated history (about 50,000), it is
+independent of rank as designed
+(r = +0.008) and moderately stable across a player's history (split-half
+reliability 0.54). It is **not** better than raw ACS: the two tie at predicting
+a player's next game, and alone, ACS is marginally ahead at predicting match
+results. An early run on a few hundred players said the rating won; it did not
+survive more data. Details in [docs/MODELING.md](docs/MODELING.md).
 
 ### Avoiding the obvious trap
 
@@ -124,18 +132,55 @@ every null result recorded rather than quietly dropped.
 ### It beats rank where rank tells you nothing
 
 The honest test is the subset where both teams have the same average rank —
-where matchmaking did its job, and anything left is genuine residual rather
-than rank in disguise. On those 1,403 test matches:
+within half a tier, where matchmaking did its job and anything left is genuine
+residual rather than rank in disguise. On those 4,132 test matches:
 
 | Model | Log loss | AUC | Accuracy |
 |---|---|---|---|
-| Model | **0.6871** | **0.560** | **53.0% ± 2.6%** |
-| Coin flip | 0.6931 | 0.500 | 49.3% |
-| Avg rank | 0.6932 | 0.499 | 49.3% |
+| **Logistic regression (shipped)** | **0.6859** | **0.568** | **54.6% ± 1.5%** |
+| Coin flip | 0.6931 | 0.500 | 50.6% |
+| Average rank | 0.6932 | 0.493 | 49.4% |
 
-Rank scores AUC 0.499 there — by construction, it has nothing left to say. The
-model still reaches 0.560, and the accuracy interval excludes 50%. So the
+Rank scores AUC 0.493 there — by construction, it has nothing left to say. The
+model still reaches 0.568, and the accuracy interval excludes 50%. So the
 features are contributing signal beyond rank, not rediscovering it.
+Regenerate with `python -m valwr.model.analyze`.
+
+### How far to trust a percentage
+
+![Calibration of the shipped model on 10,304 held-out matches](reports/reliability.png)
+
+Each point is a tenth of the test set, grouped by predicted probability. When
+the model says 60%, that team won 61% of the time, and across the range it is
+off by under a percentage point on average (expected calibration error 0.008).
+The one visible miss is the bottom group: predicted 40%, those teams won 44%,
+so the model is slightly too pessimistic about the underdogs it is surest of.
+
+The histogram is the other half of the story. **90% of predictions fall between
+40.5% and 59.6%.** The model rarely makes a confident call, which is what games
+set up by a working matchmaker should look like.
+
+### What the model relies on
+
+![Rise in held-out log loss when each feature family is shuffled](reports/importance.png)
+
+Each bar shuffles one family of features — for ACS, the team's mean, best,
+worst and spread together — and measures how much worse the predictions get.
+Families rather than single features, because related features overlap: the
+model splits credit between near-duplicates, and its raw coefficients even
+give the player rating a negative weight beside ACS.
+
+Combat performance dominates: ACS, then the player rating and damage per round.
+Recent win rate comes next, and it points the counter-intuitive way. Holding
+everything else fixed, a team on a hot streak is slightly *less* likely to win,
+consistent with matchmaking lifting a streaking player's hidden rating above
+their visible rank.
+
+Two things this project set out to find barely register. **Map- and
+agent-specific history ranks near the bottom of all 34 families**, and overall
+win rate carries nothing at all. Few players have enough games on one map or
+agent to say anything: only 1.6% of competitive player-matches come with six or
+more prior games on that map. The idea was sound; the data per player is too thin.
 
 ### The bug that was hiding all of this
 
@@ -210,6 +255,7 @@ after three days unless you tell it not to.
 
 ```bash
 python -m valwr.model.train --rebuild        # build features, fit, select, save
+python -m valwr.model.analyze                # equal-rank subset, and both README charts
 python tools/build_perf_index.py             # population reference for the 0-100 score
 python tools/validate_potential.py --write-index   # measure and record its hit rate
 ```
@@ -236,7 +282,7 @@ first and tells you in plain language if anything is missing.
 ### Tests
 
 ```bash
-pytest -q                          # 311 tests
+pytest -q                          # 335 tests
 python tools/audit.py              # re-derives documented claims, reports drift
 ```
 

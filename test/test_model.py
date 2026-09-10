@@ -272,9 +272,9 @@ def test_bundle_carries_everything_inference_needs():
     for key in ("estimators", "best", "columns", "norms", "prior_rate",
                 "roles", "norms_as_of"):
         assert key in b, f"bundle is missing {key}; live features would drift"
-    assert b["best"] in b["estimators"] or b["best"] in (
-        "logistic regression", "gradient boosting", "margin regression",
-        "logistic + margin blend"), "selected model is not servable"
+    from valwr.model import serving
+    assert serving.servable(b["best"], b["estimators"]), (
+        "selected model is not servable")
 
 
 def test_readme_results_are_generated_not_hand_written():

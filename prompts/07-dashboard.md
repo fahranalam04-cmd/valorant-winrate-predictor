@@ -1,5 +1,8 @@
 # Phase 7 — Dashboard
 
+> **As built:** the dashboard lives in `valwr/dash/` and runs with
+> `python -m valwr.dash`, not the `valwr/web/` this brief names below.
+
 Read `CLAUDE.md` before starting. Phase 6 must pass.
 
 ## Goal

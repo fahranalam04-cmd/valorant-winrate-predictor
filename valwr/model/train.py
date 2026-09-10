@@ -23,7 +23,7 @@ import pandas as pd
 
 from valwr import config
 from valwr.features import build as fb
-from valwr.model import baselines, evaluate, split
+from valwr.model import baselines, evaluate, serving, split
 from valwr.store import schema
 
 RANDOM_STATE = 17
@@ -256,36 +256,43 @@ def main(argv=None) -> int:
           f"| test {len(te):,}")
 
     results = []
+    # Test-set probabilities by result name, so the report can describe the
+    # model that ships. The reliability table was once drawn from the
+    # calibrated gradient booster whatever was selected.
+    probs: dict[str, np.ndarray] = {}
+
+    def record(name: str, p) -> None:
+        probs[name] = np.asarray(p, dtype=float)
+        results.append(evaluate.score(name, yte, probs[name]))
 
     # --- 2. baselines -----------------------------------------------
     for name, fn in baselines.fitted(tr).items():
-        results.append(evaluate.score(name, yte, fn(te)))
+        record(name, fn(te))
 
     # --- 3. logistic ------------------------------------------------
     lr = fit_logistic(Xtr, ytr)
     p_lr_va = lr.predict_proba(Xva)[:, 1]
     p_lr_te = lr.predict_proba(Xte)[:, 1]
-    results.append(evaluate.score("logistic regression", yte, p_lr_te))
+    record("logistic regression", p_lr_te)
     p_lr_cal, (lr_method, _) = calibrate(p_lr_va, yva, p_lr_te)
-    results.append(evaluate.score(f"logistic + {lr_method}", yte, p_lr_cal))
+    record(f"logistic + {lr_method}", p_lr_cal)
 
     # --- 4. gradient boosting ---------------------------------------
     gbm = fit_gbm(Xtr, ytr, Xva, yva)
     p_gb_va = gbm.predict_proba(Xva)[:, 1]
     p_gb_te = gbm.predict_proba(Xte)[:, 1]
-    results.append(evaluate.score("gradient boosting", yte, p_gb_te))
+    record("gradient boosting", p_gb_te)
     p_gb_cal, (gb_method, iso) = calibrate(p_gb_va, yva, p_gb_te)
-    results.append(evaluate.score(f"gbm + {gb_method}", yte, p_gb_cal))
+    record(f"gbm + {gb_method}", p_gb_cal)
 
     # --- 4b. margin regression ---------------------------------------
     m_tr = tr["margin"].to_numpy(float)
     m_va = va["margin"].to_numpy(float)
     reg, link, p_mg_te = fit_margin_model(Xtr, m_tr, Xva, m_va, Xte, yva)
-    results.append(evaluate.score("margin regression", yte, p_mg_te))
+    record("margin regression", p_mg_te)
 
     # Averaging two models that make different mistakes usually beats both.
-    p_blend = 0.5 * p_lr_te + 0.5 * p_mg_te
-    results.append(evaluate.score("logistic + margin blend", yte, p_blend))
+    record("logistic + margin blend", 0.5 * p_lr_te + 0.5 * p_mg_te)
 
     # --- 5. report ---------------------------------------------------
     print("\n" + "=" * 68)
@@ -361,7 +368,7 @@ def main(argv=None) -> int:
         "shuffled": shuf,
         "results": [r.__dict__ for r in results],
         "coverage_strata": [r.__dict__ for r in strata],
-        "reliability": evaluate.reliability_table(yte, p_gb_cal),
+        "reliability": evaluate.reliability_table(yte, probs[winner_name]),
     }, indent=2), encoding="utf-8")
     print(f"\n  wrote {out / 'results.json'}")
 
@@ -389,9 +396,7 @@ def main(argv=None) -> int:
     for bname in fitted_baselines:
         if bname != "coin flip":
             estimators[bname] = fitted_baselines[bname]
-    if winner_name not in estimators and winner_name not in (
-            "logistic regression", "gradient boosting", "margin regression",
-            "logistic + margin blend"):
+    if not serving.servable(winner_name, estimators):
         raise RuntimeError(
             f"selected {winner_name!r} but it is not in the persisted "
             f"estimators; the live path could not serve it")

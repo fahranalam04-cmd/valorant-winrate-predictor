@@ -120,13 +120,29 @@ def predictors(bundle: dict, which: str = "all") -> list[Predictor]:
     return out
 
 
+class ShippedPredictor:
+    """The model the bundle ships, served exactly as the live path serves it."""
+
+    def __init__(self, bundle: dict):
+        self.name = bundle["best"]
+        self._bundle = bundle
+
+    def predict_proba(self, features: dict[str, float]) -> float:
+        import pandas as pd
+
+        from valwr.model import serving
+        frame = pd.DataFrame([features])
+        return float(serving.probabilities(self._bundle, frame)[0])
+
+
 def shipped(bundle: dict) -> Predictor:
-    """The estimator the project actually serves."""
-    name = bundle.get("best", "logistic")
-    est = bundle["estimators"]
-    if name in est:
-        return BundlePredictor(name, est[name], bundle["columns"])
-    return BundlePredictor("logistic", est["logistic"], bundle["columns"])
+    """The model the project actually serves.
+
+    Through `serving`, not `estimators.get(best)`: result names and estimator
+    keys differ ("logistic regression" vs "logistic"), so that lookup missed
+    and quietly served logistic regression whatever had been selected.
+    """
+    return ShippedPredictor(bundle)
 
 
 def linear_contributions(bundle: dict, features: dict[str, float],
