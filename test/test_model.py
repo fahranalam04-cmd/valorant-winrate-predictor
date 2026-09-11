@@ -202,8 +202,15 @@ def test_features_can_be_built_without_an_outcome(tmp_path):
     conn.execute("INSERT INTO ref_agents (uuid,name,role) VALUES ('u','Jett','Duelist')")
     conn.commit()
 
-    from test.test_leakage import ingest, make_match
-    ingest(conn, make_match("past", "2026-08-01T00:00:00Z"))
+    # Loaded by file path, not `from test.test_leakage import ...`. On the CI
+    # runners `test` resolves to Python's own standard-library test package, so
+    # that import failed there while passing on a machine without it.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "test_leakage", pathlib.Path(__file__).with_name("test_leakage.py"))
+    leakage = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(leakage)
+    leakage.ingest(conn, leakage.make_match("past", "2026-08-01T00:00:00Z"))
 
     as_of = normalize.parse_started_at("2026-08-05T00:00:00Z")
     live = {"match_id": "live", "started_at": as_of, "map": "Sunset",
