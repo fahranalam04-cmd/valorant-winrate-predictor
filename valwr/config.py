@@ -36,8 +36,6 @@ class Settings:
     riot_name: str
     riot_tag: str
     database_path: Path
-    dashboard_host: str
-    dashboard_port: int
     anthropic_api_key: str | None
 
     @property
@@ -109,7 +107,5 @@ def load(require_key: bool = True) -> Settings:
         riot_name=os.getenv("RIOT_NAME", "").strip(),
         riot_tag=os.getenv("RIOT_TAG", "").strip().lstrip("#"),
         database_path=db_path,
-        dashboard_host=os.getenv("DASHBOARD_HOST", "127.0.0.1").strip(),
-        dashboard_port=int(os.getenv("DASHBOARD_PORT", "8000")),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip() or None,
     )
