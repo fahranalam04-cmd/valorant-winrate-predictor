@@ -102,7 +102,7 @@ def player_history_map_agent(conn, puuid: str, as_of: int, map_name: str,
     """The sparse cell -- 'better on Ascent specifically as Jett'.
 
     Expect very few rows. Whatever consumes this must shrink hard toward a
-    prior; see rule 4 in CLAUDE.md.
+    prior; see trap 4 in docs/MODELING.md.
     """
     return _query(conn, puuid, as_of, " AND mp.map = ? AND mp.agent = ?",
                   (map_name, agent), limit)

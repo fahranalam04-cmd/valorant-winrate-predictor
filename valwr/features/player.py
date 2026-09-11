@@ -7,7 +7,7 @@ only worth anything if it cannot be quietly broken.
 
 Every rate feature is shrunk toward a population prior. A player with three
 games at 100% is not a 100% player, and without shrinkage those sparse cells
-dominate the model and generalise to nothing (CLAUDE.md rule 4).
+dominate the model and generalise to nothing (docs/MODELING.md, trap 4).
 """
 
 from __future__ import annotations

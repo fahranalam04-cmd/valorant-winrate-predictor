@@ -36,7 +36,6 @@ class Settings:
     riot_name: str
     riot_tag: str
     database_path: Path
-    anthropic_api_key: str | None
 
     @property
     def requests_per_minute(self) -> int:
@@ -107,5 +106,4 @@ def load(require_key: bool = True) -> Settings:
         riot_name=os.getenv("RIOT_NAME", "").strip(),
         riot_tag=os.getenv("RIOT_TAG", "").strip().lstrip("#"),
         database_path=db_path,
-        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip() or None,
     )

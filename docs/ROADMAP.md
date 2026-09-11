@@ -15,7 +15,7 @@ went a different way, and why.
 | 5 | Model | Done — logistic regression ships, not gradient boosting |
 | 6 | Live client integration | Done |
 | 7 | Dashboard | Done |
-| 8 | Claude coach | **Not built** |
+| 8 | LLM coach | **Not built** |
 | 9 | Backtest and write-up | Done, except the optional Riot production key |
 
 The sequencing rule held: **the project looks complete at every stopping
@@ -184,18 +184,18 @@ match, and the page updates live without a refresh.
 [DASHBOARD.md](DASHBOARD.md) explains every element. An interactive demo runs
 on GitHub Pages.
 
-## Phase 8 — Claude coach
+## Phase 8 — LLM coach
 
 Grounded natural-language coaching: the prediction, its attributions, both
-compositions and the map, passed to Claude, with a system prompt that forbids
+compositions and the map, passed to a language model, with a system prompt that forbids
 inventing statistics and a check that every number it quotes is in its input.
 
 **Not built.** Most predictions fall between 40% and 60%, and the features a
 coach would most naturally advise on — map and agent history — measured close
 to zero. A fluent coach explaining a near coin flip risks the exact failure the
 brief warns about: confident advice resting on noise. The dashboard already
-explains each prediction in plain language. If it is built, the brief in
-`prompts/08-coach.md` stands.
+explains each prediction in plain language. If it is built, the constraints
+above stand: players anonymised in its input, and no number it was not given.
 
 ## Phase 9 — Backtest and write-up
 

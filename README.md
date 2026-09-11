@@ -9,7 +9,7 @@ prediction in plain English.
 > replayed end to end over 2,500 held-out ones, where it tracks the training
 > path to within about one standard error
 > ([docs/MODEL-CHOICE.md](docs/MODEL-CHOICE.md)). The results below are
-> measured on a held-out test set, not estimated. Phase 8, a Claude coaching
+> measured on a held-out test set, not estimated. Phase 8, an LLM coaching
 > layer, is not built.
 
 ![The live dashboard: both teams, the odds, and one player's card](docs/images/dashboard.jpg)
@@ -68,7 +68,7 @@ from what matchmaking *does not* account for:
                                             +-------------+-------------+
                                             v                           v
                                    +----------------+          +----------------+
-                                   | live dashboard |          | Claude coach   |
+                                   | live dashboard |          | LLM coach      |
                                    | localhost      |          | (Phase 8,      |
                                    |                |          |  not built)    |
                                    +----------------+          +----------------+

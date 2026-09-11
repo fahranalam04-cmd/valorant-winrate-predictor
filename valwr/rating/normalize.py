@@ -12,7 +12,7 @@ hierarchical and shrunk:
 
 each level shrunk toward its parent in proportion to how little data it has.
 This is the same empirical-Bayes idea applied to rate features elsewhere in the
-project (CLAUDE.md rule 4), and for the same reason: a cell with four
+project (docs/MODELING.md, trap 4), and for the same reason: a cell with four
 observations should not be trusted to define its own centre.
 
 Norms are always built with an `as_of` cutoff. They are derived from data, so

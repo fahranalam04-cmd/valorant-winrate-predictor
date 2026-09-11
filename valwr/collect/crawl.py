@@ -131,7 +131,7 @@ class Crawler:
         """Fetch one player's matchlist. Returns False if it should be retried."""
         try:
             # No acquire() here: the limiter is wired into HenrikClient, so it
-            # cannot be bypassed by a caller that forgets. See CLAUDE.md.
+            # cannot be bypassed by a caller that forgets. See docs/API-NOTES.md.
             doc = self.client.matches(
                 self.region, self.platform, puuid, size=self.size, mode="competitive"
             )
