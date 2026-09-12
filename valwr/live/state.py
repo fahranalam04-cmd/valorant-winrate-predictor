@@ -16,6 +16,7 @@ Read-only throughout, like everything else under `live/`.
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -94,6 +95,23 @@ def open_context(no_fetch: bool = False,
 
     return LiveContext(conn=conn, bundle=bundle, index=index, session=S.build(),
                        client=client, settings=settings, deadline=deadline)
+
+
+def display_map(conn, reported: str | None) -> str | None:
+    """The map's real name, given what the client called it.
+
+    The client reports an internal codename -- Plummet for Summit, Jam for
+    Lotus -- and 25 of the 26 maps have one that differs from the name people
+    use. Left as-is, the live header named a map nobody recognises and the
+    page looked for artwork under that name, so no background ever painted.
+    Anything not in the table is passed through unchanged.
+    """
+    if not reported:
+        return reported
+    row = conn.execute(
+        "SELECT name FROM ref_maps WHERE lower(path) = lower(?)",
+        (reported,)).fetchone()
+    return row["name"] if row else reported
 
 
 def agents_by_id(conn) -> dict[str, str]:
@@ -266,6 +284,8 @@ def poll_once(ctx: LiveContext) -> dict | None:
     match = current_match(ctx)
     if match is None:
         return None
+    match = dataclasses.replace(
+        match, map_name=display_map(ctx.conn, match.map_name))
 
     as_of = int(time.time())
     resolution = R.resolve(ctx.conn, match, ctx.session.puuid, as_of,

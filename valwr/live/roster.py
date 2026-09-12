@@ -103,6 +103,14 @@ def _get(session: Session, url: str) -> dict | None:
     if r.status_code in (401, 403):
         raise SessionExpired(
             f"the client session is no longer valid (HTTP {r.status_code})")
+    if r.status_code == 400:
+        # These two endpoints take only a puuid or a match id, so a 400 is not
+        # a malformed request -- it is the X-Riot-ClientVersion header being
+        # stale. That value comes from the running game's session and changes
+        # when VALORANT updates or restarts, which a rebuilt session picks up.
+        raise SessionExpired(
+            "the game rejected the client version header (HTTP 400) -- "
+            "VALORANT has most likely updated or restarted")
     r.raise_for_status()
     return r.json()
 

@@ -713,7 +713,7 @@ def _session():
                    entitlements_token="e", client_version="v")
 
 
-@pytest.mark.parametrize("status", [401, 403])
+@pytest.mark.parametrize("status", [400, 401, 403])
 def test_an_aged_out_session_is_reported_as_expired_not_as_a_failure(monkeypatch, status):
     from valwr.live import session as S
     monkeypatch.setattr(roster.httpx, "get", lambda *a, **k: _Resp(status))
@@ -909,3 +909,110 @@ def test_a_port_held_by_something_else_moves_to_the_next_one(monkeypatch):
     assert DS.main(["--no-browser"]) == 0
     assert seen["port"] == DS.PORT + 1
     assert seen.get("ran") is True
+
+
+def test_a_stale_client_version_is_recoverable_and_says_so(monkeypatch):
+    """X-Riot-ClientVersion comes from the running game and changes when it
+    updates. The glz endpoints answer a stale one with a bare 400, which used
+    to surface as an HTTPStatusError and strand the live view."""
+    from valwr.live import session as S
+    monkeypatch.setattr(roster.httpx, "get", lambda *a, **k: _Resp(400))
+    with pytest.raises(S.SessionExpired, match="client version"):
+        roster._get(_session(), "https://glz/core-game/v1/players/p")
+
+
+# --- the map the client names is not the map people know ----------------
+# Riot ships most maps under a codename: Summit is "Plummet", Lotus is "Jam",
+# Breeze is "Foxtrot". 25 of the 26 differ. The live view printed whatever the
+# client said and looked for artwork under that name, so every live match but
+# one showed an unfamiliar name on a blank background.
+
+def _maps_db(tmp_path, rows):
+    from valwr.store import schema
+    conn = schema.connect(tmp_path / "maps.db")
+    schema.create_all(conn)
+    conn.executemany(
+        "INSERT INTO ref_maps (uuid, name, path) VALUES (?,?,?)", rows)
+    conn.commit()
+    return conn
+
+
+def test_a_codename_resolves_to_the_name_people_use(tmp_path):
+    from valwr.live import state as st
+    conn = _maps_db(tmp_path, [("u1", "Summit", "Plummet"),
+                               ("u2", "Lotus", "Jam")])
+    assert st.display_map(conn, "Plummet") == "Summit"
+    assert st.display_map(conn, "plummet") == "Summit", "matched case-insensitively"
+    assert st.display_map(conn, "Jam") == "Lotus"
+
+
+def test_an_unknown_map_is_passed_through_rather_than_blanked(tmp_path):
+    """A map that ships before the reference table is refreshed still names
+    itself, and the page falls back to no background rather than breaking."""
+    from valwr.live import state as st
+    conn = _maps_db(tmp_path, [("u1", "Summit", "Plummet")])
+    assert st.display_map(conn, "SomethingNew") == "SomethingNew"
+    assert st.display_map(conn, None) is None
+    assert st.display_map(conn, "") == ""
+
+
+def test_the_poll_reports_the_resolved_map(tmp_path, monkeypatch):
+    from valwr.live import predict as P
+    from valwr.live import resolve as R
+    from valwr.live import state as st
+
+    conn = _maps_db(tmp_path, [("u1", "Summit", "Plummet")])
+    match = LiveMatch("m1", "coregame", "Plummet", "Bomb",
+                      [LivePlayer("me", "Blue", "aid")])
+    monkeypatch.setattr(st, "current_match", lambda ctx: match)
+    monkeypatch.setattr(st, "_player_rows", lambda *a, **k: [])
+    monkeypatch.setattr(st, "parties", lambda *a, **k: [])
+    monkeypatch.setattr(R, "resolve", lambda *a, **k: R.Resolution(known=set()))
+    monkeypatch.setattr(P, "predict", lambda *a, **k: None)
+
+    class Sess:
+        puuid = "me"
+
+    import types
+    ctx = st.LiveContext(conn=conn, bundle={"best": "logistic regression"},
+                         index=None, session=Sess(), client=None,
+                         settings=types.SimpleNamespace(region="na",
+                                                        platform="pc"))
+    assert st.poll_once(ctx)["map"] == "Summit"
+
+
+def test_every_map_the_api_ships_carries_its_codename():
+    """load_maps used to keep only maps with coordinates, which dropped the
+    range and the deathmatch arenas -- and the live view follows you there."""
+    from valwr.store import reference
+
+    class FakeClient:
+        def get(self, url, params=None):
+            class R:
+                status_code = 200
+
+                @staticmethod
+                def raise_for_status():
+                    pass
+
+                @staticmethod
+                def json():
+                    return {"data": [
+                        {"uuid": "u1", "displayName": "Summit",
+                         "mapUrl": "/Game/Maps/Plummet/Plummet",
+                         "coordinates": "x"},
+                        {"uuid": "u2", "displayName": "The Range",
+                         "mapUrl": "/Game/Maps/Range/Range"},
+                        {"uuid": "u3", "mapUrl": "/Game/Maps/Nameless/Nameless"},
+                    ]}
+            return R()
+
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    from valwr.store import schema
+    schema.create_all(conn)
+    assert reference.load_maps(conn, FakeClient()) == 2, "the nameless one is skipped"
+    got = {r["name"]: r["path"] for r in conn.execute("SELECT name, path FROM ref_maps")}
+    assert got == {"Summit": "Plummet", "The Range": "Range"}
+    assert reference.codename(None) is None

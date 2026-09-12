@@ -140,6 +140,8 @@ the card fills two columns so nothing needs scrolling.
 
 ## Where the numbers come from
 
+**The map name** is translated. The client reports an internal codename -- Summit is "Plummet", Lotus is "Jam" -- so the live view resolves it through the reference table before naming the map or loading its art. Run `python -m valwr.check` after a patch to pick up a new map.
+
 **The lobby** is read from the VALORANT client on your PC — the ten players,
 agents and teams — and nothing is ever sent back to it. See
 [ETHICS-AND-TOS.md](ETHICS-AND-TOS.md).

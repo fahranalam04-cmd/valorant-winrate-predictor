@@ -177,6 +177,10 @@ MIGRATIONS: dict[str, dict[str, str]] = {
     "matches": {
         "data_quality": "TEXT",
     },
+    # The map's internal codename, which is what the live client reports.
+    "ref_maps": {
+        "path": "TEXT",
+    },
 }
 
 

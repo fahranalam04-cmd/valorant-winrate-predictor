@@ -41,17 +41,36 @@ def load_agents(conn: sqlite3.Connection, client: httpx.Client) -> int:
     return len(rows)
 
 
+def codename(map_url: str | None) -> str | None:
+    """`/Game/Maps/Plummet/Plummet` -> `Plummet`, the name the client uses.
+
+    Riot ships most maps under a codename: Summit is Plummet, Lotus is Jam,
+    Breeze is Foxtrot. The live client reports that, so it has to be stored
+    alongside the display name or a live match shows a name nobody recognises
+    and its artwork never resolves.
+    """
+    if not map_url:
+        return None
+    tail = map_url.rstrip("/").rsplit("/", 1)[-1]
+    return tail or None
+
+
 def load_maps(conn: sqlite3.Connection, client: httpx.Client) -> int:
+    """Every map, including the ones matches are not played on.
+
+    The range, the tutorial and the deathmatch arenas were skipped here on the
+    grounds that no match happens on them. The live view does follow you into
+    them, so it needs their names too.
+    """
     rows = [
-        (m["uuid"], m["displayName"])
+        (m["uuid"], m["displayName"], codename(m.get("mapUrl")))
         for m in _get(client, "maps")
-        # Non-playable entries (the range, tutorial) have no displayName or no
-        # coordinates. Keep only real maps -- they are what matches happen on.
-        if m.get("displayName") and m.get("coordinates")
+        if m.get("displayName")
     ]
     conn.executemany(
-        "INSERT INTO ref_maps (uuid, name) VALUES (?,?) "
-        "ON CONFLICT(uuid) DO UPDATE SET name=excluded.name",
+        "INSERT INTO ref_maps (uuid, name, path) VALUES (?,?,?) "
+        "ON CONFLICT(uuid) DO UPDATE SET name=excluded.name, "
+        "path=excluded.path",
         rows,
     )
     return len(rows)
