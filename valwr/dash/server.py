@@ -146,6 +146,42 @@ def content_policy(host: str) -> str:
             "form-action 'none'; frame-ancestors 'none'")
 
 
+def port_free(host: str, port: int) -> bool:
+    """Whether this address can be bound, asked before uvicorn tries.
+
+    Uvicorn's own failure is a raw WinError 10048 several lines into its log,
+    which reads as a crash rather than as "one of these is already running".
+    Note the missing SO_REUSEADDR: on Windows it lets a second process bind a
+    port already in use, which is the opposite of the question being asked.
+    """
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+            return True
+        except OSError:
+            return False
+
+
+def dashboard_at(port: int, host: str = HOST) -> bool:
+    """Whether the thing holding the port is another copy of this dashboard."""
+    import httpx
+    probe = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    try:
+        r = httpx.get(f"http://{probe}:{port}/", timeout=1.5)
+    except httpx.HTTPError:
+        return False
+    return r.status_code == 200 and "valwr live" in r.text
+
+
+def free_port(host: str, start: int, tries: int = 20) -> int | None:
+    """The first bindable port at or after `start`."""
+    for port in range(start, start + tries):
+        if port_free(host, port):
+            return port
+    return None
+
+
 def _demo_payload() -> dict:
     """The demo match, with agent UUIDs filled in where a database exists."""
     from valwr.dash.demo import demo_state
@@ -385,6 +421,27 @@ def main(argv=None) -> int:
     ap.add_argument("--deadline", type=float, default=st.DEFAULT_DEADLINE)
     args = ap.parse_args(argv)
 
+    # A second launch is the common case: the first window is still open, and
+    # its browser tab is still connected. Bind-time failure told the user
+    # nothing useful, so the two cases are separated here.
+    if not port_free(args.host, args.port):
+        if dashboard_at(args.port, args.host):
+            running = f"http://{HOST}:{args.port}/"
+            print(f"  a dashboard is already running on {running}")
+            print("  opening that one rather than starting a second copy.")
+            print("  close its window first if you want a fresh start.\n")
+            if not args.no_browser:
+                webbrowser.open(running)
+            return 0
+        moved = free_port(args.host, args.port + 1)
+        if moved is None:
+            print(f"  port {args.port} is busy, and so are the next 20.")
+            print("  close whatever is using them, or pass --port.")
+            return 1
+        print(f"  port {args.port} is in use by something else; "
+              f"using {moved} instead.")
+        args.port = moved
+
     import uvicorn
 
     url = f"http://{HOST}:{args.port}/"
@@ -422,7 +479,12 @@ def main(argv=None) -> int:
                 time.sleep(0.1)
         threading.Thread(target=open_when_up, daemon=True).start()
 
-    server.run()
+    try:
+        server.run()
+    except OSError as e:
+        # Something grabbed the port between the check above and the bind.
+        print(f"\n  could not start on {args.host}:{args.port} -- {e}")
+        return 1
     return 0
 
 

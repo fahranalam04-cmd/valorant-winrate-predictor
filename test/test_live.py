@@ -839,3 +839,73 @@ def test_the_dashboard_reopens_its_context_instead_of_staying_stuck(monkeypatch)
             assert ws.receive_json()["status"] == "lobby"
 
     assert len(opened) == 2, "the context must be rebuilt, not reused"
+
+
+# --- launching a second copy -------------------------------------------
+# The usual mistake is double-clicking dashboard.bat while the first window is
+# still open. Uvicorn's bind failure is a raw WinError 10048 that reads like a
+# crash, so the two cases are told apart before it gets that far.
+
+def test_a_port_in_use_is_reported_as_such():
+    import socket
+
+    from valwr.dash import server as DS
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:
+        held.bind(("127.0.0.1", 0))
+        held.listen(1)
+        taken = held.getsockname()[1]
+        assert not DS.port_free("127.0.0.1", taken)
+        assert DS.free_port("127.0.0.1", taken) == taken + 1
+    assert DS.port_free("127.0.0.1", taken), "and free again once released"
+
+
+def _fake_uvicorn(monkeypatch):
+    """Stands in for uvicorn so main() can be driven without binding."""
+    import sys
+    import types
+
+    seen = {}
+
+    class Server:
+        started = False
+
+        def __init__(self, config):
+            seen.update(config)
+
+        def run(self):
+            seen["ran"] = True
+
+    module = types.ModuleType("uvicorn")
+    module.Config = lambda app, host=None, port=None, log_level=None: {
+        "host": host, "port": port}
+    module.Server = Server
+    monkeypatch.setitem(sys.modules, "uvicorn", module)
+    return seen
+
+
+def test_a_second_launch_opens_the_dashboard_already_running(monkeypatch):
+    from valwr.dash import server as DS
+
+    seen = _fake_uvicorn(monkeypatch)
+    opened = []
+    monkeypatch.setattr(DS, "port_free", lambda host, port: False)
+    monkeypatch.setattr(DS, "dashboard_at", lambda port, host=DS.HOST: True)
+    monkeypatch.setattr(DS.webbrowser, "open", opened.append)
+
+    assert DS.main([]) == 0
+    assert opened == [f"http://{DS.HOST}:{DS.PORT}/"]
+    assert "ran" not in seen, "a second server must not be started"
+
+
+def test_a_port_held_by_something_else_moves_to_the_next_one(monkeypatch):
+    from valwr.dash import server as DS
+
+    seen = _fake_uvicorn(monkeypatch)
+    monkeypatch.setattr(DS, "port_free",
+                        lambda host, port: port != DS.PORT)
+    monkeypatch.setattr(DS, "dashboard_at", lambda port, host=DS.HOST: False)
+
+    assert DS.main(["--no-browser"]) == 0
+    assert seen["port"] == DS.PORT + 1
+    assert seen.get("ran") is True

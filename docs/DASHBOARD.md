@@ -28,6 +28,8 @@ No real player appears in them.
 `dashboard.bat` runs a preflight check first and says in plain language if
 anything is missing: the model, the database, the artwork, or the game.
 
+**Running it twice is fine.** A second `dashboard.bat` finds the first one, opens that page and exits, rather than failing to claim the port. If something unrelated holds port 8787, it moves to the next free one and says so.
+
 **Leave it running.** It follows you from match to match on its own, and
 recovers by itself when the game client's session ages out (about an hour) or
 when VALORANT restarts and its local port changes -- both of which used to
