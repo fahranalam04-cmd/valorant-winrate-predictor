@@ -95,6 +95,7 @@ def test_the_page_itself_still_connects_locally_and_from_a_phone(make_app, base)
         assert client.get("/").status_code == 200
         with client.websocket_connect(ws_url(base),
                                       headers={"origin": base}) as ws:
+            assert ws.receive_json()["status"] == "working"
             assert ws.receive_json()["status"] == "error"
 
 
@@ -103,6 +104,7 @@ def test_a_client_that_is_not_a_browser_page_needs_no_origin(make_app):
     local program could reach the port anyway."""
     with TestClient(make_app(), base_url=LOCAL) as client:
         with client.websocket_connect(ws_url(LOCAL)) as ws:
+            assert ws.receive_json()["status"] == "working"
             assert ws.receive_json()["status"] == "error"
 
 

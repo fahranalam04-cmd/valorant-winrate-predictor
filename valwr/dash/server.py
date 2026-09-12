@@ -278,6 +278,13 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
     @app.websocket("/ws")
     async def ws(socket: WebSocket):
         await socket.accept()
+        if not demo and not match:
+            # The first poll resolves ten players and can spend its whole
+            # deadline doing it. Without this the page sits on "connecting"
+            # and reads as broken rather than busy.
+            await socket.send_text(json.dumps(
+                {"status": "working",
+                 "message": "reading the match and looking up players"}))
         last: str | None = None
         loop = asyncio.get_running_loop()
         # Both of these run on app.state.pool's single thread: `context` opens
@@ -326,6 +333,17 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                 # no cause, which is the least useful thing it could say.
                 try:
                     state = await loop.run_in_executor(pool, st.poll_once, ctx)
+                except st.NotReady as e:
+                    # The client went away -- closed, restarted, or its session
+                    # could not be renewed. Drop the context so the next tick
+                    # opens a fresh one; the page recovers on its own when the
+                    # game comes back, which is the whole point of polling.
+                    app.state.ctx = None
+                    app.state.error = None
+                    await socket.send_text(json.dumps(
+                        {"status": "error", "message": f"{e} Retrying."}))
+                    await asyncio.sleep(POLL_SECONDS)
+                    continue
                 except Exception as e:                  # noqa: BLE001
                     await socket.send_text(json.dumps(
                         {"status": "error",

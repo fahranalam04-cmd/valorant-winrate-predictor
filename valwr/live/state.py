@@ -56,6 +56,13 @@ class LiveContext:
         if self.client is not None:
             self.client.close()
 
+    def refresh_session(self) -> None:
+        """Build a new client session in place, or say the game has gone."""
+        try:
+            self.session = S.build()
+        except lockfile.ClientNotRunning as e:
+            raise NotReady(f"lost the game client -- {e}") from e
+
 
 def open_context(no_fetch: bool = False,
                  deadline: float = DEFAULT_DEADLINE) -> LiveContext:
@@ -232,12 +239,31 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
     return rows
 
 
+def current_match(ctx: LiveContext):
+    """The roster, rebuilding the session once if it has expired.
+
+    The context is opened once and polled for hours, but the session inside it
+    is short lived: tokens age out after about an hour and a client restart
+    moves the port. Without this, the first match worked and every later one
+    reported an error until the dashboard was restarted by hand.
+    """
+    try:
+        return roster.current(ctx.session, agents_by_id(ctx.conn))
+    except S.SessionExpired:
+        ctx.refresh_session()
+        try:
+            return roster.current(ctx.session, agents_by_id(ctx.conn))
+        except S.SessionExpired as e:
+            # A fresh session that also fails is not a session problem.
+            raise NotReady(f"the game client is not answering -- {e}") from e
+
+
 def poll_once(ctx: LiveContext) -> dict | None:
     """The current match as plain data, or None when not in one.
 
     Everything a renderer needs and nothing it has to compute for itself.
     """
-    match = roster.current(ctx.session, agents_by_id(ctx.conn))
+    match = current_match(ctx)
     if match is None:
         return None
 

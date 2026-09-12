@@ -360,6 +360,9 @@ def test_the_dashboard_websocket_accepts_a_connection():
     with TestClient(build_app(no_fetch=True),
                     base_url="http://127.0.0.1:8787") as client:
         with client.websocket_connect("ws://127.0.0.1:8787/ws") as ws:
+            # Sent before the first poll, so the page is never blank while
+            # ten players are being resolved.
+            assert ws.receive_json()["status"] == "working"
             msg = ws.receive_json()
             # With VALORANT closed this is the error branch, which is fine --
             # the point is that the handshake completed at all.
@@ -563,6 +566,7 @@ def test_the_context_and_the_poll_share_one_thread(monkeypatch):
     with TestClient(S.build_app(no_fetch=True),
                     base_url="http://127.0.0.1:8787") as client:
         with client.websocket_connect("ws://127.0.0.1:8787/ws") as ws:
+            assert ws.receive_json()["status"] == "working"
             assert ws.receive_json()["status"] == "lobby"
 
     assert seen["opened"] == seen["polled"], \
@@ -681,3 +685,157 @@ def test_the_dashboard_still_defaults_to_localhost():
     assert "host=args.host" in src, "the server must honour --host"
     assert 'if args.host == HOST:' in src, (
         "widening the binding must be announced, not silent")
+
+
+# --- surviving more than one match -------------------------------------
+# The context is opened once and polled for hours. The session inside it is
+# not durable: the client's access token ages out after about an hour, and
+# restarting VALORANT gives the lockfile a new port and password. Before this,
+# the first match worked and every later one showed an error until the
+# dashboard was restarted by hand.
+
+class _Resp:
+    def __init__(self, status, body=None):
+        self.status_code = status
+        self._body = body or {}
+
+    def json(self):
+        return self._body
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise AssertionError("should have been handled before this")
+
+
+def _session():
+    from valwr.live.session import Session
+    return Session(puuid="p", shard="na", access_token="t",
+                   entitlements_token="e", client_version="v")
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_an_aged_out_session_is_reported_as_expired_not_as_a_failure(monkeypatch, status):
+    from valwr.live import session as S
+    monkeypatch.setattr(roster.httpx, "get", lambda *a, **k: _Resp(status))
+    with pytest.raises(S.SessionExpired):
+        roster._get(_session(), "https://glz/whatever")
+
+
+def test_a_client_that_moved_is_reported_as_expired(monkeypatch):
+    """The lockfile port changes on every restart, so the old one stops answering."""
+    from valwr.live import session as S
+
+    def refuse(*a, **k):
+        raise roster.httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(roster.httpx, "get", refuse)
+    with pytest.raises(S.SessionExpired):
+        roster._get(_session(), "https://glz/whatever")
+
+
+def test_not_in_a_match_is_still_not_an_error(monkeypatch):
+    monkeypatch.setattr(roster.httpx, "get", lambda *a, **k: _Resp(404))
+    assert roster._get(_session(), "https://glz/whatever") is None
+
+
+def _ctx(session="old"):
+    from valwr.live import state as st
+    return st.LiveContext(conn=None, bundle={}, index=None, session=session,
+                          client=None, settings=None)
+
+
+def test_an_expired_session_is_rebuilt_once_and_the_poll_carries_on(monkeypatch):
+    from valwr.live import session as S
+    from valwr.live import state as st
+
+    seen = []
+
+    def current(session, agents=None):
+        seen.append(session)
+        if len(seen) == 1:
+            raise S.SessionExpired("HTTP 401")
+        return "the roster"
+
+    monkeypatch.setattr(st.roster, "current", current)
+    monkeypatch.setattr(st, "agents_by_id", lambda conn: {})
+    monkeypatch.setattr(st.S, "build", lambda: "new")
+
+    ctx = _ctx()
+    assert st.current_match(ctx) == "the roster"
+    assert seen == ["old", "new"], "it must retry with the session it just built"
+    assert ctx.session == "new", "and keep it for the next poll"
+
+
+def test_a_client_that_has_closed_is_reported_as_not_ready(monkeypatch):
+    """Rebuilding cannot help if the game is gone; the caller reopens instead."""
+    from valwr.live import session as S
+    from valwr.live import state as st
+    from valwr.live.lockfile import ClientNotRunning
+
+    def expired(*a, **k):
+        raise S.SessionExpired("HTTP 401")
+
+    def gone():
+        raise ClientNotRunning("no lockfile")
+
+    monkeypatch.setattr(st.roster, "current", expired)
+    monkeypatch.setattr(st, "agents_by_id", lambda conn: {})
+    monkeypatch.setattr(st.S, "build", gone)
+    with pytest.raises(st.NotReady, match="lost the game client"):
+        st.current_match(_ctx())
+
+
+def test_a_fresh_session_that_also_fails_is_not_retried_forever(monkeypatch):
+    from valwr.live import session as S
+    from valwr.live import state as st
+
+    def expired(*a, **k):
+        raise S.SessionExpired("HTTP 401")
+
+    monkeypatch.setattr(st.roster, "current", expired)
+    monkeypatch.setattr(st, "agents_by_id", lambda conn: {})
+    monkeypatch.setattr(st.S, "build", lambda: "new")
+    with pytest.raises(st.NotReady, match="not answering"):
+        st.current_match(_ctx())
+
+
+def test_the_dashboard_reopens_its_context_instead_of_staying_stuck(monkeypatch):
+    """A poll that loses the client must not strand the page until a restart."""
+    from fastapi.testclient import TestClient
+
+    from valwr.dash import server as DS
+
+    opened = []
+
+    class Ctx:
+        index = None
+
+        def close(self):
+            pass
+
+    def open_context(**kw):
+        opened.append(1)
+        return Ctx()
+
+    polls = []
+
+    def poll_once(ctx):
+        polls.append(1)
+        if len(polls) == 1:
+            raise DS.st.NotReady("lost the game client -- no lockfile.")
+        return None
+
+    monkeypatch.setattr(DS.st, "open_context", open_context)
+    monkeypatch.setattr(DS.st, "poll_once", poll_once)
+    monkeypatch.setattr(DS, "POLL_SECONDS", 0.01)
+
+    with TestClient(DS.build_app(no_fetch=True),
+                    base_url="http://127.0.0.1:8787") as client:
+        with client.websocket_connect("ws://127.0.0.1:8787/ws") as ws:
+            assert ws.receive_json()["status"] == "working"
+            first = ws.receive_json()
+            assert first["status"] == "error" and "Retrying" in first["message"]
+            # The next tick recovers on its own.
+            assert ws.receive_json()["status"] == "lobby"
+
+    assert len(opened) == 2, "the context must be rebuilt, not reused"

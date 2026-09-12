@@ -56,7 +56,26 @@ def main(argv=None) -> int:
     seen: str | None = None
     try:
         while True:
-            state = st.poll_once(ctx)
+            try:
+                state = st.poll_once(ctx)
+            except st.NotReady as e:
+                # The client closed, restarted, or its session could not be
+                # renewed. Reopen rather than exit: watching for a match is the
+                # whole job, and quitting means missing the next one.
+                print(f"\n{e}\nwaiting for the client...")
+                ctx.close()
+                ctx = None
+                while ctx is None:
+                    time.sleep(POLL_SECONDS)
+                    try:
+                        ctx = st.open_context(no_fetch=args.no_fetch,
+                                              deadline=args.deadline)
+                    except st.NotReady:
+                        if args.once:
+                            return 1
+                print("reconnected.\n")
+                seen = None
+                continue
             if state is None:
                 if args.once:
                     print("not in a match (lobby).")
@@ -75,7 +94,8 @@ def main(argv=None) -> int:
         print("\nstopped.")
         return 0
     finally:
-        ctx.close()
+        if ctx is not None:
+            ctx.close()
 
 
 if __name__ == "__main__":

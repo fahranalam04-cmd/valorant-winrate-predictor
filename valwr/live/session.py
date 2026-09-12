@@ -29,6 +29,16 @@ import httpx
 
 from valwr.live.lockfile import ClientNotRunning, Lock, read
 
+
+class SessionExpired(RuntimeError):
+    """The tokens no longer work, or the client is not where it was.
+
+    Recoverable, and routinely: the access token the local API hands out lasts
+    about an hour, and restarting VALORANT gives the lockfile a new port and
+    password. A session that served one match is often useless by the next, so
+    callers rebuild with `build()` rather than giving up.
+    """
+
 # Base64 of the platform descriptor the client sends. Static; it identifies the
 # platform, not the user.
 CLIENT_PLATFORM = (

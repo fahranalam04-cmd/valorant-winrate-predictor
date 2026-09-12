@@ -26,7 +26,14 @@ No real player appears in them.
 | `python -m valwr.dash --match <id>` | A finished match, rebuilt from only what was knowable at its loading screen. |
 
 `dashboard.bat` runs a preflight check first and says in plain language if
-anything is missing: the model, the database, the artwork, or the game. Agent
+anything is missing: the model, the database, the artwork, or the game.
+
+**Leave it running.** It follows you from match to match on its own, and
+recovers by itself when the game client's session ages out (about an hour) or
+when VALORANT restarts and its local port changes -- both of which used to
+leave the page stuck on an error until the window was restarted. The page says
+what it is doing while the first match resolves, which can take a few seconds
+for a lobby of players it has never seen. Agent
 and map art is downloaded once with `python tools/fetch_agent_art.py`; without
 it, players show a lettered tile and the background is plain.
 

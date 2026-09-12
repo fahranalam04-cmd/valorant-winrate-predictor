@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from valwr.live.session import Session
+from valwr.live.session import Session, SessionExpired
 
 TIMEOUT = 20.0
 
@@ -85,10 +85,24 @@ class LiveMatch:
 
 
 def _get(session: Session, url: str) -> dict | None:
-    """GET a glz endpoint. None means 'not in a match', which is not an error."""
-    r = httpx.get(url, headers=session.headers, timeout=TIMEOUT)
+    """GET a glz endpoint. None means 'not in a match', which is not an error.
+
+    A 401 or 403 means the session has aged out, and a connection error means
+    the client is no longer answering where it was. Both are recoverable by
+    building a new session, so they are raised as `SessionExpired` rather than
+    as the generic HTTP failure that used to strand the live view after the
+    first match.
+    """
+    try:
+        r = httpx.get(url, headers=session.headers, timeout=TIMEOUT)
+    except httpx.RequestError as e:
+        raise SessionExpired(
+            f"cannot reach the game client ({type(e).__name__})") from e
     if r.status_code == 404:
         return None
+    if r.status_code in (401, 403):
+        raise SessionExpired(
+            f"the client session is no longer valid (HTTP {r.status_code})")
     r.raise_for_status()
     return r.json()
 

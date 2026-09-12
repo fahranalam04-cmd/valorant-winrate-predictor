@@ -276,5 +276,12 @@ render({ status: "match", state, top1_rate: 0.296 });
   render({ status: "match", state, top1_rate: 0.296 });
 }
 
+// The first thing the socket sends, before a poll that may take 25 seconds.
+render({ status: "working", message: "reading the match and looking up players" });
+ck("the opening message says what it is doing",
+   els.map.textContent === "STARTING"
+   && /reading the match/.test(els.stage.innerHTML));
+render({ status: "match", state, top1_rate: 0.296 });
+
 console.log(bad ? `\n${bad} FAILED` : "\nall checks passed");
 process.exit(bad ? 1 : 0);

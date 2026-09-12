@@ -622,6 +622,15 @@ function render(msg){
     $("stage").innerHTML = `<div class="idle">${esc(msg.message)}</div>`;
     return;
   }
+  /* Sent the moment the socket opens, because the first poll can spend its
+     whole deadline resolving ten players. "connecting" for 25 seconds reads
+     as broken; saying what it is doing reads as busy. */
+  if (msg.status === "working"){
+    $("map").textContent = "STARTING";
+    $("sub").textContent = msg.message;
+    $("stage").innerHTML = `<div class="idle">${esc(msg.message)}…</div>`;
+    return;
+  }
   if (msg.status === "lobby"){
     $("map").textContent = "STANDBY"; $("sub").textContent = "waiting for a match";
     $("stage").innerHTML = `<div class="idle">Queue, or start a custom game.</div>`;
