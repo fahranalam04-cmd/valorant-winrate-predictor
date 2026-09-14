@@ -659,36 +659,47 @@ function resultHTML(rv){
   </div>`;
 }
 
-/* Predicted against actual, player by player. The point of keeping a tab. */
+/* Predicted against actual, player by player: the end-of-game scoreboard with
+   what the page said beforehand beside it. The point of keeping a tab. */
 function compareHTML(rv){
   if (!rv || !rv.settled) return "";
   const rows = rv.players.filter(p => p.played).sort((a, b) =>
     (a.team === rv.own_team ? 0 : 1) - (b.team === rv.own_team ? 0 : 1)
     || (a.predicted_rank || 99) - (b.predicted_rank || 99));
   if (!rows.length) return "";
-  const cell = p => {
-    if (p.predicted_rank && p.actual_rank){
-      const move = p.predicted_rank - p.actual_rank;
-      const cls = move > 0 ? "beat" : move < 0 ? "under" : "";
-      return `<td class="${cls}">${i0(p.actual_rank)}${
-        move ? ` (${move > 0 ? "+" : ""}${i0(move)})` : ""}</td>`;
-    }
-    return `<td>—</td>`;
+  const sum = rv.summary || {};
+  const call = v => v === 1 ? `<span class="beat">right</span>`
+                 : v === 0 ? `<span class="under">wrong</span>` : "—";
+  const place = p => {
+    if (!p.predicted_rank || !p.actual_rank) return `<td>—</td>`;
+    const move = p.predicted_rank - p.actual_rank;
+    const cls = move > 0 ? "beat" : move < 0 ? "under" : "";
+    return `<td class="${cls}">${i0(p.actual_rank)}${
+      move ? ` (${move > 0 ? "+" : ""}${i0(move)})` : ""}</td>`;
   };
-  return `<div class="compare"><h2>Predicted against actual</h2><table>
+  return `<div class="compare"><h2>Predicted against the scoreboard</h2>
+    <div class="cmp" style="border:0;padding:0 0 10px"><span class="k">
+      Winner ${call(sum.winner_called)} · top pick ${call(sum.top_pick_hit)} ·
+      ${i0(sum.within_one)} of ${i0(sum.rated)} players finished within one
+      place of where the score put them${sum.order == null ? "" :
+        ` · order ${sum.order >= 0 ? "+" : ""}${Number(sum.order).toFixed(2)}`}
+    </span></div>
+    <table>
     <thead><tr><th>Player</th><th>Score</th><th>Predicted</th><th>ACS</th>
-      <th>K/D</th><th>Rank</th></tr></thead><tbody>
+      <th>K / D / A</th><th>HS%</th><th>Placed</th></tr></thead><tbody>
     ${rows.map(p => `<tr class="${p.is_you ? "you" : p.team === rv.own_team
         ? "" : "enemy"}">
       <td>${esc(p.name)}${p.is_you ? " (you)" : ""}
         <span class="ag">${esc(p.agent || "")}</span></td>
       <td>${p.predicted_score === null ? "—" : esc(p.predicted_score)}</td>
       <td>${p.predicted_rank ? "#" + i0(p.predicted_rank) : "—"}</td>
-      <td>${n1(p.acs)}</td><td>${n2(p.kd)}</td>${cell(p)}</tr>`).join("")}
+      <td>${n1(p.acs)}</td>
+      <td>${i0(p.kills)}/${i0(p.deaths)}/${i0(p.assists)}</td>
+      <td>${pc(p.headshot_rate)}</td>${place(p)}</tr>`).join("")}
     </tbody></table>
-    <div class="cmp" style="border:0;padding-top:9px"><span class="k">Rank is by
-      combat score in that match; the bracket is places gained or lost against
-      where the 0-100 score put them.</span></div></div>`;
+    <div class="cmp" style="border:0;padding-top:9px"><span class="k">Placed is
+      by combat score in that match; the bracket is places gained or lost
+      against where the 0-100 score put them.</span></div></div>`;
 }
 
 /* ---------------- page ---------------- */

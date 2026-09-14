@@ -150,10 +150,12 @@ turns that off.
 dashboard spends one API call on it and the tab shows:
 
 - won or lost, the final score, and whether the prediction was right
-- **predicted against actual, player by player** -- the 0-100 score and the
-  place it put each player, beside the combat score they actually managed and
-  where that put them. The bracket is places gained or lost.
-- whether the player the score put first really did have the best game
+- **the end-of-game scoreboard with the prediction beside it** -- each player's
+  0-100 score and predicted placing, next to their real ACS, kills/deaths/
+  assists, headshot % and final placing. The bracket is places gained or lost.
+- **a line saying how much it got right**: winner right or wrong, top pick
+  right or wrong, how many players finished within one place of where the score
+  put them, and the rank correlation across the lobby
 
 **The scorecard** at `/results` is every match the dashboard has recorded:
 how often it called them right, how its predicted percentages compare with how
@@ -164,8 +166,33 @@ and says plainly when there are too few matches to conclude anything -- around
 
 Two rules keep it honest. **Only standard bomb defusal counts** toward the
 figures, because that is all the model was trained on; other modes are recorded
-and listed but excluded. And **none of it becomes training data**: scoring the
-model on your matches and then training on them is a loop that flatters itself.
+and listed but excluded.
+
+And the record of *what was predicted* is never a feature or a label. The
+finished matches themselves are stored like any other match and reach training
+the ordinary way, through the time-ordered split -- being your newest matches,
+they land in validation or test rather than training. That distinction is the
+whole point: a match used to train the model can no longer measure it, so
+`tools/improve.py` checks where each recorded match sits and says so instead of
+quietly counting it.
+
+## Improving the model from the record
+
+```bash
+python tools/improve.py             # where it is wrong, and what that suggests
+python tools/improve.py --retrain   # measure, retrain, measure again
+```
+
+The report splits your matches by map, by how much of the lobby was known, by
+stated confidence and by what it predicted, with the interval on every figure,
+then re-scores every recorded match with the model *as it stands now* -- rebuilt
+at each match's own start time through the replay path, so a match still cannot
+inform its own prediction. That gives a straight comparison between the model
+that was live at the time and the one you have now, on identical matches.
+
+`--retrain` measures, retrains on the grown data, refits the player-score index
+and measures again, then names how many of your matches have moved inside the
+training window and therefore no longer count as a fair test.
 
 The prediction stored is the **first** one for the match -- what the page said
 at the loading screen. A later poll knows more, so letting it overwrite would

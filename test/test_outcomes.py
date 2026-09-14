@@ -254,3 +254,94 @@ def test_a_recorded_state_is_json_and_replays_the_card(conn):
         conn.execute("SELECT state_json FROM live_predictions").fetchone()[0])
     assert stored["players"][0]["name"] == "b0#NA1"
     assert stored["prediction"]["own_probability"] == pytest.approx(0.62)
+
+
+# --- how much it got right, and what that suggests ---------------------
+
+def _improve():
+    spec = importlib.util.spec_from_file_location(
+        "improve", ROOT.parent / "tools" / "improve.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_match_summary_counts_what_was_right(conn):
+    outcomes.record(conn, state(scores=(90, 70, 50, 30, 10)), now=1000)
+    outcomes.settle(conn, FakeAPI(finished(winner="Blue", best="b3")), "na",
+                    "m1", now=2000)
+    got = review.compare(conn, "m1")["summary"]
+
+    assert got["winner_called"] == 1
+    assert got["top_pick_hit"] == 0
+    assert got["rated"] == 5, "only the five with a predicted score"
+    assert 0 <= got["within_one"] <= got["rated"]
+    assert got["order"] is not None, "a rank correlation over those five"
+
+
+def test_the_ordering_is_pooled_across_matches(conn):
+    """One lobby is five players and a lot of luck; the pool is the measure."""
+    for i in range(3):
+        payload = finished(winner="Blue", best="b3")
+        payload["metadata"]["match_id"] = f"m{i}"
+        outcomes.record(conn, state(match_id=f"m{i}"), now=1000 + i)
+        outcomes.settle(conn, FakeAPI(payload), "na", f"m{i}", now=2000)
+
+    order = review.scorecard(conn)["order"]
+    assert order["players"] == 15, "five rated players in each of three matches"
+    assert 0 <= order["within_one_rate"] <= 1
+    assert order["order"] is not None
+
+
+def test_the_report_says_which_matches_can_still_judge_the_model(conn):
+    """A match inside the training window cannot measure the model any more."""
+    improve = _improve()
+    outcomes.record(conn, state(), now=1000)
+    outcomes.settle(conn, FakeAPI(finished()), "na", "m1", now=2000)
+    rows = list(conn.execute("SELECT * FROM live_predictions"))
+
+    # One match is too little to draw a split from, so it says nothing rather
+    # than inventing a boundary.
+    assert improve.fairness(conn, rows) == {}
+
+    # With a spread of matches in the store it places each one.
+    leak = _leakage()
+    for i in range(40):
+        leak.ingest(conn, leak.make_match(
+            f"bulk{i}", f"2026-07-{i % 28 + 1:02d}T00:00:00Z"))
+    fair = improve.fairness(conn, rows)
+    assert sum(fair.values()) == 1
+    assert set(fair) == {"train", "val", "test"}
+
+
+def test_the_report_runs_and_writes_its_findings(conn, capsys):
+    improve = _improve()
+    outcomes.record(conn, state(), now=1000)
+    outcomes.settle(conn, FakeAPI(finished()), "na", "m1", now=2000)
+
+    card = improve.report(conn)
+    printed = capsys.readouterr().out
+    assert "WHAT YOUR OWN MATCHES SAY" in printed
+    assert "1 recorded" in printed
+    assert card["competitive"]["n"] == 1
+    assert "fairness" in card
+
+
+def test_the_suggestions_lead_with_the_thinness_of_the_evidence():
+    improve = _improve()
+    thin = {"competitive": {"n": 4, "se": 0.25, "actual": 0.5, "predicted": 0.5},
+            "by_coverage": [], "order": {}}
+    lines = improve.suggestions(thin)
+    assert "30 matches" in lines[0]
+    assert any("--retrain" in line for line in lines)
+
+
+def test_a_thin_lobby_points_at_the_crawler():
+    improve = _improve()
+    card = {"competitive": {"n": 40, "se": 0.08, "actual": 0.5, "predicted": 0.5},
+            "by_coverage": [{"label": "5/10 known", "n": 20, "accuracy": 0.45,
+                             "predicted": 0.5, "actual": 0.45, "se": 0.1},
+                            {"label": "9/10 known", "n": 20, "accuracy": 0.65,
+                             "predicted": 0.5, "actual": 0.65, "se": 0.1}],
+            "order": {}}
+    assert any("crawler" in line for line in improve.suggestions(card))

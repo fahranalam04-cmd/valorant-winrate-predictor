@@ -70,8 +70,10 @@ tr.out td{color:var(--ghost)}
     result once it is published. Only standard bomb-defusal matches count
     toward the figures: the model never saw swiftplay or deathmatch, so folding
     those in would measure the wrong thing.<br>
-    None of this becomes training data. Scoring the model on your matches and
-    then training on them is a loop that flatters itself.<br>
+    The record of what was predicted is never a feature or a label. The
+    matches themselves are stored like any other and reach training through the
+    time-ordered split; <code>tools/improve.py</code> reports which of them
+    have moved inside the training window and can no longer judge the model.<br>
     <a href="/">Back to the live view</a>
   </div>
 </div>

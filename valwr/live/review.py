@@ -30,6 +30,39 @@ BANDS = ((0.0, 0.45), (0.45, 0.50), (0.50, 0.55), (0.55, 1.0))
 TOP_PICK_CHANCE = 0.2
 
 
+def spearman(xs: list[float], ys: list[float]) -> float | None:
+    """Rank correlation, for ordering players rather than scoring them.
+
+    The 0-100 score is a ranking claim -- who will play best -- so the honest
+    check is whether its order matched the scoreboard's, not whether the number
+    was close to anything.
+    """
+    n = len(xs)
+    if n < 3:
+        return None
+
+    def ranks(v):
+        order = sorted(range(n), key=lambda i: v[i])
+        out = [0.0] * n
+        i = 0
+        while i < n:
+            j = i
+            while j + 1 < n and v[order[j + 1]] == v[order[i]]:
+                j += 1
+            shared = (i + j) / 2.0 + 1.0
+            for k in range(i, j + 1):
+                out[order[k]] = shared
+            i = j + 1
+        return out
+
+    rx, ry = ranks(xs), ranks(ys)
+    mx, my = sum(rx) / n, sum(ry) / n
+    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    dx = sum((a - mx) ** 2 for a in rx) ** 0.5
+    dy = sum((b - my) ** 2 for b in ry) ** 0.5
+    return num / (dx * dy) if dx and dy else None
+
+
 def _se(p: float, n: int) -> float:
     """Standard error of a proportion. The number that keeps this honest."""
     return math.sqrt(max(p * (1 - p), 1e-9) / n) if n else float("nan")
@@ -150,7 +183,24 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
         "picked": picked["name"] if picked else None,
         "actually_best": best["name"] if best else None,
     }
+    out["summary"] = summarise_match(out)
     return out
+
+
+def summarise_match(got: dict) -> dict:
+    """How much of this match the prediction got right, in four numbers."""
+    rated = [p for p in got["players"]
+             if p["predicted_rank"] and p["actual_rank"]]
+    within = sum(1 for p in rated
+                 if abs(p["predicted_rank"] - p["actual_rank"]) <= 1)
+    return {
+        "winner_called": got.get("correct"),
+        "top_pick_hit": got.get("top_pick", {}).get("hit"),
+        "rated": len(rated),
+        "within_one": within,
+        "order": spearman([p["predicted_rank"] for p in rated],
+                          [p["actual_rank"] for p in rated]),
+    }
 
 
 def _top_pick_id(state: dict, team: str | None) -> str | None:
@@ -214,6 +264,8 @@ def scorecard(conn: sqlite3.Connection, limit: int = 50) -> dict:
             "se": _se(hits / len(picks), len(picks)) if picks else None,
             "chance": TOP_PICK_CHANCE,
         },
+        "by_map": _bucket(standard, lambda r: r["map"] or "?"),
+        "by_mode": _bucket(settled, lambda r: r["mode"] or "?"),
         "matches": [{
             "match_id": r["match_id"], "map": r["map"], "mode": r["mode"],
             "made_at": r["made_at"], "standard_mode": bool(r["standard_mode"]),
@@ -224,8 +276,37 @@ def scorecard(conn: sqlite3.Connection, limit: int = 50) -> dict:
             "score": _score_line(r),
         } for r in rows[:limit]],
     }
+    out["order"] = _order_quality(conn, standard)
     out["insights"] = insights(out)
     return out
+
+
+def _order_quality(conn: sqlite3.Connection, rows: list) -> dict:
+    """How well the 0-100 score ordered each lobby, across every match.
+
+    One match says nothing -- five players and a lot of luck. Pooled over a
+    season it is the sharpest thing this record measures, because every match
+    contributes ten rankings rather than one binary outcome.
+    """
+    pairs: list[tuple[float, float]] = []
+    within = rated = 0
+    for r in rows:
+        got = compare(conn, r["match_id"])
+        if not got or not got.get("summary"):
+            continue
+        for p in got["players"]:
+            if p["predicted_rank"] and p["actual_rank"]:
+                pairs.append((p["predicted_rank"], p["actual_rank"]))
+                rated += 1
+                within += abs(p["predicted_rank"] - p["actual_rank"]) <= 1
+    if not pairs:
+        return {"players": 0}
+    return {
+        "players": rated,
+        "within_one": within,
+        "within_one_rate": within / rated,
+        "order": spearman([a for a, _ in pairs], [b for _, b in pairs]),
+    }
 
 
 def _band(p: float) -> str:
@@ -300,6 +381,28 @@ def insights(card: dict) -> list[str]:
                        f"{high['accuracy'] * 100:.0f}% at {high['label']} "
                        f"against {low['accuracy'] * 100:.0f}% at {low['label']}. "
                        f"Leaving the crawler running would help.")
+
+    order = card.get("order") or {}
+    if order.get("players", 0) >= 50 and order.get("order") is not None:
+        rho = order["order"]
+        strength = ("no better than shuffling them" if abs(rho) < 0.1
+                    else "a weak but real ordering" if rho < 0.3
+                    else "a clear ordering")
+        out.append(f"Across {order['players']} player rankings, the 0-100 score "
+                   f"ordered the scoreboard at rho {rho:+.2f} -- {strength}. "
+                   f"{order['within_one_rate'] * 100:.0f}% landed within one "
+                   f"place of where it put them.")
+
+    maps = [b for b in card.get("by_map", []) if b["n"] >= 5]
+    if len(maps) >= 3:
+        low = min(maps, key=lambda b: b["accuracy"])
+        high = max(maps, key=lambda b: b["accuracy"])
+        if high["accuracy"] - low["accuracy"] > 2 * (low["se"] + high["se"]):
+            out.append(f"By map, {high['label']} is called right "
+                       f"{high['accuracy'] * 100:.0f}% of the time against "
+                       f"{low['accuracy'] * 100:.0f}% on {low['label']}. Worth "
+                       f"a look: the model has no map-specific term beyond a "
+                       f"small per-player one.")
 
     others = card["everything"]["n"] - n
     if others:

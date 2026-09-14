@@ -296,6 +296,8 @@ ck("the opening message says what it is doing",
     predicted: { own_probability: 0.573 }, correct: 1,
     actual: { winner: state.own_team, own_won: 1, score: "13-9" },
     top_pick: { hit: 0, picked: "Meridian#na1", actually_best: "Yarrow#na2" },
+    summary: { winner_called: 1, top_pick_hit: 0, rated: 8, within_one: 5,
+               order: 0.42 },
     players: state.players.map((q, i) => Object.assign({}, q, {
       played: true, predicted_score: q.score,
       predicted_rank: q.score === null ? null : i + 1,
@@ -306,6 +308,11 @@ ck("the opening message says what it is doing",
   ck("a played match shows the result", /class="result won"/.test(q) && q.includes("13-9"));
   ck("and whether the call was right", /called it/.test(q));
   ck("and who actually played best", q.includes("Yarrow#na2"));
+  ck("the summary says what it got right",
+     /Winner <span class="beat">right/.test(q) && /5 of 8 players/.test(q)
+     && /order \+0.42/.test(q));
+  ck("the scoreboard columns are all there",
+     /K \/ D \/ A/.test(q) && /HS%/.test(q) && /Placed/.test(q));
   ck("predicted against actual is tabulated",
      /class="compare"/.test(q) && (q.match(/<tr class=/g) || []).length >= 10);
 

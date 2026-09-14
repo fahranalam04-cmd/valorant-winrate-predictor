@@ -1,0 +1,31 @@
+{
+  "recorded": 0,
+  "settled": 0,
+  "pending": 0,
+  "competitive": {
+    "n": 0
+  },
+  "everything": {
+    "n": 0
+  },
+  "calibration": [],
+  "by_confidence": [],
+  "by_coverage": [],
+  "top_pick": {
+    "n": 0,
+    "hits": 0,
+    "rate": null,
+    "se": null,
+    "chance": 0.2
+  },
+  "by_map": [],
+  "by_mode": [],
+  "matches": [],
+  "order": {
+    "players": 0
+  },
+  "insights": [
+    "No competitive match has been scored yet. Play one with the dashboard open and it will appear here."
+  ],
+  "fairness": {}
+}

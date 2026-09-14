@@ -267,6 +267,7 @@ python -m valwr.model.analyze                # equal-rank subset, and both READM
 python tools/build_perf_index.py             # population reference for the 0-100 score
 python tools/validate_potential.py --write-index   # measure and record its hit rate
 python tools/model_metrics.py                # every model, every metric, into docs/MODEL-CHOICE.md
+python tools/improve.py                      # what your own recorded matches say, and what to fix
 ```
 
 `train` fits ten candidates, picks by the one-standard-error rule, and writes
