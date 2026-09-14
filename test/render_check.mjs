@@ -301,7 +301,20 @@ ck("the opening message says what it is doing",
     players: state.players.map((q, i) => Object.assign({}, q, {
       played: true, predicted_score: q.score,
       predicted_rank: q.score === null ? null : i + 1,
-      acs: 210 + i, kd: 1.15, actual_rank: 10 - i })),
+      acs: 210 + i, kd: 1.15, kills: 17, deaths: 14, assists: 5,
+      headshot_rate: 0.241, actual_rank: 10 - i,
+      // What the page knew beforehand, which is what the block compares
+      // the match against. Player 3 has none of it on purpose.
+      career_acs: i === 3 ? null : 198 + i, career_kd: i === 3 ? null : 1.04,
+      career_hs: i === 3 ? null : 0.212, career_games: i === 3 ? 0 : 40 + i,
+      recent_kd: 1.11,
+      // One player below their own average, because a bare "8" in red
+      // once read as a gain of eight.
+      acs_delta: i === 3 ? null : i === 4 ? -8.0 : 12.0,
+      kd_delta: i === 3 ? null : 0.11,
+      hs_delta: i === 3 ? null : 0.029,
+      versus_usual: i === 3 ? null : "above their usual",
+      place_delta: q.score === null ? null : (i + 1) - (10 - i) })),
   };
   render({ status: "match", state, review: rv, top1_rate: 0.296 });
   const q = els.stage.innerHTML;
@@ -311,10 +324,31 @@ ck("the opening message says what it is doing",
   ck("the summary says what it got right",
      /Winner <span class="beat">right/.test(q) && /5 of 8 players/.test(q)
      && /order \+0.42/.test(q));
-  ck("the scoreboard columns are all there",
-     /K \/ D \/ A/.test(q) && /HS%/.test(q) && /Placed/.test(q));
-  ck("predicted against actual is tabulated",
-     /class="compare"/.test(q) && (q.match(/<tr class=/g) || []).length >= 10);
+  ck("every player who played gets their own block",
+     (q.match(/class="pblock/g) || []).length === state.players.length);
+  ck("both teams are grouped",
+     />Your team</.test(q) && />Enemy team</.test(q));
+  ck("each block compares before against this match",
+     /K \/ D \/ A/.test(q) && /Headshots/.test(q)
+     && />Before/.test(q) && />This match</.test(q) && />Change</.test(q));
+  ck("the career line is the one the page held beforehand",
+     q.includes("198.0") && q.includes("1.04") && q.includes("21.2%"));
+  ck("changes are signed and coloured",
+     /class="d up">\+12/.test(q) && /\+2.9pt/.test(q));
+  ck("a loss keeps its minus sign",
+     /class="d dn">−8/.test(q));
+  ck("placing is spelled out rather than bracketed",
+     /exactly where the score put them|places? (better|worse) than/.test(q));
+  // Both rankings run across the lobby. "#6 of five" was the bug.
+  ck("a rank says what it is out of",
+     /Ranked <b>#1<\/b> of the 8 players/.test(q)
+     && /of 10 on combat\s+score/.test(q));
+  ck("and how they played against their own average is stated",
+     /above their usual/.test(q));
+  ck("a player with no history still renders, saying nothing",
+     (q.match(/class="d mute">/g) || []).length >= 3);
+  ck("the reason the score gave is kept beside the outcome",
+     /class="pwhy"/.test(q));
 
   escape();
   ck("the result survives closing the card",

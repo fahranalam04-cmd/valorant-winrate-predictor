@@ -139,6 +139,9 @@ function finished(){
 
   const players = s.players.map(p => {
     const deaths = Math.max(8, Math.round(kills[p.puuid] * 0.85));
+    const kd = Math.round((kills[p.puuid] / deaths) * 100) / 100;
+    const hs = 0.18 + (kills[p.puuid] % 7) / 50;
+    const c = p.career;
     return Object.assign({}, p, {
       played: true,
       predicted_score: p.score,
@@ -148,9 +151,25 @@ function finished(){
       kills: kills[p.puuid],
       deaths: deaths,
       assists: Math.round(kills[p.puuid] * 0.4),
-      kd: Math.round((kills[p.puuid] / deaths) * 100) / 100,
-      headshot_rate: 0.18 + (kills[p.puuid] % 7) / 50,
+      kd: kd,
+      headshot_rate: hs,
       actual_rank: byAcs.indexOf(p.puuid) + 1,
+      // Their own career line, which is the baseline each block reads the
+      // match against. Invented like everything else here.
+      career_acs: c ? c.acs : null,
+      career_kd: c ? c.kd : null,
+      career_hs: c ? c.headshot_rate : null,
+      career_games: c ? c.games : null,
+      recent_kd: p.recent ? p.recent.kd : null,
+      acs_delta: c ? Math.round((acs[p.puuid] - c.acs) * 10) / 10 : null,
+      kd_delta: c ? Math.round((kd - c.kd) * 100) / 100 : null,
+      hs_delta: c ? Math.round((hs - c.headshot_rate) * 10000) / 10000 : null,
+      versus_usual: !c ? null
+        : acs[p.puuid] / c.acs >= 1.15 ? "well above their usual"
+        : acs[p.puuid] / c.acs >= 1.05 ? "above their usual"
+        : acs[p.puuid] / c.acs <= 0.85 ? "well below their usual"
+        : acs[p.puuid] / c.acs <= 0.95 ? "below their usual"
+        : "about their usual",
     });
   });
 
@@ -245,9 +264,14 @@ def build(out: Path, conn=None) -> dict:
         if not (out / MARKER).exists() and any(out.iterdir()):
             raise SystemExit(f"{out} exists and is not a demo build; refusing "
                              f"to replace it")
-        shutil.rmtree(out)
-    (out / "agents").mkdir(parents=True)
-    (out / "maps").mkdir()
+        # Clear the contents rather than the directory itself. On Windows an
+        # open terminal or a browser sitting in `site/` holds a lock on the
+        # directory, and rmtree then fails on a build that has nothing wrong
+        # with it.
+        for child in out.iterdir():
+            shutil.rmtree(child) if child.is_dir() else child.unlink()
+    (out / "agents").mkdir(parents=True, exist_ok=True)
+    (out / "maps").mkdir(exist_ok=True)
 
     state = demo_state(conn)
     maps = [m for m in POOL if (MAPS / f"{_slug(m)}-splash.jpg").exists()]

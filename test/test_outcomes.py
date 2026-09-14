@@ -38,7 +38,7 @@ def conn(tmp_path):
 
 
 def state(match_id="m1", phase="coregame", own="Blue", p=0.62, mode="Bomb",
-          scores=(90, 70, 50, 30, 10)):
+          scores=(90, 70, 50, 30, 10), career=None):
     """A dashboard state in the shape poll_once returns."""
     players = []
     for i, puuid in enumerate([f"b{i}" for i in range(5)] + [f"r{i}" for i in range(5)]):
@@ -46,7 +46,8 @@ def state(match_id="m1", phase="coregame", own="Blue", p=0.62, mode="Bomb",
             "puuid": puuid, "name": f"{puuid}#NA1", "team": "Blue" if i < 5 else "Red",
             "agent": "Jett", "is_you": puuid == "b0",
             "score": scores[i] if i < 5 else None,
-            "reason": "wins duels", "career": None, "recent": None,
+            "reason": "wins duels", "recent": {"kd": 1.1},
+            "career": dict(career) if career else None,
         })
     return {
         "match_id": match_id, "phase": phase, "is_custom": False,
@@ -203,6 +204,61 @@ def test_the_comparison_pairs_prediction_with_performance(conn):
     assert me["acs"] is not None and me["kd"] is not None
     best = next(p for p in got["players"] if p["puuid"] == "b3")
     assert best["actual_rank"] == 1, "highest combat score in the match"
+
+
+def test_every_player_is_compared_against_their_own_history(conn):
+    """The per-player block reads a match against the player, not the lobby.
+
+    The 0-100 already ranks players against each other. What the scoreboard can
+    add is whether someone played like themselves, so each figure the page held
+    beforehand has to survive into the comparison beside what they did.
+    """
+    outcomes.record(conn, state(career={"acs": 200.0, "kd": 1.0,
+                                        "headshot_rate": 0.20, "games": 40}),
+                    now=1000)
+    outcomes.settle(conn, FakeAPI(finished(best="b3")), "na", "m1", now=2000)
+    got = review.compare(conn, "m1")
+
+    top = next(p for p in got["players"] if p["puuid"] == "b3")
+    assert top["career_acs"] == 200.0 and top["career_games"] == 40
+    assert top["career_kd"] == 1.0 and top["career_hs"] == 0.20
+    assert top["recent_kd"] == 1.1
+    # 6000 combat score over the fixture's rounds, against a career 200.
+    assert top["acs"] is not None
+    assert top["acs_delta"] == pytest.approx(top["acs"] - 200.0, abs=0.05)
+    assert top["versus_usual"] == "well above their usual"
+    assert top["place_delta"] == top["predicted_rank"] - top["actual_rank"]
+
+    # Everyone else scored 3000, which is well under their career line.
+    other = next(p for p in got["players"] if p["puuid"] == "b1")
+    assert other["acs_delta"] < 0
+    assert other["versus_usual"] == "well below their usual"
+
+
+def test_a_player_with_no_history_is_compared_against_nothing(conn):
+    """Half the lobby is usually unknown. The block must render for them and
+    say nothing rather than invent a baseline of zero."""
+    outcomes.record(conn, state(career=None), now=1000)
+    outcomes.settle(conn, FakeAPI(finished()), "na", "m1", now=2000)
+    got = review.compare(conn, "m1")
+    for player in got["players"]:
+        assert player["career_acs"] is None
+        assert player["acs_delta"] is None and player["kd_delta"] is None
+        assert player["hs_delta"] is None
+        assert player["versus_usual"] is None
+
+
+def test_how_a_match_reads_against_a_career_average():
+    """The bands are wide on purpose -- ACS swings hugely match to match."""
+    assert review.against_usual(240, 200) == "well above their usual"
+    assert review.against_usual(212, 200) == "above their usual"
+    assert review.against_usual(200, 200) == "about their usual"
+    assert review.against_usual(188, 200) == "below their usual"
+    assert review.against_usual(150, 200) == "well below their usual"
+    # Nothing to compare against is not the same as average.
+    assert review.against_usual(240, None) is None
+    assert review.against_usual(None, 200) is None
+    assert review.against_usual(240, 0) is None
 
 
 def test_an_unsettled_match_says_it_is_waiting(conn):

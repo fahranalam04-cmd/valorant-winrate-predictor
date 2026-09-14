@@ -29,6 +29,33 @@ BANDS = ((0.0, 0.45), (0.45, 0.50), (0.50, 0.55), (0.55, 1.0))
 # The per-player score picks one of five, so chance is 20%.
 TOP_PICK_CHANCE = 0.2
 
+# How far from a player's own career average counts as a real departure. ACS
+# swings hugely match to match, so the bands are wide on purpose: the question
+# is "did they play like themselves", not "were they exactly average".
+WELL_ABOVE, ABOVE, BELOW, WELL_BELOW = 1.15, 1.05, 0.95, 0.85
+
+
+def against_usual(actual: float | None, career: float | None) -> str | None:
+    """How a match compares with the player's own career average.
+
+    The 0-100 score ranks players against each other. This asks a different and
+    more answerable question -- did this player do what they usually do -- which
+    is what makes a per-player comparison worth reading rather than a restatement
+    of who topped the scoreboard.
+    """
+    if actual is None or not career:
+        return None
+    ratio = actual / career
+    if ratio >= WELL_ABOVE:
+        return "well above their usual"
+    if ratio >= ABOVE:
+        return "above their usual"
+    if ratio <= WELL_BELOW:
+        return "well below their usual"
+    if ratio <= BELOW:
+        return "below their usual"
+    return "about their usual"
+
 
 def spearman(xs: list[float], ys: list[float]) -> float | None:
     """Rank correlation, for ordering players rather than scoring them.
@@ -125,9 +152,29 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
         if r:
             hits = (r["headshots"] or 0) + (r["bodyshots"] or 0) + (r["legshots"] or 0)
             shots = (r["headshots"] or 0) / hits if hits else None
+        # What the page knew about them beforehand: their own career and form,
+        # which is the baseline the match is read against.
+        career = p.get("career") or {}
+        recent = p.get("recent") or {}
+        acs_now = actual_acs.get(p["puuid"])
+        kd_now = ((r["kills"] or 0) / r["deaths"]) if r and r["deaths"] else None
         players.append({
+            "career_acs": career.get("acs"),
+            "career_kd": career.get("kd"),
+            "career_hs": career.get("headshot_rate"),
+            "career_games": career.get("games"),
+            "recent_kd": recent.get("kd"),
+            "acs_delta": (round(acs_now - career["acs"], 1)
+                          if acs_now is not None and career.get("acs") else None),
+            "kd_delta": (round(kd_now - career["kd"], 2)
+                         if kd_now is not None and career.get("kd") else None),
+            "hs_delta": (round(shots - career["headshot_rate"], 4)
+                         if shots is not None and career.get("headshot_rate")
+                         else None),
+            "versus_usual": against_usual(acs_now, career.get("acs")),
             "puuid": p["puuid"], "name": p.get("name"), "team": p.get("team"),
             "agent": p.get("agent"), "is_you": p.get("is_you", False),
+            "rank": p.get("rank"),
             "predicted_score": p.get("score"),
             "predicted_rank": predicted_rank.get(p["puuid"]),
             "reason": p.get("reason"),
@@ -183,6 +230,11 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
         "picked": picked["name"] if picked else None,
         "actually_best": best["name"] if best else None,
     }
+    for p in players:
+        if p["predicted_rank"] and p["actual_rank"]:
+            p["place_delta"] = p["predicted_rank"] - p["actual_rank"]
+        else:
+            p["place_delta"] = None
     out["summary"] = summarise_match(out)
     return out
 

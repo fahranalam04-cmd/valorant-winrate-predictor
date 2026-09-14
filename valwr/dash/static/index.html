@@ -271,6 +271,43 @@ body{
 .compare tr.you td{color:var(--gold)}
 .compare tr.enemy td{color:var(--bone-dim)}
 .compare .beat{color:var(--win)} .compare .under{color:var(--val)}
+.compare h3{font:600 9.5px/1 var(--display);letter-spacing:.2em;
+  text-transform:uppercase;color:var(--ghost);margin:16px 0 8px}
+.compare h3:first-of-type{margin-top:6px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));
+  gap:10px}
+.pblock{background:var(--sunk);border-left:3px solid var(--line-soft);
+  padding:10px 12px 11px}
+.pblock.you{border-left-color:var(--gold)}
+.pblock.enemy{border-left-color:rgba(255,70,85,.45)}
+.phead{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.pwho b{font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:16px;letter-spacing:.02em}
+.pwho .tag{font:600 8px/1 var(--display);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--gold)}
+.pwho .ag{display:block;font:400 11px/1.3 var(--body);color:var(--slate);
+  margin-top:2px}
+.pscore{text-align:right;white-space:nowrap}
+.pscore b{font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:26px;line-height:1}
+.pscore span{display:block;font:600 8px/1 var(--display);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ghost);margin-top:3px}
+.pline{font-size:12px;line-height:1.5;color:var(--bone-dim);margin:8px 0 0}
+.pline b{color:var(--bone);font-weight:600}
+.pwhy{font-size:11.5px;line-height:1.45;color:var(--slate);font-style:italic;
+  margin-top:5px}
+table.pstats{width:100%;border-collapse:collapse;font-size:12px;margin-top:9px}
+table.pstats th{font:600 8px/1 var(--display);letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ghost);text-align:right;
+  padding:0 0 4px;font-weight:600}
+table.pstats th .n{color:var(--line);letter-spacing:.04em}
+table.pstats th:first-child,table.pstats td:first-child{text-align:left;
+  color:var(--ghost)}
+table.pstats td{padding:4px 0;border-top:1px solid var(--line-soft);
+  text-align:right;font-variant-numeric:tabular-nums}
+table.pstats td.mute,.pstats .mute{color:var(--ghost)}
+.pstats .d.up{color:var(--win)} .pstats .d.dn{color:var(--val)}
+@media(max-width:640px){.pgrid{grid-template-columns:1fr}}
 
 .st{position:relative;text-align:center}
 .st b{display:block;font-family:var(--display);font-stretch:condensed;
@@ -663,47 +700,112 @@ function resultHTML(rv){
   </div>`;
 }
 
-/* Predicted against actual, player by player: the end-of-game scoreboard with
-   what the page said beforehand beside it. The point of keeping a tab. */
+/* Predicted against actual, one player at a time.
+
+   The whole reason for keeping a tab per match is to read it afterwards, so
+   this is deliberately not a summary: every player gets their own block with
+   what the page knew beforehand -- their career line, their recent form, the
+   reason the score gave -- set against what they actually did, and the
+   difference between the two spelled out rather than left to be worked out.
+
+   The comparison that matters per player is against *themselves*, not against
+   the lobby. The 0-100 already ranks them against each other; "did they play
+   like they usually play" is the question the scoreboard can answer and the
+   ranking cannot. */
+function deltaCell(d, fmt, good){
+  if (d == null) return `<span class="d mute">—</span>`;
+  const cls = good === 0 ? "" : (d > 0) === (good > 0) ? "up" : "dn";
+  return `<span class="d ${cls}">${d > 0 ? "+" : "−"}${fmt(d)}</span>`;
+}
+
+function playerBlock(p, rv, rated, placed){
+  const seen = p.career_games || 0;
+  const mine = p.team === rv.own_team;
+  const move = (p.predicted_rank && p.actual_rank)
+    ? p.predicted_rank - p.actual_rank : null;
+  const places = n => `${n} place${n === 1 ? "" : "s"}`;
+  const placing = move === 0 ? `exactly where the score put them`
+    : `${places(Math.abs(move))} ${move > 0 ? "better" : "worse"} than the
+       score expected`;
+
+  // Their own baseline, which is what the match is read against. Without any
+  // history the block still renders -- the point is that the page said "--"
+  // beforehand and should keep saying it.
+  const rows = [
+    ["ACS", n1(p.career_acs), n1(p.acs),
+     deltaCell(p.acs_delta, v => Math.abs(v).toFixed(0), 1)],
+    ["K / D", p.career_kd == null ? "—" : Number(p.career_kd).toFixed(2),
+     p.kd == null ? "—" : Number(p.kd).toFixed(2),
+     deltaCell(p.kd_delta, v => Math.abs(v).toFixed(2), 1)],
+    ["Headshots", pc(p.career_hs), pc(p.headshot_rate),
+     deltaCell(p.hs_delta == null ? null : p.hs_delta * 100,
+               v => Math.abs(v).toFixed(1) + "pt", 1)],
+  ];
+
+  return `<div class="pblock ${p.is_you ? "you" : mine ? "" : "enemy"}">
+    <div class="phead">
+      <div class="pwho"><b>${esc(p.name)}</b>${p.is_you ? ` <span class="tag">you
+        </span>` : ""}<span class="ag">${esc(p.agent || "")}${
+        p.rank ? " · " + esc(p.rank.name || p.rank) : ""}</span></div>
+      <div class="pscore">${p.predicted_score === null
+        || p.predicted_score === undefined ? `<span class="mute">no score</span>`
+        : `<b>${i0(p.predicted_score)}</b><span>out of 100</span>`}</div>
+    </div>
+    <div class="pline">${p.predicted_rank
+      ? `Ranked <b>#${i0(p.predicted_rank)}</b> of the ${i0(rated)} players the
+         page could score, and finished <b>#${p.actual_rank
+           ? i0(p.actual_rank) : "—"}</b> of ${i0(placed)} on combat
+         score${move === null ? "" : ` — ${placing}`}.`
+      : `There was no history to score them on before the match${p.actual_rank
+         ? `; they finished #${i0(p.actual_rank)} of ${i0(placed)} on combat
+            score` : ""}.`}
+      ${p.versus_usual ? ` They played <b>${esc(p.versus_usual)}</b>.` : ""}</div>
+    ${p.reason ? `<div class="pwhy">“${esc(p.reason)}”</div>` : ""}
+    <table class="pstats"><thead><tr><th></th>
+      <th>Before${seen ? ` <span class="n">${i0(seen)} game${
+        seen === 1 ? "" : "s"}</span>` : ""}</th>
+      <th>This match</th><th>Change</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td>
+        <td>${r[3]}</td></tr>`).join("")}
+      <tr><td>K / D / A</td><td class="mute">${p.recent_kd == null ? "—"
+        : Number(p.recent_kd).toFixed(2) + " last 20"}</td>
+        <td>${i0(p.kills)} / ${i0(p.deaths)} / ${i0(p.assists)}</td>
+        <td class="mute">—</td></tr>
+    </tbody></table></div>`;
+}
+
 function compareHTML(rv){
   if (!rv || !rv.settled) return "";
-  const rows = rv.players.filter(p => p.played).sort((a, b) =>
-    (a.team === rv.own_team ? 0 : 1) - (b.team === rv.own_team ? 0 : 1)
-    || (a.predicted_rank || 99) - (b.predicted_rank || 99));
-  if (!rows.length) return "";
+  const played = rv.players.filter(p => p.played);
+  if (!played.length) return "";
   const sum = rv.summary || {};
   const call = v => v === 1 ? `<span class="beat">right</span>`
                  : v === 0 ? `<span class="under">wrong</span>` : "—";
-  const place = p => {
-    if (!p.predicted_rank || !p.actual_rank) return `<td>—</td>`;
-    const move = p.predicted_rank - p.actual_rank;
-    const cls = move > 0 ? "beat" : move < 0 ? "under" : "";
-    return `<td class="${cls}">${i0(p.actual_rank)}${
-      move ? ` (${move > 0 ? "+" : ""}${i0(move)})` : ""}</td>`;
-  };
+  const side = t => played.filter(p => p.team === t)
+    .sort((a, b) => (a.predicted_rank || 99) - (b.predicted_rank || 99));
+  const other = rv.own_team === "Blue" ? "Red" : "Blue";
+  // Both rankings run across the lobby, not across a team, so the block has
+  // to say what the number is out of or "#6" reads as sixth of five.
+  const rated = played.filter(p => p.predicted_rank).length;
+  const placed = played.filter(p => p.actual_rank).length;
+  const group = (label, list) => !list.length ? "" :
+    `<h3>${esc(label)}</h3><div class="pgrid">${
+      list.map(p => playerBlock(p, rv, rated, placed)).join("")}</div>`;
+
   return `<div class="compare"><h2>Predicted against the scoreboard</h2>
-    <div class="cmp" style="border:0;padding:0 0 10px"><span class="k">
+    <div class="cmp" style="border:0;padding:0 0 12px"><span class="k">
       Winner ${call(sum.winner_called)} · top pick ${call(sum.top_pick_hit)} ·
       ${i0(sum.within_one)} of ${i0(sum.rated)} players finished within one
       place of where the score put them${sum.order == null ? "" :
         ` · order ${sum.order >= 0 ? "+" : ""}${Number(sum.order).toFixed(2)}`}
     </span></div>
-    <table>
-    <thead><tr><th>Player</th><th>Score</th><th>Predicted</th><th>ACS</th>
-      <th>K / D / A</th><th>HS%</th><th>Placed</th></tr></thead><tbody>
-    ${rows.map(p => `<tr class="${p.is_you ? "you" : p.team === rv.own_team
-        ? "" : "enemy"}">
-      <td>${esc(p.name)}${p.is_you ? " (you)" : ""}
-        <span class="ag">${esc(p.agent || "")}</span></td>
-      <td>${p.predicted_score === null ? "—" : esc(p.predicted_score)}</td>
-      <td>${p.predicted_rank ? "#" + i0(p.predicted_rank) : "—"}</td>
-      <td>${n1(p.acs)}</td>
-      <td>${i0(p.kills)}/${i0(p.deaths)}/${i0(p.assists)}</td>
-      <td>${pc(p.headshot_rate)}</td>${place(p)}</tr>`).join("")}
-    </tbody></table>
-    <div class="cmp" style="border:0;padding-top:9px"><span class="k">Placed is
-      by combat score in that match; the bracket is places gained or lost
-      against where the 0-100 score put them.</span></div></div>`;
+    ${group("Your team", side(rv.own_team))}
+    ${group("Enemy team", side(other))}
+    <div class="cmp" style="border:0;padding-top:12px"><span class="k">Placing
+      is by combat score in that match. “Before” is the player's own career
+      average up to the moment the match started, never including the match
+      itself — so the change column is how they played against how they usually
+      play, not against the rest of the lobby.</span></div></div>`;
 }
 
 /* ---------------- page ---------------- */

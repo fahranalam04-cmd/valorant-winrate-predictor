@@ -164,10 +164,15 @@ def main(argv=None) -> int:
         # pinned tab settles into.
         page.evaluate("() => window.__demo.set('status', 'finished')")
         settle(page)
-        # The card is closed and the table scrolled to, because the comparison
-        # is the point of this shot and it sits below the rosters.
+        # The card is closed and the comparison scrolled to, because it is the
+        # point of this shot and it sits below the rosters. Its own top, not
+        # scroll_into_view_if_needed's -- the section is taller than the
+        # viewport now, so "if needed" lands halfway down it.
         page.keyboard.press("Escape")
-        page.locator(".compare").scroll_into_view_if_needed()
+        page.wait_for_timeout(300)
+        page.evaluate(
+            "() => window.scrollTo(0, document.querySelector('.compare')"
+            ".getBoundingClientRect().top + window.scrollY - 12)")
         page.wait_for_timeout(500)
         page.screenshot(path=str(OUT / "dashboard-result.jpg"), type="jpeg",
                         quality=86)

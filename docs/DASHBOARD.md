@@ -150,9 +150,18 @@ turns that off.
 dashboard spends one API call on it and the tab shows:
 
 - won or lost, the final score, and whether the prediction was right
-- **the end-of-game scoreboard with the prediction beside it** -- each player's
-  0-100 score and predicted placing, next to their real ACS, kills/deaths/
-  assists, headshot % and final placing. The bracket is places gained or lost.
+- **a block per player, not a summary row**: every player who played gets
+  their 0-100 score, the reason the score gave, and where it ranked them,
+  against where they actually finished on combat score -- then their own career
+  ACS, K/D and headshot rate from before the match set against what they did in
+  it, with the change signed in each row.
+
+  The per-player comparison is deliberately against the player rather than
+  against the lobby. The 0-100 already ranks players against each other; what
+  the finished scoreboard can add is whether someone played like themselves,
+  which is why each block leads with "about their usual", "above their usual"
+  and so on. "Before" never includes the match itself -- it is the same
+  point-in-time career line the page showed while the game was loading.
 - **a line saying how much it got right**: winner right or wrong, top pick
   right or wrong, how many players finished within one place of where the score
   put them, and the rank correlation across the lobby

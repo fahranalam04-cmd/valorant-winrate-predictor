@@ -294,9 +294,11 @@ first and tells you in plain language if anything is missing.
 Every match also opens a tab of its own, which keeps that lobby as it was
 predicted and fills in the result a few minutes after the game ends
 ([what that looks like](docs/images/dashboard-result.jpg)): won or lost, the
-final score, whether the call was right, and the end-of-game scoreboard beside
-each player's 0-100 score. `/results` scores every match it
-has recorded, with the interval around each figure.
+final score, whether the call was right, and then a block for every player --
+where the 0-100 score ranked them against where they finished, and their career
+ACS, K/D and headshot rate from before the match against what they did in it.
+`/results` scores every match it has recorded, with the interval around each
+figure.
 
 What is on the page, and what each number means, is in
 [docs/DASHBOARD.md](docs/DASHBOARD.md). In short: both teams' odds and what is

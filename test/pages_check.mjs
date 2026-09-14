@@ -64,6 +64,15 @@ window.__demo.set("status", "finished");
 // An earlier check switched sides, so this lobby is lost rather than won.
 ck("after the game it shows the result", /class="result (won|lost)"/.test(els.stage.innerHTML));
 ck("and the scoreboard beside the prediction", /class="compare"/.test(els.stage.innerHTML));
+{
+  const q = els.stage.innerHTML;
+  ck("with a block for every player who played",
+     (q.match(/class="pblock/g) || []).length === 10);
+  ck("each one comparing their career line against the match",
+     />Before/.test(q) && />This match</.test(q) && /Headshots/.test(q));
+  ck("and saying how they played against their own average",
+     /their usual/.test(q));
+}
 
 window.__demo.set("status", "lobby");
 ck("the menus show standby", els.map.textContent === "STANDBY");
