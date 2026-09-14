@@ -316,6 +316,20 @@ ck("the opening message says what it is doing",
   ck("predicted against actual is tabulated",
      /class="compare"/.test(q) && (q.match(/<tr class=/g) || []).length >= 10);
 
+  escape();
+  ck("the result survives closing the card",
+     /class="result won"/.test(els.stage.innerHTML)
+     && /class="compare"/.test(els.stage.innerHTML));
+  fire(first.puuid);
+  ck("and survives opening another player",
+     /class="compare"/.test(els.stage.innerHTML));
+  const nextMatch = JSON.parse(JSON.stringify(state));
+  nextMatch.match_id = "a-different-match";
+  render({ status: "match", state: nextMatch, top1_rate: 0.296 });
+  ck("a different match does not inherit the last result",
+     !/class="compare"/.test(els.stage.innerHTML));
+  render({ status: "match", state, review: rv, top1_rate: 0.296 });
+
   rv.settled = false;
   render({ status: "match", state, review: rv, top1_rate: 0.296 });
   ck("before the result lands it says it is waiting",

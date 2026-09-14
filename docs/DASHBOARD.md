@@ -157,6 +157,12 @@ dashboard spends one API call on it and the tab shows:
   right or wrong, how many players finished within one place of where the score
   put them, and the rank correlation across the lobby
 
+![After the game: the scoreboard beside what was predicted](images/dashboard-result.jpg)
+
+The demo has this state too, without playing: pick **After the game** from its
+Status control, or open
+[the demo with the result showing](https://fahranalam04-cmd.github.io/valorant-winrate-predictor/?status=finished).
+
 **The scorecard** at `/results` is every match the dashboard has recorded:
 how often it called them right, how its predicted percentages compare with how
 often you actually won, and the same broken down by how much of the lobby was

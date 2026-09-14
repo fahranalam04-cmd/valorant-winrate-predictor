@@ -83,7 +83,8 @@ const view = {map: MAPS.includes(qs.get("map")) ? qs.get("map") : BASE.map,
               side: qs.get("side") === "Red" ? "Red" : "Blue",
               phase: qs.get("phase") === "pregame" ? "pregame" : "coregame",
               known: qs.get("known") === "thin" ? "thin" : "full",
-              status: qs.get("status") === "lobby" ? "lobby" : "match"};
+              status: ["lobby", "finished"].includes(qs.get("status"))
+                      ? qs.get("status") : "match"};
 let socket = null;
 
 /* The four switches, applied to a copy of the invented match. */
@@ -115,9 +116,71 @@ function build(){
   return {status: "match", state: s, top1_rate: TOP1, fresh: false};
 }
 
+/* An invented result, so the page can be seen as it looks once the match is
+   over: the real scoreboard beside what was predicted beforehand. The numbers
+   are made up, like the players; only the shape is real. */
+function finished(){
+  const payload = build();
+  const s = payload.state;
+  const acs = {"demo-00": 241.0, "demo-01": 268.4, "demo-02": 176.1,
+               "demo-03": 205.3, "demo-04": 198.7, "demo-05": 289.6,
+               "demo-06": 214.2, "demo-07": 168.9, "demo-08": 226.8,
+               "demo-09": 181.5};
+  const kills = {"demo-00": 18, "demo-01": 22, "demo-02": 11, "demo-03": 15,
+                 "demo-04": 14, "demo-05": 25, "demo-06": 16, "demo-07": 10,
+                 "demo-08": 17, "demo-09": 12};
+  const ranked = s.players
+    .filter(p => p.score !== null)
+    .sort((a, b) => b.score - a.score)
+    .map(p => p.puuid);
+  const byAcs = s.players.slice()
+    .sort((a, b) => acs[b.puuid] - acs[a.puuid])
+    .map(p => p.puuid);
+
+  const players = s.players.map(p => {
+    const deaths = Math.max(8, Math.round(kills[p.puuid] * 0.85));
+    return Object.assign({}, p, {
+      played: true,
+      predicted_score: p.score,
+      predicted_rank: ranked.indexOf(p.puuid) < 0 ? null
+                      : ranked.indexOf(p.puuid) + 1,
+      acs: acs[p.puuid],
+      kills: kills[p.puuid],
+      deaths: deaths,
+      assists: Math.round(kills[p.puuid] * 0.4),
+      kd: Math.round((kills[p.puuid] / deaths) * 100) / 100,
+      headshot_rate: 0.18 + (kills[p.puuid] % 7) / 50,
+      actual_rank: byAcs.indexOf(p.puuid) + 1,
+    });
+  });
+
+  const mine = players.filter(p => p.team === s.own_team
+                              && p.predicted_rank !== null);
+  const picked = mine.reduce((a, b) => a.predicted_rank < b.predicted_rank ? a : b);
+  const best = players.filter(p => p.team === s.own_team)
+    .reduce((a, b) => a.actual_rank < b.actual_rank ? a : b);
+  const within = mine.filter(p => Math.abs(p.predicted_rank - p.actual_rank) <= 1);
+  const won = view.side === "Blue";
+
+  payload.review = {
+    settled: true, own_team: s.own_team, correct: won ? 1 : 0,
+    predicted: {own_probability: s.prediction.own_probability},
+    actual: {winner: s.own_team, own_won: won ? 1 : 0,
+             score: won ? "13-9" : "9-13"},
+    top_pick: {hit: picked.puuid === best.puuid ? 1 : 0,
+               picked: picked.name, actually_best: best.name},
+    summary: {winner_called: won ? 1 : 0,
+              top_pick_hit: picked.puuid === best.puuid ? 1 : 0,
+              rated: mine.length, within_one: within.length, order: 0.46},
+    players: players,
+  };
+  return payload;
+}
+
 function send(){
   if (!socket || !socket.onmessage) return;
-  const msg = view.status === "lobby" ? {status: "lobby"} : build();
+  const msg = view.status === "lobby" ? {status: "lobby"}
+            : view.status === "finished" ? finished() : build();
   socket.onmessage({data: JSON.stringify(msg)});
 }
 
@@ -143,7 +206,7 @@ bar.innerHTML = `<b>Interactive demo</b>
   <label>You are <select data-k="side">${option("Blue", "Blue · defending")}${option("Red", "Red · attacking")}</select></label>
   <label>Phase <select data-k="phase">${option("coregame", "In game")}${option("pregame", "Agent select")}</select></label>
   <label>Players known <select data-k="known">${option("full", "8 of 10")}${option("thin", "4 of 10")}</select></label>
-  <label>Status <select data-k="status">${option("match", "In a match")}${option("lobby", "In the menus")}</select></label>
+  <label>Status <select data-k="status">${option("match", "In a match")}${option("finished", "After the game")}${option("lobby", "In the menus")}</select></label>
   <span class="fine">Invented players. Click any row for the full card; Esc closes it.
     The real dashboard runs on your own PC while you play &mdash;
     <a href="__REPO__">source and setup</a>.

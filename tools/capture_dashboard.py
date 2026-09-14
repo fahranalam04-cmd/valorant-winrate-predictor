@@ -159,6 +159,18 @@ def main(argv=None) -> int:
         page.click('button.row[data-puuid="demo-05"]')
         settle(page)
         page.screenshot(path=str(OUT / "dashboard.jpg"), type="jpeg", quality=86)
+
+        # ...and the same match once it has been played, which is what a
+        # pinned tab settles into.
+        page.evaluate("() => window.__demo.set('status', 'finished')")
+        settle(page)
+        # The card is closed and the table scrolled to, because the comparison
+        # is the point of this shot and it sits below the rosters.
+        page.keyboard.press("Escape")
+        page.locator(".compare").scroll_into_view_if_needed()
+        page.wait_for_timeout(500)
+        page.screenshot(path=str(OUT / "dashboard-result.jpg"), type="jpeg",
+                        quality=86)
         page.close()
 
         # --- the walkthrough ------------------------------------------------

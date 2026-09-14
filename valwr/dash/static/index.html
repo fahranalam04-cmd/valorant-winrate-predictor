@@ -426,6 +426,10 @@ const pc = v => v == null ? "—" : (Number(v) * 100).toFixed(1) + "%";
 const i0 = v => v == null ? "—" : esc(v);
 
 let STATE = null, selected = null, top1 = null, tries = 0;
+/* The result belongs to a match, not to a message: clicking a player or
+   pressing Esc re-renders from the stored state, and that used to wipe the
+   scoreboard comparison off a finished match. */
+let REVIEW = null, REVIEW_ID = null;
 
 /* The map's own key art is the background, so it changes with the match.
    `--mapart` is set from the state rather than from a stylesheet because the
@@ -736,7 +740,9 @@ function render(msg){
 
   indexParties(s);
 
-  const review = msg.review || null;
+  if (msg.review){ REVIEW = msg.review; REVIEW_ID = s.match_id; }
+  else if (REVIEW_ID !== s.match_id){ REVIEW = null; REVIEW_ID = null; }
+  const review = REVIEW;
   let head = "";
   for (const w of s.warnings) head += `<div class="warn">${esc(w)}</div>`;
   if ((s.parties || []).some(g => g.source === "inferred"))

@@ -60,6 +60,11 @@ ck("and low confidence", /low<\/span>|low confidence/.test(els.sub.innerHTML));
 window.__demo.set("phase", "pregame");
 ck("agent select is labelled", /Agent select/.test(els.sub.innerHTML));
 
+window.__demo.set("status", "finished");
+// An earlier check switched sides, so this lobby is lost rather than won.
+ck("after the game it shows the result", /class="result (won|lost)"/.test(els.stage.innerHTML));
+ck("and the scoreboard beside the prediction", /class="compare"/.test(els.stage.innerHTML));
+
 window.__demo.set("status", "lobby");
 ck("the menus show standby", els.map.textContent === "STANDBY");
 
