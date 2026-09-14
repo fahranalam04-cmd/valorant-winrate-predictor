@@ -53,6 +53,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocketClose
 
+from valwr.live import outcomes, review
 from valwr.live import state as st
 
 HOST = "127.0.0.1"          # never 0.0.0.0 -- see the module docstring
@@ -182,6 +183,51 @@ def free_port(host: str, start: int, tries: int = 20) -> int | None:
     return None
 
 
+def _open_db():
+    """A read connection for the request thread. Short-lived on purpose.
+
+    The poll's connection belongs to the pool thread and cannot be shared;
+    these routes are read-only and open their own.
+    """
+    try:
+        from valwr import config
+        from valwr.store import schema
+        s = config.load(require_key=False)
+        if not s.database_path.exists():
+            return None
+        return schema.connect(s.database_path)
+    except Exception:                                # noqa: BLE001
+        return None
+
+
+def recorded(match_id: str) -> bool:
+    """Whether this dashboard predicted that match."""
+    conn = _open_db()
+    if conn is None:
+        return False
+    try:
+        return conn.execute(
+            "SELECT 1 FROM live_predictions WHERE match_id = ?",
+            (match_id,)).fetchone() is not None
+    finally:
+        conn.close()
+
+
+def _review_payload(match_id: str) -> dict:
+    """A recorded match: what was predicted, and the result once it lands."""
+    conn = _open_db()
+    if conn is None:
+        return {"status": "error", "message": "no database"}
+    try:
+        got = review.compare(conn, match_id)
+    finally:
+        conn.close()
+    if got is None:
+        return {"status": "error", "message": "that match is not recorded here"}
+    return {"status": "match", "state": got["state"], "review": got,
+            "top1_rate": None, "fresh": False}
+
+
 def _demo_payload() -> dict:
     """The demo match, with agent UUIDs filled in where a database exists."""
     from valwr.dash.demo import demo_state
@@ -230,6 +276,19 @@ def _replay_payload(match_id: str) -> dict:
         conn.close()
 
 
+def poll_and_record(ctx) -> dict | None:
+    """One poll, with the prediction logged. Runs on the pool's thread.
+
+    Recording here rather than in the websocket keeps every database call on
+    the thread that owns the connection, which is the rule the poll pool
+    exists to enforce.
+    """
+    state = st.poll_once(ctx)
+    if state is not None:
+        outcomes.record(ctx.conn, state)
+    return state
+
+
 def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
               demo: bool = False, match: str | None = None):
     @asynccontextmanager
@@ -245,6 +304,11 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
     app.state.error = None
     app.state.demo_state = None
     app.state.replay_state = None
+    # Matches this process has already opened a tab for, so reconnecting a
+    # page does not reopen one.
+    app.state.opened = set()
+    app.state.base_url = None       # set by main(), once the port is known
+    app.state.settled_at = 0.0
 
     # ONE worker, and always the same one. A SQLite connection belongs to the
     # thread that opened it, and `asyncio.to_thread` draws from a pool with no
@@ -311,9 +375,56 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
     if MAPS.is_dir():
         app.mount("/maps", StaticFiles(directory=MAPS), name="maps")
 
+    @app.get("/m/{match_id}")
+    def pinned(request: Request, match_id: str):
+        """One match, on its own address, so a tab can stay on it.
+
+        Serves the same page. It reads the id out of its own path and asks the
+        socket for that match rather than the current one. Only matches this
+        dashboard recorded resolve: it is not a lookup surface for anything
+        else, which is the constraint in docs/ETHICS-AND-TOS.md.
+        """
+        if not recorded(match_id):
+            return PlainTextResponse("no such match on this dashboard",
+                                     status_code=404)
+        return index(request)
+
+    @app.get("/results")
+    def results(request: Request):
+        host = request.headers.get("host", HOST)
+        return FileResponse(STATIC / "results.html", headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Content-Security-Policy": content_policy(host),
+            "X-Content-Type-Options": "nosniff",
+            "X-Frame-Options": "DENY",
+            "Referrer-Policy": "no-referrer",
+        })
+
+    @app.get("/api/scorecard")
+    def scorecard():
+        """Every recorded prediction, scored. No parameters, nothing to look up."""
+        conn = _open_db()
+        if conn is None:
+            return {"recorded": 0, "settled": 0, "pending": 0,
+                    "insights": ["no database yet"], "matches": []}
+        try:
+            return review.scorecard(conn)
+        finally:
+            conn.close()
+
     @app.websocket("/ws")
-    async def ws(socket: WebSocket):
+    async def ws(socket: WebSocket, pinned: str | None = None):
         await socket.accept()
+        if pinned:
+            # A tab pinned to one match: what was predicted at that loading
+            # screen, frozen because that is the claim being scored, with the
+            # result filled in once it lands.
+            try:
+                while True:
+                    await socket.send_text(json.dumps(_review_payload(pinned)))
+                    await asyncio.sleep(POLL_SECONDS * 4)
+            except WebSocketDisconnect:
+                return
         if not demo and not match:
             # The first poll resolves ten players and can spend its whole
             # deadline doing it. Without this the page sits on "connecting"
@@ -367,8 +478,16 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                 # Any failure is reported to the page rather than closing the
                 # socket: a dropped connection renders as "disconnected" with
                 # no cause, which is the least useful thing it could say.
+                # Results for matches that have since finished. Once a
+                # minute, and one API call per match at most.
+                if time.time() - app.state.settled_at > 60:
+                    app.state.settled_at = time.time()
+                    await loop.run_in_executor(
+                        pool, outcomes.settle_pending, ctx.conn, ctx.client,
+                        ctx.settings.region)
+
                 try:
-                    state = await loop.run_in_executor(pool, st.poll_once, ctx)
+                    state = await loop.run_in_executor(pool, poll_and_record, ctx)
                 except st.NotReady as e:
                     # The client went away -- closed, restarted, or its session
                     # could not be renewed. Drop the context so the next tick
@@ -390,6 +509,14 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                     await socket.send_text(json.dumps({"status": "lobby"}))
                     last = None
                 else:
+                    # Every match gets a tab of its own, opened once. This tab
+                    # keeps following the current match; the new one keeps this
+                    # match to compare against later.
+                    if (app.state.base_url
+                            and state["match_id"] not in app.state.opened):
+                        app.state.opened.add(state["match_id"])
+                        webbrowser.open(
+                            f"{app.state.base_url}m/{state['match_id']}")
                     top1 = ctx.index.top1_rate if ctx.index else None
                     payload = {"status": "match", "state": state,
                                "top1_rate": top1,
@@ -419,6 +546,8 @@ def main(argv=None) -> int:
                     help="replay a finished match from history, scored only "
                          "on what was knowable before it started")
     ap.add_argument("--deadline", type=float, default=st.DEFAULT_DEADLINE)
+    ap.add_argument("--no-tabs", action="store_true",
+                    help="do not open a tab of its own for each match")
     args = ap.parse_args(argv)
 
     # A second launch is the common case: the first window is still open, and
@@ -459,12 +588,15 @@ def main(argv=None) -> int:
         print("  This serves the current match, including other players'")
         print("  gamertags and statistics. Only do this on a network you")
         print("  control, and stop it when you are done.")
+    print(f"  scorecard: {url}results")
     print("  Keep this window open. Ctrl+C to stop.\n")
 
+    app = build_app(no_fetch=args.no_fetch, deadline=args.deadline,
+                    demo=args.demo, match=args.match)
+    if not (args.no_tabs or args.no_browser or args.demo or args.match):
+        app.state.base_url = url
     server = uvicorn.Server(uvicorn.Config(
-        build_app(no_fetch=args.no_fetch, deadline=args.deadline,
-                  demo=args.demo, match=args.match),
-        host=args.host, port=args.port, log_level="warning"))
+        app, host=args.host, port=args.port, log_level="warning"))
 
     if not args.no_browser:
         # Opened only once the port is accepting. Firing it before

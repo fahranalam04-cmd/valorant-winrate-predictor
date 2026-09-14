@@ -26,7 +26,10 @@ globalThis.document = {
   addEventListener: (t, fn) => { (handlers[t] ||= []).push(fn); },
   createElement: stub,
 };
-globalThis.location = { host: "example.github.io", search: "" };
+// Pages serves the demo under /valorant-winrate-predictor/, which the page
+// reads when deciding whether it is pinned to one match. It is not.
+globalThis.location = { host: "example.github.io", search: "",
+                        pathname: "/valorant-winrate-predictor/" };
 globalThis.setTimeout = fn => { timers.push(fn); };
 const flush = () => { while (timers.length) timers.shift()(); };
 

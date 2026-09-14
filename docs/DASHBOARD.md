@@ -138,6 +138,42 @@ the card fills two columns so nothing needs scrolling.
 
 ---
 
+## A tab per match, and the scorecard
+
+**Each match opens its own tab.** The tab at `/` stays live and follows you
+from game to game; every new match also opens at `/m/<match id>`, which keeps
+that match exactly as it was predicted. Nothing is overwritten by the next
+game, so two tabs side by side are two lobbies you can compare. `--no-tabs`
+turns that off.
+
+**A pinned tab fills in the result.** A few minutes after the match ends, the
+dashboard spends one API call on it and the tab shows:
+
+- won or lost, the final score, and whether the prediction was right
+- **predicted against actual, player by player** -- the 0-100 score and the
+  place it put each player, beside the combat score they actually managed and
+  where that put them. The bracket is places gained or lost.
+- whether the player the score put first really did have the best game
+
+**The scorecard** at `/results` is every match the dashboard has recorded:
+how often it called them right, how its predicted percentages compare with how
+often you actually won, and the same broken down by how much of the lobby was
+known and by its stated confidence. It reports the interval around every figure
+and says plainly when there are too few matches to conclude anything -- around
+30 is where it starts to mean something.
+
+Two rules keep it honest. **Only standard bomb defusal counts** toward the
+figures, because that is all the model was trained on; other modes are recorded
+and listed but excluded. And **none of it becomes training data**: scoring the
+model on your matches and then training on them is a loop that flatters itself.
+
+The prediction stored is the **first** one for the match -- what the page said
+at the loading screen. A later poll knows more, so letting it overwrite would
+score a prediction nobody saw. Agent select is the exception: it only sees your
+own team, so it is replaced once the match proper starts.
+
+---
+
 ## Where the numbers come from
 
 **The map name** is translated. The client reports an internal codename -- Summit is "Plummet", Lotus is "Jam" -- so the live view resolves it through the reference table before naming the map or loading its art. Run `python -m valwr.check` after a patch to pick up a new map.

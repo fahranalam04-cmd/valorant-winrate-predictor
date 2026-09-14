@@ -139,6 +139,14 @@ class HenrikClient:
             **filters,
         )
 
+    def match(self, region: str, match_id: str) -> dict:
+        """One finished match by id, for scoring a prediction after the fact.
+
+        The matchlist endpoint would work too, but costs the same call for ten
+        matches you already hold; this asks for the one that just ended.
+        """
+        return self.get(f"/valorant/v4/match/{region}/{match_id}")
+
     def leaderboard(self, region: str, platform: str, **params) -> dict:
         return self.get(f"/valorant/v3/leaderboard/{region}/{platform}", **params)
 

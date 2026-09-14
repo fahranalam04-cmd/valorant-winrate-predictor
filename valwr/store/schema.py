@@ -120,6 +120,38 @@ CREATE TABLE IF NOT EXISTS ref_agents (
   role          TEXT
 );
 
+-- What the live view predicted, and what actually happened. Written by the
+-- dashboard as a match loads and completed once the result is available, so
+-- the model can be scored on the matches you actually played rather than only
+-- on the held-out set it was trained against.
+CREATE TABLE IF NOT EXISTS live_predictions (
+  match_id        TEXT PRIMARY KEY,
+  made_at         INTEGER NOT NULL,   -- when the prediction was made
+  phase           TEXT,               -- pregame | coregame, when recorded
+  map             TEXT,
+  mode            TEXT,
+  standard_mode   INTEGER,            -- 1 when the model's training applies
+  is_custom       INTEGER,
+  own_puuid       TEXT,
+  own_team        TEXT,
+  win_probability REAL,               -- for Blue, as the model reports it
+  own_probability REAL,
+  coverage        INTEGER,
+  confidence      TEXT,
+  model           TEXT,
+  state_json      TEXT NOT NULL,      -- the whole dashboard state, to replay
+  settled_at      INTEGER,            -- NULL until the result is known
+  winner          TEXT,
+  rounds_blue     INTEGER,
+  rounds_red      INTEGER,
+  own_won         INTEGER,
+  correct         INTEGER,
+  brier           REAL,
+  top_pick_hit    INTEGER,            -- did the highest-scored teammate top it
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  last_error      TEXT
+);
+
 CREATE TABLE IF NOT EXISTS ref_maps (
   uuid          TEXT PRIMARY KEY,
   name          TEXT NOT NULL
@@ -154,6 +186,10 @@ CREATE INDEX IF NOT EXISTS idx_mp_puuid_time ON match_players(puuid, started_at)
 CREATE INDEX IF NOT EXISTS idx_mp_puuid_map ON match_players(puuid, map, started_at);
 CREATE INDEX IF NOT EXISTS idx_mp_puuid_agent ON match_players(puuid, agent, started_at);
 CREATE INDEX IF NOT EXISTS idx_frontier_state ON frontier(state, tier_band);
+CREATE INDEX IF NOT EXISTS idx_live_predictions_made
+  ON live_predictions(made_at);
+CREATE INDEX IF NOT EXISTS idx_live_predictions_open
+  ON live_predictions(settled_at, made_at);
 """
 
 # Columns added after a table first shipped. CREATE TABLE IF NOT EXISTS will

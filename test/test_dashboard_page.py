@@ -159,7 +159,7 @@ EMITTED = (
     "alert", "st", "panel", "phero", "veil", "stripe", "pid", "pbody", "pcol",
     "bigscore", "pwhy", "sect", "cmp", "chips", "formrow", "flag", "hint",
     "fx", "dir", "track", "mag", "idle", "foot", "num", "disp", "pulse",
-    "rank", "party", "partynote",
+    "rank", "party", "partynote", "result", "compare",
 )
 
 

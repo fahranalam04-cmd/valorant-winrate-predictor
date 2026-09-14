@@ -41,7 +41,7 @@ globalThis.document = {
 // localStorage does not exist under node, so reading it throws -- which is
 // exactly what a private window does, and the page must fall back not break.
 globalThis.WebSocket = class { constructor(){ this.onopen = null; } };
-globalThis.location = { host: "127.0.0.1:8788" };
+globalThis.location = { host: "127.0.0.1:8788", pathname: "/" };
 globalThis.setTimeout = () => {};
 
 vm.runInThisContext(code);
@@ -276,11 +276,45 @@ render({ status: "match", state, top1_rate: 0.296 });
   render({ status: "match", state, top1_rate: 0.296 });
 }
 
+// A tab pinned to one match reads the id out of its own address.
+location.pathname = "/m/abc%20123";
+ck("a pinned tab reads its match from the address", pinnedMatch() === "abc 123");
+location.pathname = "/";
+ck("the live tab is not pinned to anything", pinnedMatch() === "");
+
 // The first thing the socket sends, before a poll that may take 25 seconds.
 render({ status: "working", message: "reading the match and looking up players" });
 ck("the opening message says what it is doing",
    els.map.textContent === "STARTING"
    && /reading the match/.test(els.stage.innerHTML));
+// --- a match that has been played ---------------------------------------
+// The pinned tab keeps the prediction and fills in the result, which is the
+// whole point of a tab per match.
+{
+  const rv = {
+    settled: true, own_team: state.own_team,
+    predicted: { own_probability: 0.573 }, correct: 1,
+    actual: { winner: state.own_team, own_won: 1, score: "13-9" },
+    top_pick: { hit: 0, picked: "Meridian#na1", actually_best: "Yarrow#na2" },
+    players: state.players.map((q, i) => Object.assign({}, q, {
+      played: true, predicted_score: q.score,
+      predicted_rank: q.score === null ? null : i + 1,
+      acs: 210 + i, kd: 1.15, actual_rank: 10 - i })),
+  };
+  render({ status: "match", state, review: rv, top1_rate: 0.296 });
+  const q = els.stage.innerHTML;
+  ck("a played match shows the result", /class="result won"/.test(q) && q.includes("13-9"));
+  ck("and whether the call was right", /called it/.test(q));
+  ck("and who actually played best", q.includes("Yarrow#na2"));
+  ck("predicted against actual is tabulated",
+     /class="compare"/.test(q) && (q.match(/<tr class=/g) || []).length >= 10);
+
+  rv.settled = false;
+  render({ status: "match", state, review: rv, top1_rate: 0.296 });
+  ck("before the result lands it says it is waiting",
+     /class="result waiting"/.test(els.stage.innerHTML));
+}
+
 render({ status: "match", state, top1_rate: 0.296 });
 
 console.log(bad ? `\n${bad} FAILED` : "\nall checks passed");

@@ -290,6 +290,12 @@ first and tells you in plain language if anything is missing.
 
 ![A walkthrough of the dashboard](docs/images/dashboard-walkthrough.webp)
 
+Every match also opens a tab of its own, which keeps that lobby as it was
+predicted and fills in the result a few minutes after the game ends: won or
+lost, the final score, whether the call was right, and how each player's 0-100
+score compared with how they actually played. `/results` scores every match it
+has recorded, with the interval around each figure.
+
 What is on the page, and what each number means, is in
 [docs/DASHBOARD.md](docs/DASHBOARD.md). In short: both teams' odds and what is
 moving them; all ten players by team with rank, party, a 0–100 score, ACS, K/D,

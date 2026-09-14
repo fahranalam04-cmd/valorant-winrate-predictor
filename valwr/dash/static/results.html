@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>valwr live — scorecard</title>
+<style>
+/* The same palette and type as the live page. This one is a report rather
+   than a readout, so it is quieter: no map behind it, no animation. */
+:root{
+  --void:#070a0e; --steel:rgba(10,15,22,.90); --steel-2:rgba(17,25,35,.90);
+  --sunk:rgba(6,9,13,.84);
+  --line:rgba(140,175,200,.30); --line-soft:rgba(140,175,200,.16);
+  --bone:#f4f7fa; --bone-dim:#bccbd7; --slate:#8fa2b1; --ghost:#63727f;
+  --val:#ff4655; --atk:#ff5865; --def:#38d8e4; --gold:#e7c27d; --win:#3ad6a0;
+  --display:"Bahnschrift","DIN Alternate","Oswald","Segoe UI",system-ui,sans-serif;
+  --body:"Segoe UI",system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--void);color:var(--bone);font:15px/1.55 var(--body)}
+.shell{max-width:1100px;margin:0 auto;padding:26px 22px 70px}
+a{color:var(--bone-dim)}
+.top{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap;
+  padding-bottom:14px;border-bottom:1px solid var(--line)}
+h1{font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:44px;line-height:.95;text-transform:uppercase;margin:6px 0 0}
+.sub{color:var(--slate);font:600 10.5px/1 var(--display);letter-spacing:.22em;
+  text-transform:uppercase;margin-top:9px}
+h2{font:600 10.5px/1 var(--display);letter-spacing:.24em;text-transform:uppercase;
+  color:var(--slate);margin:26px 0 10px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:12px}
+.card{background:var(--steel);padding:14px 16px;border-left:3px solid var(--line)}
+.card b{display:block;font-family:var(--display);font-stretch:condensed;
+  font-weight:700;font-size:32px;line-height:1.05}
+.card span{display:block;font:600 9px/1.4 var(--display);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ghost);margin-top:6px}
+.card .note{font:400 12px/1.4 var(--body);letter-spacing:0;text-transform:none;
+  color:var(--bone-dim);margin-top:7px}
+.card.good{border-left-color:var(--win)} .card.bad{border-left-color:var(--val)}
+.card.flat{border-left-color:var(--gold)}
+ul.notes{margin:0;padding:0;list-style:none}
+ul.notes li{background:var(--steel);border-left:3px solid var(--gold);
+  padding:10px 14px;margin-bottom:8px;font-size:13.5px;color:var(--bone-dim)}
+table{width:100%;border-collapse:collapse;font-size:13px;background:var(--steel)}
+th{font:600 9px/1 var(--display);letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ghost);text-align:right;padding:11px 12px 9px}
+th:first-child,td:first-child{text-align:left}
+td{padding:8px 12px;border-top:1px solid var(--line-soft);text-align:right;
+  font-variant-numeric:tabular-nums}
+tr.out td{color:var(--ghost)}
+.yes{color:var(--win)} .no{color:var(--val)}
+.empty{background:var(--steel);padding:22px;color:var(--bone-dim)}
+.foot{margin-top:26px;color:var(--ghost);font-size:12px;line-height:1.7}
+@media(max-width:640px){h1{font-size:32px}.shell{padding:16px 12px 50px}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="top">
+    <div>
+      <div class="sub" style="letter-spacing:.34em">valwr live</div>
+      <h1>Scorecard</h1>
+      <div class="sub" id="sub">reading the record…</div>
+    </div>
+  </div>
+  <div id="body"></div>
+  <div class="foot">
+    Every match the dashboard saw is recorded here, scored against the real
+    result once it is published. Only standard bomb-defusal matches count
+    toward the figures: the model never saw swiftplay or deathmatch, so folding
+    those in would measure the wrong thing.<br>
+    None of this becomes training data. Scoring the model on your matches and
+    then training on them is a loop that flatters itself.<br>
+    <a href="/">Back to the live view</a>
+  </div>
+</div>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = t => String(t == null ? "" : t).replace(/[&<>"]/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pc = (v, d = 0) => v == null ? "—" : (v * 100).toFixed(d) + "%";
+const when = t => t ? new Date(t * 1000).toLocaleString(undefined,
+  {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : "—";
+
+function summary(card){
+  const c = card.competitive;
+  if (!c.n) return `<div class="empty">No competitive match has been scored
+    yet. Leave the dashboard open while you play one; the result is collected
+    automatically a few minutes after it ends.</div>`;
+  const span = 1.96 * c.se * 100;
+  const gap = c.actual - c.predicted;
+  const tone = Math.abs(gap) > 2 * c.se ? (gap > 0 ? "good" : "bad") : "flat";
+  return `<div class="cards">
+    <div class="card"><b>${esc(c.n)}</b><span>competitive matches scored</span>
+      <div class="note">${esc(card.pending)} waiting for a result</div></div>
+    <div class="card"><b>${pc(c.accuracy)}</b><span>called correctly</span>
+      <div class="note">±${span.toFixed(0)} points at 95% confidence</div></div>
+    <div class="card ${tone}"><b>${pc(c.actual)}</b><span>you actually won</span>
+      <div class="note">predicted ${pc(c.predicted, 1)} on average</div></div>
+    <div class="card"><b>${c.brier.toFixed(3)}</b><span>brier score</span>
+      <div class="note">lower is better; 0.25 is a coin flip</div></div>
+  </div>`;
+}
+
+function band(rows, title, note){
+  if (!rows.length) return "";
+  return `<h2>${esc(title)}</h2><table><thead><tr><th>${esc(note)}</th>
+    <th>Matches</th><th>Predicted</th><th>Actually won</th><th>Correct</th>
+    </tr></thead><tbody>
+    ${rows.map(r => `<tr><td>${esc(r.label)}</td><td>${esc(r.n)}</td>
+      <td>${pc(r.predicted, 1)}</td><td>${pc(r.actual)}</td>
+      <td>${pc(r.accuracy)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function picks(card){
+  const p = card.top_pick;
+  if (!p.n) return "";
+  const better = p.rate - p.chance > 2 * (p.se || 1);
+  return `<h2>The player score, on your own team</h2>
+    <div class="cards"><div class="card ${better ? "good" : "flat"}">
+      <b>${pc(p.rate)}</b><span>top pick had the best game</span>
+      <div class="note">${esc(p.hits)} of ${esc(p.n)} matches, against
+        ${pc(p.chance)} by chance${better ? "" : " — not yet outside noise"}</div>
+    </div></div>`;
+}
+
+function matches(card){
+  if (!card.matches.length) return "";
+  return `<h2>Every recorded match</h2><table><thead><tr><th>When</th>
+    <th>Map</th><th>Predicted</th><th>Result</th><th>Score</th><th>Called</th>
+    </tr></thead><tbody>
+    ${card.matches.map(m => `<tr class="${m.standard_mode ? "" : "out"}">
+      <td><a href="/m/${encodeURIComponent(m.match_id)}">${when(m.made_at)}</a></td>
+      <td>${esc(m.map || "—")}${m.standard_mode ? "" :
+        ` <span style="color:var(--ghost)">${esc(m.mode || "")}</span>`}</td>
+      <td>${pc(m.own_probability)}</td>
+      <td>${!m.settled ? "waiting" : m.own_won === 1 ? "won" : "lost"}</td>
+      <td>${esc(m.score || "—")}</td>
+      <td class="${m.correct === 1 ? "yes" : m.correct === 0 ? "no" : ""}">${
+        m.correct === 1 ? "yes" : m.correct === 0 ? "no" : "—"}</td>
+    </tr>`).join("")}</tbody></table>`;
+}
+
+fetch("/api/scorecard").then(r => r.json()).then(card => {
+  $("sub").textContent = `${card.recorded} recorded · ${card.settled} scored · `
+    + `${card.pending} waiting`;
+  $("body").innerHTML = summary(card)
+    + `<h2>What the record supports saying</h2><ul class="notes">${
+      (card.insights || []).map(i => `<li>${esc(i)}</li>`).join("")}</ul>`
+    + band(card.calibration || [], "Calibration", "Predicted band")
+    + band(card.by_coverage || [], "By how much of the lobby was known", "Coverage")
+    + band(card.by_confidence || [], "By stated confidence", "Confidence")
+    + picks(card)
+    + matches(card);
+}).catch(e => {
+  $("sub").textContent = "could not read the record";
+  $("body").innerHTML = `<div class="empty">${esc(e)}</div>`;
+});
+</script>
+</body>
+</html>

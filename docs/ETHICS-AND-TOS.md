@@ -57,6 +57,8 @@ being in a training set, even though the data is publicly visible.
 - **The database never leaves this machine.** `data/` is gitignored.
 - **Never publish a dataset** of PUUIDs, Riot IDs, or per-player statistics.
 - **Never expose a public endpoint** that looks up an arbitrary player. The
+  pages that take a match id serve only matches this dashboard itself predicted
+  and 404 on anything else, and the scorecard takes no parameters at all. The
   dashboard serves only the match you are in, has no route that takes a player,
   and binds to `127.0.0.1`. `phone.bat` widens that to your own network — opt-in,
   announced when it starts, and still refusing requests from other sites. It is

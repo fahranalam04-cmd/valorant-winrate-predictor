@@ -1,0 +1,188 @@
+"""What the live view predicted, and what actually happened.
+
+The held-out test set says how the model does on matches collected alongside
+its training data. This says how it does on *your* matches, which is the only
+number you can check for yourself -- and the only one that stays true as the
+meta moves.
+
+Three steps, each plain:
+
+1. **Record.** As a match loads, the dashboard stores the prediction and the
+   state behind it. The first sight is what counts: a prediction made at the
+   loading screen is the claim being tested, so a later poll never overwrites
+   it. The exception is agent select, where the enemy team is hidden -- that
+   one is upgraded when the match proper starts.
+2. **Settle.** A few minutes after the match ends, one API call fetches it, and
+   it is stored like any other match. The result is then read back from the
+   normal tables rather than from the response, so a settled prediction is
+   scored against exactly the data the model trains on.
+3. **Score.** Predicted against actual, per match and in aggregate.
+
+None of this becomes training data. Scoring the model on matches you played and
+then training on them is a loop that flatters itself.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import time
+
+from valwr.store import normalize
+
+# How long after a match is recorded before its result is worth asking for.
+# Riot publishes a finished match within a couple of minutes; asking sooner
+# spends an API call on a 404.
+SETTLE_AFTER_SECONDS = 180
+
+# A match that never appears is not worth chasing forever: a custom game, or a
+# mode the API does not carry, will never settle.
+MAX_ATTEMPTS = 6
+
+COLUMNS = (
+    "match_id, made_at, phase, map, mode, standard_mode, is_custom, own_puuid, "
+    "own_team, win_probability, own_probability, coverage, confidence, model, "
+    "state_json"
+)
+
+
+def record(conn: sqlite3.Connection, state: dict, now: int | None = None) -> bool:
+    """Store the prediction for this match. True when something was written.
+
+    False for a match already recorded, and for a state with no prediction --
+    there is nothing to score in that case.
+    """
+    pred = state.get("prediction")
+    if not pred:
+        return False
+    match_id = state["match_id"]
+    seen = conn.execute(
+        "SELECT phase FROM live_predictions WHERE match_id = ?",
+        (match_id,)).fetchone()
+    if seen is not None and not (seen["phase"] == "pregame"
+                                 and state.get("phase") != "pregame"):
+        return False
+
+    values = (
+        match_id, int(now or time.time()), state.get("phase"), state.get("map"),
+        state.get("mode"), int(bool(state.get("standard_mode"))),
+        int(bool(state.get("is_custom"))),
+        next((p["puuid"] for p in state.get("players", []) if p.get("is_you")),
+             None),
+        state.get("own_team"), pred.get("win_probability"),
+        pred.get("own_probability"), state.get("coverage"),
+        state.get("confidence"), state.get("model"), json.dumps(state),
+    )
+    placeholders = ",".join("?" * len(values))
+    conn.execute(
+        "INSERT INTO live_predictions (" + COLUMNS + ") "
+        "VALUES (" + placeholders + ") "
+        "ON CONFLICT(match_id) DO UPDATE SET "
+        "phase=excluded.phase, map=excluded.map, mode=excluded.mode, "
+        "standard_mode=excluded.standard_mode, is_custom=excluded.is_custom, "
+        "own_team=excluded.own_team, win_probability=excluded.win_probability, "
+        "own_probability=excluded.own_probability, coverage=excluded.coverage, "
+        "confidence=excluded.confidence, state_json=excluded.state_json",
+        values)
+    conn.commit()
+    return True
+
+
+def pending(conn: sqlite3.Connection, now: int | None = None) -> list[str]:
+    """Matches whose result is worth asking for, oldest first."""
+    cutoff = int(now or time.time()) - SETTLE_AFTER_SECONDS
+    return [r["match_id"] for r in conn.execute(
+        "SELECT match_id FROM live_predictions WHERE settled_at IS NULL "
+        "AND made_at < ? AND attempts < ? ORDER BY made_at",
+        (cutoff, MAX_ATTEMPTS))]
+
+
+def actual_best(conn: sqlite3.Connection, match_id: str,
+                team: str | None) -> str | None:
+    """Who actually had the highest combat score on that team."""
+    if not team:
+        return None
+    row = conn.execute(
+        "SELECT puuid FROM match_players WHERE match_id = ? AND team = ? "
+        "AND rounds_played > 0 "
+        "ORDER BY CAST(score AS REAL) / rounds_played DESC LIMIT 1",
+        (match_id, team)).fetchone()
+    return row["puuid"] if row else None
+
+
+def top_pick(state: dict, team: str | None) -> str | None:
+    """Whom the 0-100 score put first on that team, when it rated enough of it."""
+    rated = [p for p in state.get("players", [])
+             if p.get("team") == team and p.get("score") is not None]
+    if len(rated) < 2:
+        return None
+    return max(rated, key=lambda p: p["score"])["puuid"]
+
+
+def settle(conn: sqlite3.Connection, client, region: str, match_id: str,
+           now: int | None = None) -> str:
+    """Fetch and score one finished match.
+
+    Returns 'settled', 'waiting' (the API does not have it yet) or 'error'.
+    Attempts are counted, so a match that will never appear stops being asked
+    about rather than costing a call every minute forever.
+    """
+    now = int(now or time.time())
+    row = conn.execute("SELECT * FROM live_predictions WHERE match_id = ?",
+                       (match_id,)).fetchone()
+    if row is None:
+        return "error"
+
+    note = None
+    try:
+        payload = client.match(region, match_id)
+        data = (payload or {}).get("data")
+        # ingest takes a matchlist; one match is a list of one.
+        normalize.ingest(conn,
+                         {"data": [data] if isinstance(data, dict) else data})
+    except Exception as e:                           # noqa: BLE001
+        note = f"{type(e).__name__}: {e}"[:200]
+
+    played = conn.execute(
+        "SELECT winner, rounds_blue, rounds_red FROM matches WHERE match_id = ?",
+        (match_id,)).fetchone()
+    if played is None or played["winner"] is None:
+        conn.execute("UPDATE live_predictions SET attempts = attempts + 1, "
+                     "last_error = ? WHERE match_id = ?", (note, match_id))
+        conn.commit()
+        return "error" if note else "waiting"
+
+    winner = played["winner"]
+    own_team = row["own_team"]
+    own_won = None if winner not in ("Blue", "Red") else int(winner == own_team)
+    p_own = row["own_probability"]
+    correct = brier = None
+    if own_won is not None and p_own is not None:
+        correct = int((p_own >= 0.5) == bool(own_won))
+        brier = (p_own - own_won) ** 2
+
+    state = json.loads(row["state_json"])
+    picked = top_pick(state, own_team)
+    best = actual_best(conn, match_id, own_team) if picked else None
+    hit = None if not (picked and best) else int(picked == best)
+
+    conn.execute(
+        "UPDATE live_predictions SET settled_at = ?, winner = ?, "
+        "rounds_blue = ?, rounds_red = ?, own_won = ?, correct = ?, brier = ?, "
+        "top_pick_hit = ?, attempts = attempts + 1, last_error = NULL "
+        "WHERE match_id = ?",
+        (now, winner, played["rounds_blue"], played["rounds_red"], own_won,
+         correct, brier, hit, match_id))
+    conn.commit()
+    return "settled"
+
+
+def settle_pending(conn: sqlite3.Connection, client, region: str,
+                   now: int | None = None) -> dict[str, int]:
+    """Try every match that is due. Safe to call on a timer."""
+    out = {"settled": 0, "waiting": 0, "error": 0}
+    if client is None:
+        return out
+    for match_id in pending(conn, now):
+        out[settle(conn, client, region, match_id, now)] += 1
+    return out

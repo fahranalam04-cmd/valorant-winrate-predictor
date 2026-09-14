@@ -247,6 +247,31 @@ body{
 .party b{color:var(--gold);font-weight:700}
 .partynote{color:var(--ghost);font-size:11px;margin:-2px 0 8px}
 
+/* The result strip, and the table under it: what was predicted against what
+   happened. Only a settled match has either. */
+.result{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 18px;
+  margin-top:11px;padding:11px 15px;background:var(--steel-2);
+  border-left:3px solid var(--slate);font-size:13px}
+.result b{font-family:var(--display);font-stretch:condensed;font-size:19px;
+  letter-spacing:.06em;text-transform:uppercase}
+.result.won{border-left-color:var(--win)} .result.won b{color:var(--win)}
+.result.lost{border-left-color:var(--val)} .result.lost b{color:var(--val)}
+.result .tp{color:var(--bone-dim)}
+.result.waiting{color:var(--bone-dim);border-left-color:var(--gold)}
+.compare{margin-top:18px;background:var(--steel);padding:14px 16px 16px}
+.compare h2{font:600 10.5px/1 var(--display);letter-spacing:.24em;
+  text-transform:uppercase;color:var(--slate);margin:0 0 10px}
+.compare table{width:100%;border-collapse:collapse;font-size:12.5px}
+.compare th{font:600 9px/1 var(--display);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ghost);text-align:right;
+  padding:0 0 7px;font-weight:600}
+.compare th:first-child,.compare td:first-child{text-align:left}
+.compare td{padding:5px 0;border-top:1px solid var(--line-soft);
+  text-align:right;font-variant-numeric:tabular-nums}
+.compare tr.you td{color:var(--gold)}
+.compare tr.enemy td{color:var(--bone-dim)}
+.compare .beat{color:var(--win)} .compare .under{color:var(--val)}
+
 .st{position:relative;text-align:center}
 .st b{display:block;font-family:var(--display);font-stretch:condensed;
   font-weight:700;font-size:17px;line-height:1.05}
@@ -615,6 +640,57 @@ function panelHTML(s){
   </aside>`;
 }
 
+/* ---------------- the result, once the match is over ---------------- */
+function resultHTML(rv){
+  if (!rv) return "";
+  if (!rv.settled)
+    return `<div class="result waiting">Prediction recorded. The result is
+      fetched automatically a few minutes after the match ends.</div>`;
+  const a = rv.actual, won = a.own_won === 1, right = rv.correct === 1;
+  const pick = rv.top_pick || {};
+  return `<div class="result ${won ? "won" : "lost"}">
+    <b>${won ? "Won" : "Lost"} ${esc(a.score || "")}</b>
+    <span>predicted ${(rv.predicted.own_probability * 100).toFixed(0)}% for
+      your side — <b style="font-size:13px;letter-spacing:0">${
+        right ? "called it" : "wrong"}</b></span>
+    ${pick.hit === null || pick.hit === undefined ? "" : `<span class="tp">top
+      pick ${pick.hit ? "correct" : "missed"}: ${esc(pick.picked || "—")}${
+        pick.hit ? "" : ` — best was ${esc(pick.actually_best || "—")}`}</span>`}
+  </div>`;
+}
+
+/* Predicted against actual, player by player. The point of keeping a tab. */
+function compareHTML(rv){
+  if (!rv || !rv.settled) return "";
+  const rows = rv.players.filter(p => p.played).sort((a, b) =>
+    (a.team === rv.own_team ? 0 : 1) - (b.team === rv.own_team ? 0 : 1)
+    || (a.predicted_rank || 99) - (b.predicted_rank || 99));
+  if (!rows.length) return "";
+  const cell = p => {
+    if (p.predicted_rank && p.actual_rank){
+      const move = p.predicted_rank - p.actual_rank;
+      const cls = move > 0 ? "beat" : move < 0 ? "under" : "";
+      return `<td class="${cls}">${i0(p.actual_rank)}${
+        move ? ` (${move > 0 ? "+" : ""}${i0(move)})` : ""}</td>`;
+    }
+    return `<td>—</td>`;
+  };
+  return `<div class="compare"><h2>Predicted against actual</h2><table>
+    <thead><tr><th>Player</th><th>Score</th><th>Predicted</th><th>ACS</th>
+      <th>K/D</th><th>Rank</th></tr></thead><tbody>
+    ${rows.map(p => `<tr class="${p.is_you ? "you" : p.team === rv.own_team
+        ? "" : "enemy"}">
+      <td>${esc(p.name)}${p.is_you ? " (you)" : ""}
+        <span class="ag">${esc(p.agent || "")}</span></td>
+      <td>${p.predicted_score === null ? "—" : esc(p.predicted_score)}</td>
+      <td>${p.predicted_rank ? "#" + i0(p.predicted_rank) : "—"}</td>
+      <td>${n1(p.acs)}</td><td>${n2(p.kd)}</td>${cell(p)}</tr>`).join("")}
+    </tbody></table>
+    <div class="cmp" style="border:0;padding-top:9px"><span class="k">Rank is by
+      combat score in that match; the bracket is places gained or lost against
+      where the 0-100 score put them.</span></div></div>`;
+}
+
 /* ---------------- page ---------------- */
 function render(msg){
   if (msg.status === "error"){
@@ -649,6 +725,7 @@ function render(msg){
 
   indexParties(s);
 
+  const review = msg.review || null;
   let head = "";
   for (const w of s.warnings) head += `<div class="warn">${esc(w)}</div>`;
   if ((s.parties || []).some(g => g.source === "inferred"))
@@ -695,8 +772,9 @@ function render(msg){
   }
 
   const keep = $("pbody"), sc = keep ? keep.scrollTop : 0;
+  head += resultHTML(review);
   $("stage").innerHTML = head + `<div class="grid">
-      <div><div class="rosters">${teamHTML(s, "Red")}${teamHTML(s, "Blue")}</div>${fx}</div>
+      <div><div class="rosters">${teamHTML(s, "Red")}${teamHTML(s, "Blue")}</div>${fx}${compareHTML(review)}</div>
       ${panelHTML(s)}</div>`;
   const now = $("pbody"); if (now) now.scrollTop = sc;
 
@@ -714,7 +792,8 @@ function render(msg){
      tracker computes it. Where a figure still differs from one, the cause is
      coverage rather than arithmetic: a player whose history we have not
      fetched deeply enough shows a "last 20" padded with older games. `
-    + `Read-only — never writes to the game.`;
+    + `Read-only — never writes to the game. `
+    + `<a href="/results" style="color:var(--bone-dim)">Session scorecard</a>.`;
 }
 
 document.addEventListener("click", e => {
@@ -730,8 +809,18 @@ document.addEventListener("keydown", e => {
   }
 });
 
+/* /m/<match id> pins this tab to one match: what was predicted there, and the
+   result once it lands. The live tab stays on "/" and keeps following the
+   current match, so earlier matches are never overwritten by the next one. */
+function pinnedMatch(){
+  const parts = location.pathname.split("/");
+  return parts.length > 2 && parts[1] === "m" ? decodeURIComponent(parts[2]) : "";
+}
+
 function connect(){
-  const ws = new WebSocket(`ws://${location.host}/ws`);
+  const pin = pinnedMatch();
+  const ws = new WebSocket(`ws://${location.host}/ws`
+    + (pin ? `?pinned=${encodeURIComponent(pin)}` : ""));
   ws.onopen = () => { $("pulse").className = "pulse"; tries = 0; };
   ws.onmessage = e => render(JSON.parse(e.data));
   ws.onclose = () => {

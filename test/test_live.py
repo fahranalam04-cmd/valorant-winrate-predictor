@@ -405,7 +405,11 @@ def test_the_dashboard_exposes_no_other_routes():
     from valwr.dash.server import AGENTS, MAPS, build_app
     paths = {r.path for r in build_app(no_fetch=True).routes
              if hasattr(r, "path")}
-    expected = {"/", "/ws"}
+    # /m/{match_id} serves a match this dashboard itself predicted, and 404s
+    # for anything else; /results and /api/scorecard take no parameters and
+    # report on those same recorded matches. None of them can be asked about
+    # a player, which is what docs/ETHICS-AND-TOS.md forbids.
+    expected = {"/", "/ws", "/m/{match_id}", "/results", "/api/scorecard"}
     # Both are static directories of Riot's own art, mounted only once the
     # files exist. Neither takes a parameter or names a player.
     if AGENTS.is_dir():
@@ -549,6 +553,9 @@ def test_the_context_and_the_poll_share_one_thread(monkeypatch):
 
     class _Ctx:
         index = None
+        conn = None
+        client = None            # no client means no settling calls
+        settings = type("S", (), {"region": "na"})()
 
         def close(self):
             pass
@@ -809,6 +816,9 @@ def test_the_dashboard_reopens_its_context_instead_of_staying_stuck(monkeypatch)
 
     class Ctx:
         index = None
+        conn = None
+        client = None
+        settings = type("S", (), {"region": "na"})()
 
         def close(self):
             pass
@@ -1016,3 +1026,112 @@ def test_every_map_the_api_ships_carries_its_codename():
     got = {r["name"]: r["path"] for r in conn.execute("SELECT name, path FROM ref_maps")}
     assert got == {"Summit": "Plummet", "The Range": "Range"}
     assert reference.codename(None) is None
+
+
+# --- a tab per match, and the record behind it --------------------------
+
+def _recorded_db(tmp_path, monkeypatch):
+    """A dashboard whose database holds one recorded, settled match."""
+    import importlib.util
+    import pathlib as _pathlib
+
+    from valwr.dash import server as DS
+    from valwr.live import outcomes
+    from valwr.store import schema
+
+    spec = importlib.util.spec_from_file_location(
+        "test_outcomes", _pathlib.Path(__file__).with_name("test_outcomes.py"))
+    helpers = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helpers)
+
+    path = tmp_path / "rec.db"
+    conn = schema.connect(path)
+    schema.create_all(conn)
+    outcomes.record(conn, helpers.state(), now=1000)
+    outcomes.settle(conn, helpers.FakeAPI(helpers.finished()), "na", "m1",
+                    now=2000)
+    conn.close()
+    # A connection per call: these routes run on worker threads, and SQLite
+    # refuses a connection opened on another one.
+    monkeypatch.setattr(DS, "_open_db", lambda: schema.connect(path))
+    return DS, path
+
+
+def test_a_match_this_dashboard_never_saw_is_not_served(tmp_path, monkeypatch):
+    """The pinned page must not become a way to look anything else up."""
+    from fastapi.testclient import TestClient
+
+    DS, _ = _recorded_db(tmp_path, monkeypatch)
+    with TestClient(DS.build_app(no_fetch=True),
+                    base_url="http://127.0.0.1:8787") as client:
+        assert client.get("/m/m1").status_code == 200
+        assert client.get("/m/somebody-elses-match").status_code == 404
+
+
+def test_a_pinned_tab_shows_that_match_and_its_result(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    DS, _ = _recorded_db(tmp_path, monkeypatch)
+    with TestClient(DS.build_app(no_fetch=True),
+                    base_url="http://127.0.0.1:8787") as client:
+        with client.websocket_connect("ws://127.0.0.1:8787/ws?pinned=m1") as ws:
+            msg = ws.receive_json()
+
+    assert msg["status"] == "match"
+    assert msg["state"]["map"] == "Sunset", "the state as it was recorded"
+    assert msg["review"]["settled"] is True
+    assert msg["review"]["actual"]["winner"] == "Blue"
+    assert msg["review"]["correct"] == 1
+
+
+def test_the_scorecard_endpoint_reports_the_record(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    DS, _ = _recorded_db(tmp_path, monkeypatch)
+    with TestClient(DS.build_app(no_fetch=True),
+                    base_url="http://127.0.0.1:8787") as client:
+        card = client.get("/api/scorecard").json()
+        assert client.get("/results").status_code == 200
+
+    assert card["recorded"] == 1 and card["competitive"]["n"] == 1
+    assert card["insights"], "it always says what the record supports"
+
+
+def test_each_new_match_opens_its_own_tab_once(tmp_path, monkeypatch):
+    """Instead of a tab being replaced by the next match, each match gets one."""
+    from fastapi.testclient import TestClient
+
+    from valwr.dash import server as DS
+
+    opened = []
+    seen = []
+
+    class Ctx:
+        index = None
+        conn = None
+        client = None
+        settings = type("S", (), {"region": "na"})()
+
+        def close(self):
+            pass
+
+    def poll(ctx):
+        seen.append(1)
+        return {"match_id": "m1" if len(seen) < 3 else "m2", "players": [],
+                "warnings": [], "prediction": None}
+
+    monkeypatch.setattr(DS.st, "open_context", lambda **kw: Ctx())
+    monkeypatch.setattr(DS, "poll_and_record", poll)
+    monkeypatch.setattr(DS.outcomes, "settle_pending", lambda *a, **k: None)
+    monkeypatch.setattr(DS.webbrowser, "open", opened.append)
+    monkeypatch.setattr(DS, "POLL_SECONDS", 0.01)
+
+    app = DS.build_app(no_fetch=True)
+    app.state.base_url = "http://127.0.0.1:8787/"
+    with TestClient(app, base_url="http://127.0.0.1:8787") as client:
+        with client.websocket_connect("ws://127.0.0.1:8787/ws") as ws:
+            for _ in range(4):
+                ws.receive_json()
+
+    assert opened == ["http://127.0.0.1:8787/m/m1",
+                      "http://127.0.0.1:8787/m/m2"], "one tab per match, once each"
