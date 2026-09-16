@@ -90,6 +90,39 @@ def spearman(xs, ys) -> float:
     return num / (dx * dy) if dx and dy else 0.0
 
 
+def role_breakdown(teams, flat) -> list[dict]:
+    """The headline numbers again, split by the role each player was playing.
+
+    A single top-1 rate averages over roles, and that average is dominated by
+    Duelists -- the most-played role, and the one a fragging-led score handles
+    best. Reporting per role is the only way a weak role shows up at all.
+
+    `recall` asks the question that still makes sense per role, where top-1
+    does not: when a player of this role genuinely had their team's best game,
+    how often did the score name them?
+    """
+    out = []
+    for role in sorted({p["role"] for p in flat if p["role"] != "?"}):
+        ps = [p for p in flat if p["role"] == role]
+        if len(ps) < 50:
+            continue
+        named = best = 0
+        for team in teams:
+            top = max(p["actual"] for p in team)
+            winner = next(p for p in team if abs(p["actual"] - top) < 1e-12)
+            if winner["role"] != role:
+                continue
+            best += 1
+            picked = max(team, key=lambda p: p["raw"])
+            named += int(abs(picked["actual"] - top) < 1e-12)
+        out.append({"role": role, "players": len(ps),
+                    "rho": spearman([p["raw"] for p in ps],
+                                    [p["actual"] for p in ps]),
+                    "teams_best": best,
+                    "recall": named / best if best else 0.0})
+    return out
+
+
 def top1(teams, key) -> tuple[float, int]:
     """How often the highest `key` is also the best actual performance."""
     hits = 0
@@ -242,6 +275,8 @@ def main(argv=None) -> int:
         params = (b.val_end, 1, 1)
         print(f"evaluating on the TEST period (after {b.val_end})\n")
 
+    roles = {r["name"]: r["role"] for r in
+             conn.execute("SELECT name, role FROM ref_agents")}
     rows = conn.execute(
         f"SELECT * FROM match_players WHERE {window} AND rounds_played > 0",
         params).fetchall()
@@ -268,7 +303,8 @@ def main(argv=None) -> int:
             if actual is None:
                 break
             scored.append({"c": c, "raw": index.composite(c),
-                           "actual": actual.value})
+                           "actual": actual.value,
+                           "role": roles.get(row["agent"], "?")})
         if len(scored) == TEAM_SIZE:
             teams.append(scored)
         if len(teams) >= args.teams:
@@ -380,9 +416,26 @@ def main(argv=None) -> int:
     for r in rankers:
         print(f"    {r['name']:<24} top pick right {r['top1'] * 100:5.1f}%"
               f"  AUC {r['auc']:.3f}  PR-AUC {r['pr_auc']:.3f}")
+    by_role = role_breakdown(teams, flat)
+    print("\n" + "=" * 68)
+    print("THE SAME SCORE, BROKEN DOWN BY ROLE")
+    print("=" * 68)
+    print(f"  {'role':<14}{'players':>9}{'rho':>8}{'best games':>12}{'named':>8}")
+    print("  " + "-" * 64)
+    for r in by_role:
+        print(f"  {r['role']:<14}{r['players']:>9,}{r['rho']:>+8.3f}"
+              f"{r['teams_best']:>12,}{r['recall'] * 100:>7.1f}%")
+    print("\n  rho: how well the score orders that role's players against what"
+          "\n  they actually did. named: when a player of this role genuinely"
+          "\n  had their team's best game, how often the score picked them.")
+    print("\n  One aggregate number hides this. The score is not equally good"
+          "\n  for every role, and it is weakest at the roles whose contribution"
+          "\n  is least visible in fragging stats.")
+
     if args.json:
         write_json("potential", {"period": args.period, "teams": n,
-                                 "positive_rate": base, "rankers": rankers})
+                                 "positive_rate": base, "rankers": rankers,
+                                 "by_role": by_role})
 
     print("\n  Reminder: this measures ranking within a team, not whether any "
           "\n  individual number is right. Performance is noisy and strongly "
