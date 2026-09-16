@@ -79,6 +79,13 @@ CREATE TABLE IF NOT EXISTS match_players (
   traded_deaths INTEGER,
   kast_rounds   INTEGER,
   clutches      INTEGER,
+  -- Ability casts, one column per slot. Present in the API response from the
+  -- start but never stored until the per-role score needed them; older rows
+  -- are filled by re-running valwr.store.normalize over raw_response.
+  ability_grenade   INTEGER,
+  ability_1         INTEGER,
+  ability_2         INTEGER,
+  ability_ultimate  INTEGER,
   PRIMARY KEY (match_id, puuid)
 );
 -- The index the whole feature pipeline leans on.
@@ -209,6 +216,11 @@ MIGRATIONS: dict[str, dict[str, str]] = {
         "traded_deaths": "INTEGER",
         "kast_rounds": "INTEGER",
         "clutches": "INTEGER",
+        # Ability casts, added for the per-role score.
+        "ability_grenade": "INTEGER",
+        "ability_1": "INTEGER",
+        "ability_2": "INTEGER",
+        "ability_ultimate": "INTEGER",
     },
     "matches": {
         "data_quality": "TEXT",

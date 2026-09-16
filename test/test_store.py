@@ -15,7 +15,7 @@ def conn(tmp_path):
 
 
 def make_match(match_id="m1", started="2026-08-23T05:39:55.948Z", n=10,
-               winner="Blue", map_name="Sunset", agent="Jett"):
+               winner="Blue", map_name="Sunset", agent="Jett", casts=True):
     return {
         "metadata": {"match_id": match_id, "started_at": started,
                      "map": {"name": map_name}, "region": "na",
@@ -29,9 +29,60 @@ def make_match(match_id="m1", started="2026-08-23T05:39:55.948Z", n=10,
                      "party_id": None, "account_level": 100,
                      "stats": {"score": 200, "kills": 15, "deaths": 14, "assists": 5,
                                "headshots": 10, "bodyshots": 20, "legshots": 2,
-                               "damage": {"dealt": 3000, "received": 3100}}}
+                               "damage": {"dealt": 3000, "received": 3100}},
+                     **({"ability_casts": {"grenade": 12, "ability1": 9,
+                                           "ability2": 21, "ultimate": 0}}
+                        if casts else {})}
                     for i in range(n)],
     }
+
+
+def test_ability_casts_are_stored_per_slot(conn):
+    """Four slots, kept apart.
+
+    The counts were in every API response from the beginning and were thrown
+    away at ingestion until the per-role score needed them. Summing them here
+    would lose what the score compares against: a Sentinel casting two traps is
+    not the same as casting one and an ultimate.
+    """
+    _ingest(conn, make_match())
+    row = conn.execute("SELECT * FROM match_players LIMIT 1").fetchone()
+    assert row["ability_grenade"] == 12
+    assert row["ability_1"] == 9
+    assert row["ability_2"] == 21
+    # Zero is a real answer -- they had no ultimate all match -- and must not
+    # be stored as "we do not know".
+    assert row["ability_ultimate"] == 0
+
+
+def test_a_response_without_ability_casts_stores_null_not_zero(conn):
+    """Older or partial responses omit the block entirely.
+
+    NULL says "not recorded"; 0 says "cast nothing". Conflating them would put
+    every unknown player at the bottom of the ability component instead of
+    leaving them out of it.
+    """
+    _ingest(conn, make_match(casts=False))
+    row = conn.execute("SELECT * FROM match_players LIMIT 1").fetchone()
+    assert row["ability_grenade"] is None
+    assert row["ability_1"] is None
+    assert row["ability_2"] is None
+    assert row["ability_ultimate"] is None
+
+
+def test_reparsing_fills_ability_casts_into_existing_rows(conn):
+    """The recovery path: rows ingested before the columns existed.
+
+    Re-running the parse over a stored response has to update them in place,
+    or the 76,000 matches already collected stay empty forever.
+    """
+    _ingest(conn, make_match(casts=False))
+    assert conn.execute(
+        "SELECT ability_1 FROM match_players LIMIT 1").fetchone()[0] is None
+    _ingest(conn, make_match(casts=True))
+    assert conn.execute(
+        "SELECT ability_1 FROM match_players LIMIT 1").fetchone()[0] == 9
+    assert conn.execute("SELECT COUNT(*) FROM match_players").fetchone()[0] == 10
 
 
 # --- timestamp parsing ------------------------------------------------

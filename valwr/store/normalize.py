@@ -109,6 +109,12 @@ def parse_match(m: dict) -> tuple[dict, list[dict], list[str]]:
         seen.add(puuid)
         stats = p.get("stats") or {}
         dmg = stats.get("damage") or {}
+        # The API names the two basic slots `ability1`/`ability2`; the columns
+        # use `ability_1`/`ability_2` to read as slots rather than as one
+        # run-on word. A player who cast nothing is 0, not NULL -- NULL here
+        # means the response predates the field or omitted it.
+        casts = p.get("ability_casts")
+        casts = casts if isinstance(casts, dict) else {}
         player_rows.append({
             "match_id": match_id,
             "puuid": puuid,
@@ -126,6 +132,10 @@ def parse_match(m: dict) -> tuple[dict, list[dict], list[str]]:
             "legshots": stats.get("legshots"),
             "damage_dealt": dmg.get("dealt"),
             "damage_taken": dmg.get("received"),
+            "ability_grenade": casts.get("grenade"),
+            "ability_1": casts.get("ability1"),
+            "ability_2": casts.get("ability2"),
+            "ability_ultimate": casts.get("ultimate"),
             # Denormalised from the match so history queries need no join.
             "started_at": match_row["started_at"],
             "map": match_row["map"],
@@ -147,7 +157,8 @@ PLAYER_COLS = ["match_id", "puuid", "team", "agent", "party_id", "tier",
                "headshots", "bodyshots", "legshots", "damage_dealt", "damage_taken",
                "started_at", "map", "won",
                "rounds_played", "first_bloods", "first_deaths", "multikills",
-               "trade_kills", "traded_deaths", "kast_rounds", "clutches"]
+               "trade_kills", "traded_deaths", "kast_rounds", "clutches",
+               "ability_grenade", "ability_1", "ability_2", "ability_ultimate"]
 
 
 def upsert_match(conn: sqlite3.Connection, row: dict) -> None:

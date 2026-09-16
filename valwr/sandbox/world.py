@@ -276,6 +276,11 @@ def write_player(conn: sqlite3.Connection, puuid: str, p: PlayerProfile,
             "rounds_played": ROUNDS,
             "first_bloods": int(round(m["fb_rate"] * ROUNDS)),
             "first_deaths": int(round(m["fd_rate"] * ROUNDS)),
+            # The sandbox does not model ability usage, and NULL says so.
+            # Inventing counts here would feed the per-role score synthetic
+            # numbers it could not tell apart from real ones.
+            "ability_grenade": None, "ability_1": None,
+            "ability_2": None, "ability_ultimate": None,
             "multikills": 1, "trade_kills": 2, "traded_deaths": 2,
             "kast_rounds": min(ROUNDS, int(round(m["kast"] * ROUNDS))),
             "clutches": 0, "_name": puuid, "_tag": "SBX",

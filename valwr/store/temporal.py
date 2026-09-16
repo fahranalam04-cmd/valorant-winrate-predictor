@@ -62,7 +62,11 @@ SELECT mp.match_id, mp.started_at, mp.puuid, mp.team, mp.agent, mp.tier,
        -- feature silently collapses to its default. Keep this list in step
        -- with valwr/rating/components.py.
        mp.rounds_played, mp.first_bloods, mp.first_deaths, mp.multikills,
-       mp.trade_kills, mp.traded_deaths, mp.kast_rounds, mp.clutches
+       mp.trade_kills, mp.traded_deaths, mp.kast_rounds, mp.clutches,
+       -- Ability casts, read by the per-role score. NULL on any row ingested
+       -- before these columns existed, which is a different thing from zero
+       -- and has to stay distinguishable: zero means they cast nothing.
+       mp.ability_grenade, mp.ability_1, mp.ability_2, mp.ability_ultimate
 FROM match_players mp
 WHERE mp.puuid = ? AND mp.started_at < ?
 """
