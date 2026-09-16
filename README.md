@@ -264,7 +264,8 @@ after three days unless you tell it not to.
 ```bash
 python -m valwr.model.train --rebuild        # build features, fit, select, save
 python -m valwr.model.analyze                # equal-rank subset, and both README charts
-python tools/build_perf_index.py             # population reference for the 0-100 score
+python tools/build_perf_index.py             # population reference, old single score
+python tools/build_role_index.py             # per-role reference for the 0-100 score
 python tools/validate_potential.py --write-index   # measure and record its hit rate
 python tools/model_metrics.py                # every model, every metric, into docs/MODEL-CHOICE.md
 python tools/improve.py                      # what your own recorded matches say, and what to fix
@@ -302,7 +303,8 @@ figure.
 
 What is on the page, and what each number means, is in
 [docs/DASHBOARD.md](docs/DASHBOARD.md). In short: both teams' odds and what is
-moving them; all ten players by team with rank, party, a 0–100 score, ACS, K/D,
+moving them; all ten players by team with rank, party, a 0–100 score scored
+against others on the same role, ACS, K/D,
 last-20 K/D and headshot rate, competitive games only; and a card per player
 with their record, form and history on this map.
 

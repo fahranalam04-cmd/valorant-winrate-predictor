@@ -1,7 +1,15 @@
 # The 0-100 player score: specification
 
-Status: **proposed, not built.** This describes the replacement for the score in
-`valwr/rating/potential.py`. Nothing in the code implements it yet.
+Status: **shipped.** The live view scores players this way; the previous single
+formula in `valwr/rating/potential.py` still provides the rest of the card
+(career, form, this map, freshness, the above-rank flag).
+
+It ships having **failed the criteria in section 10**: 27.7% against the old
+score's 29.7%, and worse on the three roles it was built for. That was a
+deliberate call -- the score is meant to say what each role is trying to do,
+and one match is 84% noise, so the ranking it gives up is small and the thing
+it buys is a number that means the same for a Sage as for a Jett. The
+measurement stays in this document rather than being quietly dropped.
 
 The current score is one formula for everybody: four components
 (`acs` 45%, `rating` 25%, `kd` 15%, `map_edge` 15%), z-scored against the whole

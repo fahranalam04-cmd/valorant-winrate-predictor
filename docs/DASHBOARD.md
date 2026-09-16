@@ -102,7 +102,7 @@ show dashes rather than guesses.
 
 | On the row | Meaning |
 |---|---|
-| **Score, 0–100** | A percentile against the training population: 70 means likely to outperform 70% of players. Built from combat score, the player rating, K/D and a small map term. |
+| **Score, 0–100** | A percentile **within the player's role**: 70 means ahead of 70% of players on that role, so a Sentinel's 70 and a Duelist's 70 are the same claim. Each role is scored on different things — see [SCORE-SPEC.md](SCORE-SPEC.md). |
 | Name, **YOU** | Your own row is marked. |
 | **A duo / B trio** | A party, lettered so teammates in the same group match. |
 | ◆ | Playing far above their rank — see *The flag* below. |
@@ -251,11 +251,28 @@ between the teams. How it was chosen, and every other model tried, is in
   10,304 held-out matches is a real edge over rank, which scores 50.2%, and it
   holds on matches where both teams' ranks are equal. It is not a forecast to
   bet on.
-- **The score picks the best player on a team 30.5% of the time**, against 20%
+- **The score picks the best player on a team 27.7% of the time**, against 20%
   by chance. A real edge, not a reliable one — the page footer says the same.
-- **The score favours duelists.** It leans on combat score, which duelists earn
-  more of: at identical skill, a duelist main scores well above an initiator
-  main. Read it as "likely to put up numbers", not "better at the game".
+- **It used to be 29.7%.** The per-role score is measurably *worse* at picking
+  the best player than the single formula it replaced, and it was shipped
+  anyway: the choice was that the number should describe what each role is
+  trying to do rather than rank marginally better. docs/SCORE-SPEC.md carries
+  the measurement, including the two criteria it failed.
+- **Almost nothing can do better.** Only 16% of the variation in one match's
+  performance is the player; the rest is the night they had. A score that knew
+  every player's true long-run level exactly would reach about 38%.
+- **Roles are no longer scored on the same things.** A Duelist is damage-led
+  and is the only role scored on opening kills; Controllers lean on KAST,
+  assists and ability use; Sentinels are the only role penalised for dying
+  first. Chamber is scored on a Duelist/Sentinel blend, because his kit is a
+  rifle rather than utility.
+- **Ability use is the weakest input in the score.** It is 11–20% of the weight
+  depending on role, and it is a count of button presses: a drone that spots
+  three players and a drone thrown at a wall are identical in this data. It
+  correlates with actual performance at roughly zero, while being one of the
+  most *stable* things about a player — so it reliably separates players by
+  playstyle rather than by quality. It is in the score because the score is
+  meant to describe the role, not because it predicts.
 - **The flag is not a smurf detector.** It fires on about one player in twenty:
   those rated well above their own rank *and* topping their lobbies far more
   often than the 20% chance rate. Flagged players finish in the top third of a

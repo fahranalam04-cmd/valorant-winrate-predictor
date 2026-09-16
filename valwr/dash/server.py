@@ -228,6 +228,19 @@ def _review_payload(match_id: str) -> dict:
             "top1_rate": None, "fresh": False}
 
 
+def _demo_top1() -> float | None:
+    """How often the shipped score picks the best player, from the index.
+
+    None when no index is fitted, and the page then says nothing rather than
+    quoting a figure it cannot stand behind.
+    """
+    from valwr.rating import roleindex
+    try:
+        return roleindex.RoleIndex.load().top1_rate
+    except (FileNotFoundError, ValueError, KeyError):
+        return None
+
+
 def _demo_payload() -> dict:
     """The demo match, with agent UUIDs filled in where a database exists."""
     from valwr.dash.demo import demo_state
@@ -241,8 +254,11 @@ def _demo_payload() -> dict:
     except Exception:                                # noqa: BLE001
         conn = None                                  # lettered tiles, still fine
     try:
+        # Read from the index rather than written here: a literal in this
+        # file is how the live view once advertised an accuracy two retrains
+        # out of date, with nothing to catch it.
         return {"status": "match", "state": demo_state(conn),
-                "top1_rate": 0.296, "fresh": True}
+                "top1_rate": _demo_top1(), "fresh": True}
     finally:
         if conn is not None:
             conn.close()

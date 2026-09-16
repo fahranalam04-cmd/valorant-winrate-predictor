@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parent.parent
 PAGE = ROOT / "valwr" / "dash" / "static" / "index.html"
 AGENTS = ROOT / "valwr" / "dash" / "static" / "agents"
 MAPS = ROOT / "valwr" / "dash" / "static" / "maps"
-INDEX = ROOT / "models" / "perf_index.json"
+INDEX = ROOT / "models" / "role_index.json"
 REPO_URL = "https://github.com/fahranalam04-cmd/valorant-winrate-predictor"
 
 # Written into every build, and required before an existing directory is

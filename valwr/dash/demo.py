@@ -63,6 +63,9 @@ PROFILES = [
 
 # A plausible spread: mostly Platinum with a Diamond and one unranked.
 from valwr.rating import ranks as _r
+from valwr.rating import roles as _roles
+from valwr.rating.role_score import COMPONENT_LABELS as _LABELS
+from valwr.rating.role_score import MIN_MAP_GAMES as _MAP_GATE
 RANKS = [_r.describe(t) for t in
          (18, 16, 0, 15, 13, 20, 16, 0, 15, 12)]
 
@@ -75,7 +78,53 @@ PARTIES = [
 ]
 
 MAP = "Ascent"
-GATE = 6
+GATE = _MAP_GATE
+
+# How far from average each component sits, relative to the player's overall
+# standing. Invented, but not uniform: a demo where every component tells the
+# same story about a player makes the breakdown look decorative.
+_SLANT = {"acs": 1.15, "adr": 1.05, "kd": 0.90, "kda": 0.95, "kast": 0.70,
+          "assists": 0.55, "fb": 0.80, "fd": -0.60, "hs": 1.00,
+          "abilities": 0.45, "map_edge": 0.35}
+
+
+def _band(z):
+    a = abs(z)
+    if a < 0.35:
+        return "about average"
+    if a < 1.0:
+        return "above average" if z > 0 else "below average"
+    return "well above average" if z > 0 else "well below average"
+
+
+def _components(role, agent, score, acs, kd, hs, mg):
+    """The breakdown, built from the real weight tables.
+
+    Generated rather than written out, so the published demo cannot drift from
+    the weights that actually ship -- an earlier hand-written version outlived
+    two changes to the score before anyone noticed it was describing a formula
+    the project no longer used.
+    """
+    weights = _roles.weights_for(role, agent)
+    # A percentile back into roughly the z it came from: 50 -> 0, 90 -> +1.3.
+    base = (score - 50) / 30.0
+    values = {"acs": acs, "adr": round(acs * 0.66, 1), "kd": kd,
+              "kda": round(kd * 1.35, 2), "assists": 0.28, "kast": 0.72,
+              "fb": 0.11, "fd": 0.10, "hs": hs, "abilities": 2.1,
+              "map_edge": round(acs * 0.02, 2)}
+    out = []
+    for name, w in sorted(weights.items(), key=lambda kv: -abs(kv[1])):
+        z = round(base * _SLANT.get(name, 1.0), 2)
+        gated = name == "map_edge" and mg < GATE
+        out.append({
+            "key": name, "label": _LABELS.get(name, name),
+            "value": values.get(name), "z": None if gated else z,
+            "weight": round(w, 4),
+            "contribution": 0.0 if gated else round(w * z, 3),
+            "note": (f"not counted -- {mg} game{'s' if mg != 1 else ''} on this "
+                     f"map, {GATE} needed") if gated else _band(z),
+        })
+    return out
 
 
 def _stats(games, acs, k, d, a, kd, hs, wr):
@@ -132,24 +181,8 @@ def demo_state(conn=None) -> dict:
             counts = mg >= GATE
             entry["detail"] = {
                 "score": score, "raw": 0.0, "reason": entry["reason"],
-                "components": [
-                    {"key": "acs", "label": "combat score", "value": acs,
-                     "z": 1.1, "note": "well above average", "weight": 0.45,
-                     "contribution": 0.5},
-                    {"key": "rating", "label": "overall rating", "value": 1.06,
-                     "z": 0.4, "note": "above average", "weight": 0.25,
-                     "contribution": 0.1},
-                    {"key": "kd", "label": "kills per death", "value": kd,
-                     "z": 0.6, "note": "above average", "weight": 0.15,
-                     "contribution": 0.09},
-                    {"key": "map_edge", "label": "map adjustment",
-                     "value": 0.01, "z": 0.3,
-                     "note": ("above average" if counts else
-                              f"not counted -- {mg} game"
-                              f"{'s' if mg != 1 else ''} on this map, "
-                              f"{GATE} needed"),
-                     "weight": 0.15, "contribution": 0.05 if counts else 0.0},
-                ],
+                "components": _components(
+                    ROLES.get(agent), agent, score, acs, kd, hs, mg),
                 "career": career, "recent": recent, "recent_window": 20,
                 "map": dict(_stats(mg, round(acs * 0.96, 1), int(k * mg / max(games, 1)),
                                    int(d * mg / max(games, 1)),
