@@ -170,12 +170,18 @@ def main(argv=None) -> int:
           f"{results['the per-role score'] * 100:.1f}%, "
           f"tolerance {se:.1f})")
     for role in ("Initiator", "Controller"):
-        got = next((c for r, _, c in verdicts if r == role), None)
-        if got is None:
+        row = next(((a, c) for r, a, c in verdicts if r == role), None)
+        if row is None:
             continue
-        print(f"  2. {role} rho above +0.200: "
-              f"{'PASS' if got > 0.2 else 'not yet'}  "
-              f"({BASELINE_RHO[role]:+.3f} recorded -> {got:+.3f})")
+        was, got = row
+        # Against this run's own old-score figure, not the one recorded in the
+        # spec. The recorded number came from a different sample of teams --
+        # this tool keeps only teams where BOTH scores can be computed -- so
+        # comparing across the two would read sampling noise as progress.
+        print(f"  2. {role} rho improves and clears +0.200: "
+              f"{'PASS' if got > 0.2 and got > was else 'FAIL'}  "
+              f"(old {was:+.3f} -> new {got:+.3f} on these teams; "
+              f"{BASELINE_RHO[role]:+.3f} recorded on the spec's sample)")
     print("  3. per-role numbers reported above, flattering or not.")
 
     worse = [r for r, a, c in verdicts if c < a - 0.01]

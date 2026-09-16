@@ -378,6 +378,57 @@ of the time -- which is what picking at random would do. For Duelists it is
 Duelists and no better than guessing for Initiators, and the aggregate hid
 that completely.
 
+**The result, measured once it was built.** 1,500 test-period teams, both
+scores on the same teams, ability data 99.3% recovered
+(`python tools/compare_role_score.py`):
+
+| | top-1 |
+|---|---|
+| the old score | 29.7% |
+| **the per-role score** | **27.7%** |
+| career ACS alone | 29.7% |
+| shuffled (control) | 20.5% |
+
+| role | rho old | rho new | named old | named new |
+|---|---|---|---|---|
+| Duelist | +0.127 | +0.129 | 33.3% | 32.7% |
+| Sentinel | +0.162 | +0.136 | 32.2% | 21.6% |
+| Controller | +0.115 | +0.067 | 23.4% | 27.8% |
+| Initiator | +0.213 | +0.157 | 24.9% | 18.7% |
+
+**It fails criterion 1 and criterion 2.** Two points of top-1 is twice the
+standard error, and the three roles the change was built for all got worse. The
+weights in section 4 are the ones measured here; they should not ship as they
+stand.
+
+**Why, measured rather than guessed.** Two properties of each input, on 3,500
+test-period player-matches:
+
+| | ACS | ADR | K/D | KAST | assists | abilities | HS% |
+|---|---|---|---|---|---|---|---|
+| predicts next match (Controller) | +0.120 | +0.129 | +0.066 | +0.051 | −0.013 | **−0.015** | +0.074 |
+| predicts next match (Initiator) | +0.253 | +0.246 | +0.193 | +0.098 | +0.021 | **−0.009** | +0.153 |
+| is a stable trait (Controller) | +0.262 | +0.280 | +0.202 | +0.128 | +0.157 | **+0.507** | +0.657 |
+| is a stable trait (Initiator) | +0.193 | +0.183 | +0.086 | +0.036 | +0.130 | **+0.508** | +0.629 |
+
+Ability casting is among the *most* stable things about a player -- more stable
+than their ACS -- and predicts performance at zero. That combination is worse
+than a noisy input. Noise averages out; a stable non-signal ranks the same
+players above others every match, for a reason unconnected to how well they
+play. At 17-20% of the weight, a fifth of the score was being spent sorting
+people by playstyle.
+
+KAST has the opposite problem: it matters inside a match (it is 22% of the
+yardstick) but barely persists between them -- +0.036 for Initiators and
+Sentinels. There is little stable signal there to weight.
+
+Both findings survive a change of yardstick. Measured against *winning* rather
+than against the rating, within the same agent, casts correlate +0.13 to +0.19
+raw -- and +0.02 to +0.04 once kills and deaths are accounted for. Cast counts
+measure being alive, not contributing, which is what a count of button presses
+was always at risk of measuring: a drone that spots three players and a drone
+thrown at a wall are identical in this data.
+
 **Success criteria, agreed in advance:**
 
 1. Overall top-1 must not drop by more than one standard error (about 1 point
