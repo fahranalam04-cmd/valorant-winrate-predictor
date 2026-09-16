@@ -816,6 +816,7 @@ def test_the_dashboard_reopens_its_context_instead_of_staying_stuck(monkeypatch)
 
     class Ctx:
         index = None
+        role_index = None
         conn = None
         client = None
         settings = type("S", (), {"region": "na"})()
@@ -1108,6 +1109,7 @@ def test_each_new_match_opens_its_own_tab_once(tmp_path, monkeypatch):
 
     class Ctx:
         index = None
+        role_index = None
         conn = None
         client = None
         settings = type("S", (), {"region": "na"})()

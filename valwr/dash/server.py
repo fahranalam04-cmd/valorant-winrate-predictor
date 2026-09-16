@@ -255,6 +255,7 @@ def _replay_payload(match_id: str) -> dict:
     from valwr import config
     from valwr.dash.replay import replay_state
     from valwr.rating import potential as pot
+    from valwr.rating import roleindex
     from valwr.store import schema
 
     s = config.load(require_key=False)
@@ -264,14 +265,24 @@ def _replay_payload(match_id: str) -> dict:
         index = pot.PerfIndex.load()
     except FileNotFoundError:
         index = None
+    try:
+        role_index = roleindex.RoleIndex.load()
+    except FileNotFoundError:
+        role_index = None
     row = conn.execute("SELECT puuid FROM players WHERE lower(tag) = lower(?) "
                        "ORDER BY last_seen_at DESC LIMIT 1",
                        (getattr(s, "riot_tag", "") or "",)).fetchone()
     me = row["puuid"] if row else ""
     try:
         return {"status": "match",
-                "state": replay_state(conn, match_id, bundle, index, me),
-                "top1_rate": index.top1_rate if index else None, "fresh": True}
+                "state": replay_state(conn, match_id, bundle, index, me,
+                                      role_index=role_index),
+                # The rate has to come from whichever index scored the players
+                # on this page, or a pinned tab quotes one score's accuracy
+                # beside another score's numbers.
+                "top1_rate": (role_index.top1_rate if role_index
+                              else index.top1_rate if index else None),
+                "fresh": True}
     finally:
         conn.close()
 
@@ -517,7 +528,11 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                         app.state.opened.add(state["match_id"])
                         webbrowser.open(
                             f"{app.state.base_url}m/{state['match_id']}")
-                    top1 = ctx.index.top1_rate if ctx.index else None
+                    # The figure has to belong to the score being shown.
+                    # Quoting the old index's rate beside a per-role score
+                    # would advertise an accuracy this page does not have.
+                    top1 = (ctx.role_index.top1_rate if ctx.role_index
+                            else ctx.index.top1_rate if ctx.index else None)
                     payload = {"status": "match", "state": state,
                                "top1_rate": top1,
                                "fresh": state["match_id"] != last}

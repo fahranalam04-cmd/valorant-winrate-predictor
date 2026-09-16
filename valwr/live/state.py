@@ -27,6 +27,8 @@ from valwr.collect.limiter import TokenBucket
 from valwr.live import lockfile, predict as P, resolve as R, roster
 from valwr.live import session as S
 from valwr.rating import potential as pot
+from valwr.rating import role_score as rs
+from valwr.rating import roleindex
 from valwr.rating import ranks
 from valwr.store import temporal
 from valwr.store import schema
@@ -47,6 +49,7 @@ class LiveContext:
     session: Any
     client: Any                 # HenrikClient | None
     settings: Any
+    role_index: Any = None      # roleindex.RoleIndex | None
     deadline: float = DEFAULT_DEADLINE
 
     @property
@@ -87,13 +90,22 @@ def open_context(no_fetch: bool = False,
     except FileNotFoundError:
         index = None
 
+    # The per-role score. Without it the card falls back to the old single
+    # formula rather than losing its number entirely -- a fresh clone that has
+    # not fitted one yet still shows a scoreboard.
+    try:
+        role_index = roleindex.RoleIndex.load()
+    except FileNotFoundError:
+        role_index = None
+
     client = None
     if not no_fetch:
         full = config.load()
         client = HenrikClient(full.henrik_api_key, conn=conn,
                               limiter=TokenBucket(full.requests_per_minute))
 
-    return LiveContext(conn=conn, bundle=bundle, index=index, session=S.build(),
+    return LiveContext(conn=conn, bundle=bundle, index=index,
+                       role_index=role_index, session=S.build(),
                        client=client, settings=settings, deadline=deadline)
 
 
@@ -238,6 +250,20 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
         if ctx.index is not None:
             got = pot.detail(ctx.conn, p.puuid, as_of, match.map_name or "?",
                              ctx.bundle["norms"], ctx.index)
+            # The score, its components and the one-line reason come from the
+            # per-role tables; everything else on the card -- career, form,
+            # this map, freshness, the above-rank flag -- is the same data
+            # either way and is left alone.
+            if got is not None and ctx.role_index is not None:
+                scored = rs.describe(ctx.conn, p.puuid, as_of,
+                                     match.map_name or "?", roles.get(p.agent),
+                                     p.agent, roles, ctx.role_index)
+                if scored is not None:
+                    got.update({k: scored[k] for k in
+                                ("score", "raw", "reason", "components")})
+                    got["role_score"] = {k: scored[k] for k in
+                                         ("role", "weights_from", "role_games",
+                                          "ability_games")}
             if got is not None:
                 entry["score"] = got["score"]
                 entry["reason"] = got["reason"]

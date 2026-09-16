@@ -31,6 +31,9 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
 
+from valwr.collect.frontier import band_of
+from valwr.rating import roles
+from valwr.rating.potential import _band as potential_band
 from valwr.store import temporal
 
 # Components built as a weighted count over weighted rounds.
@@ -230,3 +233,140 @@ def roles_by_agent(conn: sqlite3.Connection) -> dict[str, str]:
     """Agent name -> role, from ref_agents."""
     return {r["name"]: r["role"] for r in
             conn.execute("SELECT name, role FROM ref_agents")}
+
+
+# --- putting the number into words -------------------------------------
+
+COMPONENT_LABELS = {
+    "acs": "combat score", "adr": "damage per round", "kd": "kills per death",
+    "kda": "kills and assists per death", "kast": "rounds contributed to",
+    "assists": "assists per round", "fb": "opening kills",
+    "fd": "opening deaths", "hs": "headshot rate",
+    "abilities": "ability use", "map_edge": "map adjustment",
+}
+
+# What a high and a low value are worth saying about a player. `map_edge` is
+# deliberately absent: it is an adjustment against the player's own level, not
+# a trait, and narrating it produced sentences nobody could act on.
+_HIGH = {
+    "acs": "high combat score", "adr": "damages every round",
+    "kd": "wins duels", "kda": "in on most kills",
+    "kast": "contributes nearly every round", "assists": "sets up teammates",
+    "fb": "opens rounds", "fd": "dies first often",
+    "hs": "headshot-heavy aim", "abilities": "uses their kit heavily",
+}
+_LOW = {
+    "acs": "low combat score", "adr": "does little damage",
+    "kd": "loses duels", "kda": "little involved in kills",
+    "kast": "quiet rounds", "assists": "rarely assists",
+    "fb": "rarely opens a round", "fd": "rarely dies first",
+    "hs": "low headshot rate", "abilities": "uses little utility",
+}
+
+# Below this many standard deviations from the population, a component is not
+# worth naming -- the same threshold potential.py uses, and for the same
+# reason: without it a perfectly average player gets a confident-sounding
+# label on the strength of noise.
+NOTABLE_Z = 0.5
+
+
+def explain(index, comps, weights: dict[str, float]) -> str:
+    """What is most distinctive about this player, in words.
+
+    Ranked by raw z-score rather than by weighted contribution. Weighting made
+    the biggest weight win almost every time, so the column read "high combat
+    score" for four players in five -- true, and useless. What is unusual about
+    a player is what a teammate wants to know, even when it is not what moved
+    their score most.
+    """
+    zs = {}
+    for name in weights:
+        if name not in _HIGH:
+            continue
+        z = (index.z_ability(comps.values.get("abilities"), comps.agent, comps.role)
+             if name == "abilities"
+             else index.z(name, comps.values.get(name), band_of(comps.tier)))
+        if z is not None:
+            zs[name] = z
+    if not zs:
+        return "no history"
+
+    name = max(zs, key=lambda k: abs(zs[k]))
+    if abs(zs[name]) < NOTABLE_Z:
+        if comps.n_games < 5:
+            return f"middle of the pack, on only {comps.n_games} game" + (
+                "s" if comps.n_games != 1 else "")
+        return "middle of the pack"
+    word = (_HIGH if zs[name] > 0 else _LOW)[name]
+    if comps.n_games < 5:
+        return f"{word}, but only {comps.n_games} game" + (
+            "s" if comps.n_games != 1 else "")
+    return word
+
+
+def describe(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
+             role: str | None, agent: str | None, roles_by_agent: dict[str, str],
+             index) -> dict | None:
+    """One player's score and the parts it is built from.
+
+    The score alone is unauditable -- a reader cannot tell whether 68 came from
+    consistent play or from three good games. This returns the components
+    beside it, each with the weight its role gives it, so the number can be
+    checked rather than believed.
+    """
+    comps = measure(conn, puuid, as_of, map_name, role, roles_by_agent,
+                    role_means=index.role_means.get(role or "?"), agent=agent)
+    if comps is None:
+        return None
+
+    weights = roles.weights_for(role, agent)
+    raw = index.composite(comps, weights)
+    band = band_of(comps.tier)
+
+    components = []
+    for name, w in sorted(weights.items(), key=lambda kv: -abs(kv[1])):
+        if name == "abilities":
+            value = comps.values.get("abilities")
+            z = index.z_ability(value, comps.agent, comps.role)
+        elif name == "map_edge":
+            value = comps.map_edge
+            z = (index.z("map_edge", value, band)
+                 if comps.n_map_games >= MIN_MAP_GAMES else None)
+        else:
+            value = comps.values.get(name)
+            z = index.z(name, value, band)
+        entry = {
+            "key": name,
+            "label": COMPONENT_LABELS.get(name, name),
+            "value": round(value, 3) if value is not None else None,
+            "z": round(z, 2) if z is not None else None,
+            # A fraction, like potential.detail emits. The page does not
+            # print it today, but two providers of the same field disagreeing
+            # about its units is a trap for whoever prints it next.
+            "weight": round(w, 4),
+            "contribution": round(w * z, 3) if z is not None else 0.0,
+            "note": potential_band(z) if z is not None else "not counted",
+        }
+        if name == "map_edge" and comps.n_map_games < MIN_MAP_GAMES:
+            entry["note"] = (f"not counted -- {comps.n_map_games} game"
+                             f"{'s' if comps.n_map_games != 1 else ''} on this "
+                             f"map, {MIN_MAP_GAMES} needed")
+        elif name == "abilities" and value is None:
+            entry["note"] = "not counted -- no match recorded their ability use"
+        components.append(entry)
+
+    return {
+        "score": index.percentile(raw, role),
+        "raw": round(raw, 4) if raw is not None else None,
+        "reason": explain(index, comps, weights),
+        "components": components,
+        "role": role,
+        "agent": agent,
+        # Which role's table produced this, so the card can say so. Chamber is
+        # scored on a blend and a reader should not have to guess why his
+        # weights differ from Cypher's.
+        "weights_from": ("a Duelist/Sentinel blend" if agent in roles.AGENT_BLENDS
+                         else role or "no role yet"),
+        "role_games": comps.n_role_games,
+        "ability_games": comps.n_ability_games,
+    }

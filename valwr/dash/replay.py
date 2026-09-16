@@ -35,9 +35,21 @@ def _agent_ids(conn) -> dict[str, str]:
             for r in conn.execute("SELECT uuid, name FROM ref_agents")}
 
 
-def replay_state(conn, match_id: str, bundle: dict, index, own_puuid: str
-                 ) -> dict:
-    """The same dictionary `poll_once` returns, for a finished match."""
+def replay_state(conn, match_id: str, bundle: dict, index, own_puuid: str,
+                 role_index=None) -> dict:
+    """The same dictionary `poll_once` returns, for a finished match.
+
+    `role_index` is loaded from disk when not supplied. Leaving it out would
+    quietly score a replayed match with the old single formula while the live
+    view used the per-role one -- the same match, two different numbers,
+    depending on which tab it was opened in.
+    """
+    if role_index is None:
+        from valwr.rating import roleindex
+        try:
+            role_index = roleindex.RoleIndex.load()
+        except FileNotFoundError:
+            role_index = None
     rows = [dict(r) for r in conn.execute(
         "SELECT * FROM match_players WHERE match_id = ?", (match_id,))]
     if not rows:
@@ -66,7 +78,7 @@ def replay_state(conn, match_id: str, bundle: dict, index, own_puuid: str
     resolution = Resolution(known={r["puuid"] for r in rows})
 
     ctx = ST.LiveContext(
-        conn=conn, bundle=bundle, index=index,
+        conn=conn, bundle=bundle, index=index, role_index=role_index,
         session=type("S", (), {"puuid": own_puuid})(), client=None,
         settings=type("C", (), {"region": "na", "platform": "pc"})(),
         deadline=0.0)

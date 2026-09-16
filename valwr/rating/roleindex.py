@@ -65,6 +65,14 @@ class RoleIndex:
     n: int = 0
     # agents that fell back to their role's ability distribution
     fell_back: tuple[str, ...] = ()
+    # How often this index picks the best player out of five, measured on
+    # held-out data by tools/compare_role_score.py --write-index. It travels
+    # with the index that produced it for the same reason the old one does:
+    # the live view used to print its accuracy as a literal, which went
+    # silently wrong at the next retrain with nothing to catch it. None means
+    # "not measured yet", and the renderers then say nothing rather than
+    # quoting a figure that belongs to a different score.
+    top1_rate: float | None = None
 
     # --- reading -------------------------------------------------------
     def z(self, name: str, value: float | None, band: int) -> float | None:
@@ -154,6 +162,7 @@ class RoleIndex:
             "quantiles": self.quantiles,
             "as_of": self.as_of, "n": self.n,
             "fell_back": list(self.fell_back),
+            "top1_rate": self.top1_rate,
         })
 
     @classmethod
@@ -170,7 +179,8 @@ class RoleIndex:
             ability_by_role={k: un(v) for k, v in raw["ability_by_role"].items()},
             role_means=raw["role_means"], quantiles=raw["quantiles"],
             as_of=raw.get("as_of", 0), n=raw.get("n", 0),
-            fell_back=tuple(raw.get("fell_back", ())))
+            fell_back=tuple(raw.get("fell_back", ())),
+            top1_rate=raw.get("top1_rate"))
 
 
 def fit(samples: list, as_of: int = 0) -> RoleIndex:

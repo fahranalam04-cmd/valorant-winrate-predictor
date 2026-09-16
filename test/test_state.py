@@ -87,13 +87,102 @@ def _db(tmp_path, named=(), history=()):
     return conn
 
 
-def _ctx(conn, index=None):
+def _ctx(conn, index=None, role_index=None):
     return ST.LiveContext(
         conn=conn,
-        bundle={"best": "logistic regression", "roles": {"Jett": "Duelist"},
+        bundle={"best": "logistic regression",
+                "roles": {"Jett": "Duelist", "Sova": "Initiator"},
                 "norms": {}},
-        index=index, session=_Stub(puuid=ME), client=None,
+        index=index, role_index=role_index, session=_Stub(puuid=ME),
+        client=None,
         settings=_Stub(region="na", platform="pc"), deadline=1.0)
+
+
+# --- the per-role score, as the live view actually assembles it ---------
+
+def _perf_index():
+    """A small stand-in for the old index, built here rather than loaded.
+
+    Loading models/perf_index.json would make these tests pass or fail on
+    whether a model happens to be fitted on this machine.
+    """
+    from valwr.rating import potential as pot
+    return pot.PerfIndex(
+        means={"acs": 200.0, "rating": 1.0, "kd": 1.0, "map_edge": 0.0},
+        stds={"acs": 40.0, "rating": 0.15, "kd": 0.25, "map_edge": 0.05},
+        quantiles=[i / 50.0 - 1.0 for i in range(101)], as_of=900, n=1000)
+
+
+def _scored_ctx(conn, role_index=None):
+    """A context whose cards can actually be built: real norms, real index."""
+    from valwr.rating.normalize import build_norms
+    ctx = _ctx(conn, index=_perf_index(), role_index=role_index)
+    ctx.bundle["norms"] = build_norms(conn, 2000)
+    return ctx
+
+
+def _role_index():
+    """A reference population wide enough to z-score against."""
+    from valwr.rating import roleindex
+    from valwr.rating.role_score import RoleComponents
+    samples = []
+    for i in range(400):
+        step = (i % 20) / 20.0
+        for role, agent, acs in (("Duelist", "Jett", 180 + 80 * step),
+                                 ("Initiator", "Sova", 170 + 70 * step)):
+            samples.append(RoleComponents(
+                role=role, agent=agent,
+                values={"acs": acs, "adr": 120 + 50 * step, "kd": 0.8 + 0.5 * step,
+                        "kda": 1.1 + 0.6 * step, "assists": 0.2 + 0.2 * step,
+                        "kast": 0.6 + 0.2 * step, "fb": 0.08 + 0.06 * step,
+                        "fd": 0.08 + 0.06 * step, "hs": 0.18 + 0.1 * step,
+                        "abilities": 1.5 + 0.8 * step},
+                counts={}, map_edge=0.0, n_games=30, n_role_games=30,
+                n_map_games=0, n_ability_games=30, tier=15, account_level=100))
+    return roleindex.fit(samples, as_of=900)
+
+
+def test_the_live_card_is_scored_by_the_players_role(tmp_path):
+    """The whole point of the change: a Jett and a Sova are not scored on the
+    same things, and the card has to say which table produced the number."""
+    conn = _db(tmp_path, history=[ME] * 6)
+    conn.execute("INSERT INTO ref_agents (uuid, name, role) "
+                 "VALUES ('sid', 'Sova', 'Initiator')")
+    conn.commit()
+    rows = ST._player_rows(_scored_ctx(conn, _role_index()), _match(), 2000)
+    mine = next(r for r in rows if r["is_you"])
+    card = mine["detail"]
+    assert card["role_score"]["role"] == "Duelist"
+    assert card["role_score"]["weights_from"] == "Duelist"
+    keys = {c["key"] for c in card["components"]}
+    # Components the old single formula never had, and one it had that a
+    # Duelist no longer scores on.
+    assert {"kast", "abilities", "fb", "adr"} <= keys
+    assert "rating" not in keys
+    assert "assists" not in keys, "Duelists are not scored on assists"
+
+
+def test_a_supporting_role_is_scored_on_different_components(tmp_path):
+    conn = _db(tmp_path, history=[ME] * 6)
+    conn.execute("INSERT INTO ref_agents (uuid, name, role) "
+                 "VALUES ('sid', 'Sova', 'Initiator')")
+    conn.commit()
+    match = LiveMatch("m1", "coregame", "Ascent", "BombGameMode",
+                      [LivePlayer(ME, "Blue", "sid", "Sova")], None)
+    rows = ST._player_rows(_scored_ctx(conn, _role_index()), match, 2000)
+    keys = {c["key"] for c in rows[0]["detail"]["components"]}
+    assert "kda" in keys and "kd" not in keys, "Initiators use (K+A)/D"
+    assert "fb" not in keys, "only Duelists score opening kills"
+
+
+def test_without_a_role_index_the_card_still_scores(tmp_path):
+    """A fresh clone has not fitted one. The old formula carries the card
+    rather than the score vanishing."""
+    conn = _db(tmp_path, history=[ME] * 6)
+    rows = ST._player_rows(_scored_ctx(conn), _match(), 2000)
+    mine = next(r for r in rows if r["is_you"])
+    assert mine["score"] is not None
+    assert "role_score" not in (mine["detail"] or {})
 
 
 # --- warnings ----------------------------------------------------------

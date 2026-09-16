@@ -64,6 +64,9 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--index", default=str(roleindex.INDEX_PATH),
                     help="which role index to measure (default: the shipped one)")
+    ap.add_argument("--write-index", action="store_true",
+                    help="record the measured top-1 rate into the index, so "
+                         "the live view quotes the score it is actually using")
     args = ap.parse_args(argv)
 
     h = _harness()
@@ -183,6 +186,15 @@ def main(argv=None) -> int:
               f"(old {was:+.3f} -> new {got:+.3f} on these teams; "
               f"{BASELINE_RHO[role]:+.3f} recorded on the spec's sample)")
     print("  3. per-role numbers reported above, flattering or not.")
+
+    if args.write_index:
+        import dataclasses
+        updated = dataclasses.replace(
+            new, top1_rate=round(results["the per-role score"], 4))
+        index_path.write_text(updated.to_json(), encoding="utf-8")
+        print(f"\n  wrote top1_rate={updated.top1_rate:.4f} to {index_path}")
+        print("  The live view quotes this, so it now states the accuracy"
+              " of the score it is actually showing, not the old one's.")
 
     worse = [r for r, a, c in verdicts if c < a - 0.01]
     if worse:
