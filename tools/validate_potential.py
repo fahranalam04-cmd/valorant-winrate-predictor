@@ -90,7 +90,7 @@ def spearman(xs, ys) -> float:
     return num / (dx * dy) if dx and dy else 0.0
 
 
-def role_breakdown(teams, flat) -> list[dict]:
+def role_breakdown(teams, flat, key=lambda p: p["raw"]) -> list[dict]:
     """The headline numbers again, split by the role each player was playing.
 
     A single top-1 rate averages over roles, and that average is dominated by
@@ -113,10 +113,10 @@ def role_breakdown(teams, flat) -> list[dict]:
             if winner["role"] != role:
                 continue
             best += 1
-            picked = max(team, key=lambda p: p["raw"])
+            picked = max(team, key=key)
             named += int(abs(picked["actual"] - top) < 1e-12)
         out.append({"role": role, "players": len(ps),
-                    "rho": spearman([p["raw"] for p in ps],
+                    "rho": spearman([key(p) for p in ps],
                                     [p["actual"] for p in ps]),
                     "teams_best": best,
                     "recall": named / best if best else 0.0})
