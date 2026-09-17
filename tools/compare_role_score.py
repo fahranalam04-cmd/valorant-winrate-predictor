@@ -112,7 +112,14 @@ def main(argv=None) -> int:
             raw_new = new.composite(comp_new, roles.weights_for(role, row["agent"]))
             if raw_new is None:
                 break
-            scored.append({"raw": old.composite(comp_old), "new": raw_new,
+            # The PERCENTILE, not the raw composite. Each role has its own
+            # mapping, so raw composites are not comparable across a mixed
+            # team -- and the team ranking is the whole measurement. The old
+            # score is unaffected either way: one monotone mapping for
+            # everybody means ranking by raw and by percentile agree.
+            scored.append({"raw": old.composite(comp_old),
+                           "new": new.percentile(raw_new, role),
+                           "new_raw": raw_new,
                            "acs": comp_old.acs, "actual": actual.value,
                            "role": role or "?"})
         if len(scored) == TEAM_SIZE:
@@ -135,6 +142,7 @@ def main(argv=None) -> int:
     results = {}
     for label, key in (("the old score", lambda p: p["raw"]),
                        ("the per-role score", lambda p: p["new"]),
+                       ("  ...ranked by raw", lambda p: p["new_raw"]),
                        ("career ACS alone", lambda p: p["acs"]),
                        ("shuffled (control)", lambda p: rng2.random())):
         acc, _ = h.top1(teams, key)

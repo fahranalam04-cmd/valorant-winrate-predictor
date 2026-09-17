@@ -486,3 +486,21 @@ def test_exact_parties_beat_inference_when_the_match_is_stored(tmp_path):
     assert not called, "exact parties must not fall back to inference"
     assert {g["source"] for g in groups} == {"exact"}
     assert sorted(len(g["members"]) for g in groups) == [2, 2]
+
+
+def test_the_card_explains_the_map_gate_the_score_actually_used(tmp_path):
+    """Two scores, two thresholds, one card.
+
+    `potential.detail` writes the map block using its own six-game gate while
+    the per-role score gates at three. Left alone, the card could say "not
+    counted -- 4 games on this map, 6 needed" underneath a number that had
+    counted those four games.
+    """
+    from valwr.rating import role_score as RS
+    conn = _db(tmp_path, history=[ME] * 6)
+    rows = ST._player_rows(_scored_ctx(conn, _role_index()), _match(), 2000)
+    mine = next(r for r in rows if r["is_you"])
+    block = mine["detail"]["map"]
+    assert block["gate"] == RS.MIN_MAP_GAMES
+    # Six games on Ascent, and the fixture plays Ascent every time.
+    assert block["counts_toward_score"] is True

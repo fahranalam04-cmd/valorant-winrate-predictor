@@ -264,6 +264,13 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
                     got["role_score"] = {k: scored[k] for k in
                                          ("role", "weights_from", "role_games",
                                           "ability_games")}
+                    # The map block is written by the old score, which gates
+                    # the map at a different number of games. Left alone, the
+                    # card explains a threshold the number in front of it did
+                    # not use.
+                    if got.get("map"):
+                        got["map"]["gate"] = scored["map_gate"]
+                        got["map"]["counts_toward_score"] = scored["map_counts"]
             if got is not None:
                 entry["score"] = got["score"]
                 entry["reason"] = got["reason"]

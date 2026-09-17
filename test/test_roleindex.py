@@ -180,3 +180,73 @@ def test_the_index_is_fitted_on_unshrunk_values(index):
     itself be built from values that were already pulled toward it."""
     assert index.role_means["Duelist"]["acs"] == pytest.approx(200.0, abs=25)
     assert index.role_means["Sentinel"]["acs"] == pytest.approx(199.0, abs=25)
+
+
+# --- the reference has to describe the score that is actually served ----
+
+def _spread(index, samples):
+    """Scores for these players, put through the live path's shrinkage."""
+    from valwr.rating.role_score import shrink_values
+    import dataclasses
+    out = []
+    for c in samples:
+        live = dataclasses.replace(c, values=shrink_values(
+            c.values, c.counts, index.role_means.get(c.role or "?")))
+        got = index.score(live)
+        if got is not None:
+            out.append(got)
+    return out
+
+
+def _thin_population():
+    """Players with little history, so the shrinkage actually bites."""
+    out = []
+    for i in range(600):
+        step = (i % 30) / 30.0
+        for role, agent, base in (("Duelist", "Jett", 140.0),
+                                  ("Sentinel", "Cypher", 130.0)):
+            c = comps(role=role, agent=agent, tier=15,
+                      acs=base + 160 * step, adr=90 + 110 * step,
+                      kd=0.5 + 1.2 * step, kda=0.8 + 1.4 * step,
+                      kast=0.55 + 0.3 * step, abilities=1.0 + 2.0 * step,
+                      hs=0.12 + 0.2 * step)
+            out.append(dataclasses_replace_counts(c, 6))
+    return out
+
+
+def dataclasses_replace_counts(c, n):
+    import dataclasses
+    return dataclasses.replace(c, counts={k: n for k in c.values}, n_games=n)
+
+
+def test_the_scale_is_not_compressed_by_shrinkage():
+    """Fit and serve have to agree about shrinkage.
+
+    The tables were once fitted on raw values while every live player was
+    scored with values shrunk toward their role average. Shrinking pulls
+    everyone inward, so real scores landed in a narrow band around the middle:
+    measured on 4,700 players, 1% scored above 90 where a percentile should put
+    10% there, and the sd was 17 instead of 29. The number still looked like a
+    percentile and was not one.
+    """
+    samples = _thin_population()
+    index = roleindex.fit(samples, as_of=1000)
+    scores = _spread(index, samples)
+    assert len(scores) > 500
+
+    import statistics as st
+    assert st.pstdev(scores) > 20, "scores are bunched in the middle"
+    top = sum(1 for s in scores if s >= 90) / len(scores)
+    bottom = sum(1 for s in scores if s <= 10) / len(scores)
+    assert top > 0.04, f"only {top:.1%} of players score above 90"
+    assert bottom > 0.04, f"only {bottom:.1%} of players score 10 or less"
+
+
+def test_role_averages_still_come_from_raw_values():
+    """The shrinkage target cannot be built from shrunk values, or each
+    rebuild pulls the population a little further toward its own middle."""
+    samples = _thin_population()
+    index = roleindex.fit(samples, as_of=1000)
+    raw = [c.values["acs"] for c in samples if c.role == "Duelist"]
+    assert index.role_means["Duelist"]["acs"] == pytest.approx(
+        sum(raw) / len(raw), abs=1.0)

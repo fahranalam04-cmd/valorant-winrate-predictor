@@ -171,6 +171,22 @@ def _shrink(value: float | None, n: int, prior: float | None) -> float | None:
     return (value * n + prior * PRIOR_GAMES) / (n + PRIOR_GAMES)
 
 
+def shrink_values(values: dict[str, float | None], counts: dict[str, int],
+                  role_means: dict[str, float] | None) -> dict[str, float | None]:
+    """Apply the thin-history shrinkage to values measured without it.
+
+    Fitting needs both: the role average has to come from raw values, and the
+    reference population then has to be built from values shrunk the same way
+    a live player's are. Without this the tables describe a distribution the
+    score never produces -- which showed up as a 0-100 that never went above
+    90 and never below 10.
+    """
+    if not role_means:
+        return dict(values)
+    return {k: _shrink(v, counts.get(k, 0), role_means.get(k))
+            for k, v in values.items()}
+
+
 def measure(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
             role: str | None, roles_by_agent: dict[str, str],
             role_means: dict[str, float] | None = None,
@@ -369,4 +385,10 @@ def describe(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
                          else role or "no role yet"),
         "role_games": comps.n_role_games,
         "ability_games": comps.n_ability_games,
+        # The gate this score actually applied. `potential.detail` fills the
+        # card's map block using its own, older threshold, so without this the
+        # card can say "not counted -- 4 games, 6 needed" about a map the score
+        # did count.
+        "map_gate": MIN_MAP_GAMES,
+        "map_counts": comps.n_map_games >= MIN_MAP_GAMES,
     }

@@ -28,6 +28,7 @@ reference built from data the model will later be judged on is a leak.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,7 +36,7 @@ from pathlib import Path
 from valwr.collect.frontier import band_of
 from valwr.rating import roles
 from valwr.rating.normalize import Moments
-from valwr.rating.role_score import COMPONENTS, MIN_MAP_GAMES
+from valwr.rating.role_score import COMPONENTS, MIN_MAP_GAMES, shrink_values
 
 INDEX_PATH = Path("models") / "role_index.json"
 
@@ -183,13 +184,37 @@ class RoleIndex:
             top1_rate=raw.get("top1_rate"))
 
 
+def _role_means(samples: list) -> dict[str, dict[str, float]]:
+    """Each role's average, in raw units, from unshrunk values."""
+    gathered: dict[str, dict[str, list[float]]] = {}
+    for c in samples:
+        for name in COMPONENTS:
+            v = c.values.get(name)
+            if v is not None:
+                gathered.setdefault(c.role or "?", {}).setdefault(name, []).append(v)
+    return {role: {k: sum(v) / len(v) for k, v in comps.items()}
+            for role, comps in gathered.items()}
+
+
 def fit(samples: list, as_of: int = 0) -> RoleIndex:
     """Build an index from measured components.
 
     `samples` are `RoleComponents` from the training period, measured with
     `role_means=None` -- the average cannot be built out of values that were
     already shrunk toward it.
+
+    Two passes, and the second one matters. The role averages come from the raw
+    values; everything else -- the band moments, the per-agent ability spreads,
+    the percentile tables -- is then fitted on values shrunk exactly as a live
+    player's are. Fitting on raw values and serving shrunk ones describes a
+    distribution the score cannot produce: measured on 4,700 real players it
+    compressed every score toward the middle, so 1% of players scored above 90
+    where a percentile should put 10% there.
     """
+    role_means = _role_means(samples)
+    samples = [dataclasses.replace(
+        c, values=shrink_values(c.values, c.counts, role_means.get(c.role or "?")))
+        for c in samples]
     glob: dict[str, Moments] = {}
     by_band: dict[str, dict[int, Moments]] = {}
     by_agent: dict[str, Moments] = {}
@@ -216,8 +241,6 @@ def fit(samples: list, as_of: int = 0) -> RoleIndex:
             by_agent.setdefault(c.agent, Moments()).add(casts)
             ability_by_role.setdefault(c.role or "?", Moments()).add(casts)
 
-    role_means = {role: {k: sum(v) / len(v) for k, v in comps.items()}
-                  for role, comps in role_values.items()}
     fell_back = tuple(sorted(a for a, m in by_agent.items()
                              if m.n < MIN_AGENT_SAMPLE))
 
