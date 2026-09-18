@@ -78,21 +78,42 @@ def settle(page) -> None:
 # A name column narrower than this shows three or four characters. The roster
 # once collapsed it to zero at 1600px, and screenshots are where that shows.
 MIN_NAME_PX = 90
-CHECK_WIDTHS = (1280, 1440, 1600, 1920)
+# Wide displays included on purpose. The roster split into two columns above a
+# container width of 900px and clipped every gamertag and reason from 1440
+# upward -- on a 2560 screen it was unreadable -- while this guard reported all
+# clear, because 144px of name passes a 90px minimum. A width that is never
+# checked is a width that breaks.
+CHECK_WIDTHS = (1280, 1440, 1600, 1920, 2030, 2560, 3440)
 
 
 def check_layout(browser, url: str) -> list[str]:
-    """Every player's name must have room, at every common desktop width."""
+    """Nothing a reader needs may be clipped, at any common desktop width.
+
+    Measured as actual truncation -- `scrollWidth` past `clientWidth` -- rather
+    than as a pixel minimum, because the pixel minimum is what let a roster
+    ship with every gamertag ellipsised.
+    """
     problems = []
     for width in CHECK_WIDTHS:
         page = browser.new_page(viewport={"width": width, "height": 1000}, **CSP)
         page.goto(url + "?clean")
         settle(page)
-        narrowest = page.evaluate(
-            "Math.min(...[...document.querySelectorAll('button.row .nm')]"
-            ".map(e => e.clientWidth))")
-        if narrowest < MIN_NAME_PX:
-            problems.append(f"{width}px: a name column is {narrowest}px wide")
+        got = page.evaluate("""() => {
+          const clipped = e => e.scrollWidth > e.clientWidth + 1;
+          const names = [...document.querySelectorAll('button.row .nm')];
+          const rest = [...document.querySelectorAll(
+              'button.row .why, button.row .rsn, button.row .sub')];
+          return {narrowest: Math.min(...names.map(e => e.clientWidth)),
+                  names: names.filter(clipped).length,
+                  rest: rest.filter(clipped).length};
+        }""")
+        if got["narrowest"] < MIN_NAME_PX:
+            problems.append(f"{width}px: a name column is "
+                            f"{got['narrowest']}px wide")
+        if got["names"]:
+            problems.append(f"{width}px: {got['names']} gamertag(s) clipped")
+        if got["rest"]:
+            problems.append(f"{width}px: {got['rest']} reason line(s) clipped")
         page.close()
     return problems
 
@@ -149,7 +170,8 @@ def main(argv=None) -> int:
             browser.close()
             httpd.shutdown()
             return 1
-        print(f"layout: every name has at least {MIN_NAME_PX}px at "
+        print(f"layout: nothing clipped, and every name has at least "
+              f"{MIN_NAME_PX}px, at "
               f"{', '.join(map(str, CHECK_WIDTHS))}px")
 
         # --- the hero: the scoreboard with a card open --------------------
