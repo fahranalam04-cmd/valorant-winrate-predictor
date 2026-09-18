@@ -504,3 +504,38 @@ def test_the_card_explains_the_map_gate_the_score_actually_used(tmp_path):
     assert block["gate"] == RS.MIN_MAP_GAMES
     # Six games on Ascent, and the fixture plays Ascent every time.
     assert block["counts_toward_score"] is True
+
+
+def test_the_scoreboard_is_ordered_by_standing_not_by_the_number_shown(
+        tmp_path, monkeypatch):
+    """The list order and the 0-100 beside it answer different questions.
+
+    The percentile is within a role; the order has to work across the lobby, or
+    a Sentinel who is good for a Sentinel outranks a Duelist who is more likely
+    to top the scoreboard. The two are forced to disagree here, because a
+    fixture where they happen to agree proves nothing.
+    """
+    from valwr.rating import role_score as RS
+    conn = _db(tmp_path, history=[ME, "b1"])
+    conn.execute("INSERT INTO ref_agents (uuid, name, role) "
+                 "VALUES ('sid', 'Sova', 'Initiator')")
+    conn.commit()
+
+    forced = {ME: {"score": 60, "raw": 0.90}, "b1": {"score": 90, "raw": 0.10}}
+    real = RS.describe
+
+    def fake(conn_, puuid, *a, **kw):
+        got = real(conn_, puuid, *a, **kw)
+        if got is not None and puuid in forced:
+            got.update(forced[puuid])
+        return got
+    monkeypatch.setattr(ST.rs, "describe", fake)
+
+    match = LiveMatch("m1", "coregame", "Ascent", "BombGameMode",
+                      [LivePlayer(ME, "Blue", "aid", "Jett"),
+                       LivePlayer("b1", "Blue", "sid", "Sova")], None)
+    rows = ST._player_rows(_scored_ctx(conn, _role_index()), match, 2000)
+
+    assert [r["puuid"] for r in rows] == [ME, "b1"], "ordered by the percentile"
+    assert rows[0]["score"] < rows[1]["score"], "and the display disagrees"
+    assert [RS.standing(r) for r in rows] == [0.90, 0.10]

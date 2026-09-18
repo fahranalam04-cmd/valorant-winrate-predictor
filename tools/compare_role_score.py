@@ -141,8 +141,11 @@ def main(argv=None) -> int:
     rng2 = random.Random(args.seed + 1)
     results = {}
     for label, key in (("the old score", lambda p: p["raw"]),
-                       ("the per-role score", lambda p: p["new"]),
-                       ("  ...ranked by raw", lambda p: p["new_raw"]),
+                       # As shipped: the lobby is ordered by the cross-role
+                       # figure, and the within-role percentile is what the
+                       # page displays beside each name.
+                       ("the per-role score", lambda p: p["new_raw"]),
+                       ("  ...ordered by the percentile", lambda p: p["new"]),
                        ("career ACS alone", lambda p: p["acs"]),
                        ("shuffled (control)", lambda p: rng2.random())):
         acc, _ = h.top1(teams, key)

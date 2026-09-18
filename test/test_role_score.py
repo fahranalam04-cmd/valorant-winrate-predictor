@@ -206,3 +206,31 @@ def test_every_component_the_weights_name_is_measured(conn):
             continue
         assert name in got.values, name
         assert got.values[name] is not None, name
+
+
+# --- how the lobby is ordered -------------------------------------------
+
+def test_standing_orders_by_the_cross_role_number_not_the_percentile():
+    """The 0-100 is a percentile within a role, so it cannot order a lobby.
+
+    A Duelist tops their team in 43.5% of matches and an Initiator in 14.6%.
+    Scoring each against their own role erases that on purpose, which is right
+    for reading a number and wrong for sorting one.
+    """
+    duelist = {"score": 66, "raw": 0.42}
+    sentinel = {"score": 71, "raw": 0.11}
+    assert R.standing(duelist) > R.standing(sentinel)
+    assert duelist["score"] < sentinel["score"], "the display disagrees, by design"
+
+
+def test_standing_reads_the_raw_out_of_the_card_when_the_row_lacks_it():
+    assert R.standing({"score": 50, "detail": {"raw": 1.25}}) == 1.25
+
+
+def test_a_match_recorded_before_the_raw_existed_falls_back(conn):
+    """Old rows in live_predictions have a score and no raw. They were ordered
+    by the percentile at the time, so that is what they keep."""
+    assert R.standing({"score": 80}) == 80.0
+    assert R.standing({"score": 40}) == 40.0
+    assert R.standing({"score": None}) is None
+    assert R.standing({}) is None

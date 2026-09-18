@@ -401,3 +401,33 @@ def test_a_thin_lobby_points_at_the_crawler():
                              "predicted": 0.5, "actual": 0.65, "se": 0.1}],
             "order": {}}
     assert any("crawler" in line for line in improve.suggestions(card))
+
+
+def test_the_recorded_pick_is_the_one_shown_at_the_top(conn):
+    """What gets scored afterwards has to be what the player saw first.
+
+    The scoreboard orders by the cross-role figure while displaying the
+    within-role percentile, so a pick chosen by the percentile would sometimes
+    be the second name on the list.
+    """
+    s = state(scores=(60, 90, 50, 30, 10))
+    for p, raw in zip(s["players"], [0.9, 0.2, 0.1, 0.0, -0.1]):
+        p["raw"] = raw
+    assert outcomes.top_pick(s, "Blue") == "b0", "highest raw, not highest 0-100"
+
+    # With no raw at all -- a match recorded before the change -- the 0-100 is
+    # what it was ordered by, and stays.
+    for p in s["players"]:
+        p.pop("raw", None)
+    assert outcomes.top_pick(s, "Blue") == "b1"
+
+
+def test_the_post_match_ranking_matches_the_order_that_was_shown(conn):
+    s = state(scores=(60, 90, 50, 30, 10))
+    for p, raw in zip(s["players"], [0.9, 0.2, 0.1, 0.0, -0.1]):
+        p["raw"] = raw
+    outcomes.record(conn, s, now=1000)
+    outcomes.settle(conn, FakeAPI(finished()), "na", "m1", now=2000)
+    got = review.compare(conn, "m1")
+    ranked = {p["puuid"]: p["predicted_rank"] for p in got["players"]}
+    assert ranked["b0"] == 1 and ranked["b1"] == 2

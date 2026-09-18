@@ -245,6 +245,29 @@ def measure(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
         tier=newest.get("tier"), account_level=newest.get("account_level"))
 
 
+def standing(player: dict) -> float | None:
+    """How a player is ordered against the rest of the lobby.
+
+    The 0-100 on the card is a percentile *within a role*, which is what makes
+    a Sentinel's 70 mean what a Duelist's 70 means. It is the wrong thing to
+    sort by: a Duelist is the best player on their team in 43.5% of matches
+    and an Initiator in 14.6%, and scoring everyone against their own role
+    deliberately erases that difference. Sorting by the percentile therefore
+    throws away information the raw composite still has -- measured at 1.4
+    points of top-1 accuracy, 28.0% against 29.4%.
+
+    So the page shows the percentile and orders by this. Recorded matches from
+    before the raw was stored fall back to the percentile, which is what they
+    were ordered by at the time.
+    """
+    detail = player.get("detail") or {}
+    raw = player.get("raw", detail.get("raw"))
+    if raw is not None:
+        return float(raw)
+    score = player.get("score")
+    return float(score) if score is not None else None
+
+
 def roles_by_agent(conn: sqlite3.Connection) -> dict[str, str]:
     """Agent name -> role, from ref_agents."""
     return {r["name"]: r["role"] for r in

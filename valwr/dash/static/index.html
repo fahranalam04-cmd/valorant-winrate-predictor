@@ -900,7 +900,10 @@ function render(msg){
   $("foot").innerHTML =
     `Scores are percentiles within a role — 70 means ahead of 70% of players
      on the same role, so a Sentinel's 70 and a Duelist's 70 mean the same
-     thing. Each role is scored on different things. ` +
+     thing. Each role is scored on different things. The list is ordered by who
+     is most likely to top this scoreboard, which is a different question: a
+     duelist is the best player on their team far more often than an initiator
+     is, so a lower number can sit above a higher one. ` +
     (top1 != null ? `Picks the strongest of five ${(top1 * 100).toFixed(1)}% of
       the time against 20% by chance: a real edge, not a reliable one. ` : "") +
     `Career figures are raw totals; the score shrinks them toward the population

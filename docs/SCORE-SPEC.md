@@ -437,6 +437,21 @@ measure being alive, not contributing, which is what a count of button presses
 was always at risk of measuring: a drone that spots three players and a drone
 thrown at a wall are identical in this data.
 
+**The lobby is ordered by the raw composite, not by the percentile.** The
+0-100 is a percentile within a role, which is what makes a Sentinel's 70 mean
+what a Duelist's 70 means -- and exactly what makes it the wrong thing to sort
+a mixed lobby by. A Duelist is the best player on their team in 43.5% of
+matches and an Initiator in 14.6%; scoring each against their own role erases
+that difference on purpose, and sorting by the result throws it away. Measured
+on 2,000 teams: ordering by the raw composite scores **29.6%**, ordering by the
+percentile **28.3%**. The page displays the percentile and orders by the raw,
+and says so, because a reader who sees a 66 above a 71 will otherwise assume a
+bug. `rating/role_score.standing` is the single definition of that order, used
+by the scoreboard, by the pick that gets recorded, and by the post-match
+ranking, so the three cannot disagree. Matches recorded before the raw was
+stored fall back to the percentile, which is what they were ordered by at the
+time.
+
 **Success criteria, agreed in advance:**
 
 1. Overall top-1 must not drop by more than one standard error (about 1 point

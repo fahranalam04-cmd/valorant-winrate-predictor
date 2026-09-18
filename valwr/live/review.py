@@ -22,6 +22,8 @@ import json
 import math
 import sqlite3
 
+from valwr.rating import role_score
+
 # Buckets for the calibration table. Predictions cluster hard around the
 # middle, so the edges are wide and the centre is not.
 BANDS = ((0.0, 0.45), (0.45, 0.50), (0.50, 0.55), (0.55, 1.0))
@@ -128,11 +130,14 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
             "FROM match_players WHERE match_id = ?", (match_id,))
     }
 
+    # Ranked the way the scoreboard was ordered, so "put #2 of the players the
+    # page could score" describes the list the player was actually looking at.
     predicted_rank = {
         p["puuid"]: i + 1
         for i, p in enumerate(sorted(
-            (p for p in state.get("players", []) if p.get("score") is not None),
-            key=lambda p: p["score"], reverse=True))
+            (p for p in state.get("players", [])
+             if role_score.standing(p) is not None),
+            key=role_score.standing, reverse=True))
     }
     actual_acs = {}
     for puuid, r in played.items():

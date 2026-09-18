@@ -251,13 +251,19 @@ between the teams. How it was chosen, and every other model tried, is in
   10,304 held-out matches is a real edge over rank, which scores 50.2%, and it
   holds on matches where both teams' ranks are equal. It is not a forecast to
   bet on.
-- **The score picks the best player on a team 27.7% of the time**, against 20%
+- **The score picks the best player on a team 29.6% of the time**, against 20%
   by chance. A real edge, not a reliable one — the page footer says the same.
-- **It used to be 29.7%.** The per-role score is measurably *worse* at picking
-  the best player than the single formula it replaced, and it was shipped
-  anyway: the choice was that the number should describe what each role is
-  trying to do rather than rank marginally better. docs/SCORE-SPEC.md carries
-  the measurement, including the two criteria it failed.
+- **The list order and the number are answering different questions.** The
+  0–100 is a percentile *within a role*. The order is across the lobby, by the
+  underlying cross-role figure, because a duelist is the best player on their
+  team in 43.5% of matches and an initiator in 14.6% — and scoring everyone
+  against their own role erases exactly that. So **a lower number can sit above
+  a higher one**, and the page says so. Ordering by the displayed number
+  instead costs 1.3 points of accuracy (29.6% → 28.3%).
+- **It is still behind the single formula it replaced**, which scores 30.9% on
+  the same teams. That was a deliberate trade: the number describes what each
+  role is trying to do. docs/SCORE-SPEC.md carries the measurement, including
+  the criteria it failed.
 - **Almost nothing can do better.** Only 16% of the variation in one match's
   performance is the player; the rest is the night they had. A score that knew
   every player's true long-run level exactly would reach about 38%.

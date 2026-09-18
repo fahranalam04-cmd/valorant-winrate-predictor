@@ -273,6 +273,9 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
                         got["map"]["counts_toward_score"] = scored["map_counts"]
             if got is not None:
                 entry["score"] = got["score"]
+                # Ordered by the cross-role figure, displayed as the
+                # within-role percentile. See rating/role_score.standing.
+                entry["raw"] = got.get("raw")
                 entry["reason"] = got["reason"]
                 entry["flag"] = got["flag"]
                 # The whole card, so a reader can audit the number rather than
@@ -285,7 +288,10 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
         rows.append(entry)
     # Best first; unscored last rather than dropped -- they are in the lobby
     # whether or not we know anything about them, and saying so is the point.
-    rows.sort(key=lambda r: (r["score"] is not None, r["score"] or 0),
+    # `standing` is the raw cross-role number, not the 0-100 beside the name:
+    # the percentile is within a role and sorting by it drops the fact that
+    # some roles top their team far more often than others.
+    rows.sort(key=lambda r: (rs.standing(r) is not None, rs.standing(r) or 0),
               reverse=True)
     return rows
 

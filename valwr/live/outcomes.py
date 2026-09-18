@@ -111,12 +111,17 @@ def actual_best(conn: sqlite3.Connection, match_id: str,
 
 
 def top_pick(state: dict, team: str | None) -> str | None:
-    """Whom the 0-100 score put first on that team, when it rated enough of it."""
+    """Whom the score put first on that team, when it rated enough of it.
+
+    The same ordering the scoreboard used, so what is scored afterwards is the
+    pick the player actually saw at the top of the list.
+    """
+    from valwr.rating.role_score import standing
     rated = [p for p in state.get("players", [])
-             if p.get("team") == team and p.get("score") is not None]
+             if p.get("team") == team and standing(p) is not None]
     if len(rated) < 2:
         return None
-    return max(rated, key=lambda p: p["score"])["puuid"]
+    return max(rated, key=standing)["puuid"]
 
 
 def settle(conn: sqlite3.Connection, client, region: str, match_id: str,
