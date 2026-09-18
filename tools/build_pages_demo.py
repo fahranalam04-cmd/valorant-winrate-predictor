@@ -131,7 +131,8 @@ function finished(){
                  "demo-08": 17, "demo-09": 12};
   const ranked = s.players
     .filter(p => p.score !== null)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => (b.raw != null ? b.raw : b.score)
+                  - (a.raw != null ? a.raw : a.score))
     .map(p => p.puuid);
   const byAcs = s.players.slice()
     .sort((a, b) => acs[b.puuid] - acs[a.puuid])

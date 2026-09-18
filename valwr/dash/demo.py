@@ -58,7 +58,7 @@ PROFILES = [
     (63, 260, 218.2, 3520, 3380, 1502, 1.04, 0.236, 0.50, 21),
     (None, 0, None, 0, 0, 0, None, None, None, 0),
     (58, 143, 213.6, 1902, 1930, 870, 0.99, 0.227, 0.49, 11),
-    (41, 11, 188.4, 134, 166, 80, 0.81, 0.191, 0.39, 2),
+    (56, 64, 219.7, 883, 866, 262, 1.02, 0.244, 0.48, 6),
 ]
 
 # A plausible spread: mostly Platinum with a Diamond and one unranked.
@@ -66,6 +66,7 @@ from valwr.rating import ranks as _r
 from valwr.rating import roles as _roles
 from valwr.rating.role_score import COMPONENT_LABELS as _LABELS
 from valwr.rating.role_score import MIN_MAP_GAMES as _MAP_GATE
+from valwr.rating.role_score import standing
 RANKS = [_r.describe(t) for t in
          (18, 16, 0, 15, 13, 20, 16, 0, 15, 12)]
 
@@ -79,6 +80,12 @@ PARTIES = [
 
 MAP = "Ascent"
 GATE = _MAP_GATE
+
+# How much a role's standing sits above or below its 0-100, reflecting how
+# often that role is the best player on its team: 43.5% for duelists against
+# 14.6% for initiators, measured on 3,000 test-period teams.
+_ROLE_EDGE = {"Duelist": 0.18, "Sentinel": 0.02, "Controller": 0.0,
+              "Initiator": -0.10}
 
 # How far from average each component sits, relative to the player's overall
 # standing. Invented, but not uniform: a demo where every component tells the
@@ -179,8 +186,16 @@ def demo_state(conn=None) -> dict:
                                          "lobbies, against 20% by chance. "
                                          "Well above what this rank explains."}
             counts = mg >= GATE
+            # What the lobby is ordered by. The 0-100 is a percentile inside a
+            # role, so it cannot order a mixed team: duelists top a scoreboard
+            # far more often than initiators, and scoring each against their
+            # own role removes exactly that. Invented like everything else
+            # here, but with the same shape -- which is why the demo shows a
+            # lower number sitting above a higher one.
+            entry["raw"] = round((score - 50) / 30.0 + _ROLE_EDGE.get(
+                ROLES.get(agent), 0.0), 3)
             entry["detail"] = {
-                "score": score, "raw": 0.0, "reason": entry["reason"],
+                "score": score, "raw": entry["raw"], "reason": entry["reason"],
                 "components": _components(
                     ROLES.get(agent), agent, score, acs, kd, hs, mg),
                 "career": career, "recent": recent, "recent_window": 20,
@@ -208,6 +223,11 @@ def demo_state(conn=None) -> dict:
         else:
             entry["detail"] = None
         players.append(entry)
+
+    # Ordered the way `live/state._player_rows` orders a real lobby, so the
+    # demo cannot show a roster the dashboard would never produce.
+    players.sort(key=lambda r: (standing(r) is not None, standing(r) or 0),
+                 reverse=True)
 
     return {
         "match_id": "demo", "phase": "coregame", "is_custom": False,
