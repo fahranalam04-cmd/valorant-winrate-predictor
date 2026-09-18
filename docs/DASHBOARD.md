@@ -30,6 +30,18 @@ anything is missing: the model, the database, the artwork, or the game.
 
 **Running it twice is fine.** A second `dashboard.bat` finds the first one, opens that page and exits, rather than failing to claim the port. If something unrelated holds port 8787, it moves to the next free one and says so.
 
+**It comes back to the same port.** Every match opens a tab of its own, and each
+of those is an address with a port in it. The port last used is remembered
+beside the database, so the next run lands there and yesterday's tabs still
+load. A tab that is already open reconnects by itself within a few seconds of
+the dashboard restarting.
+
+**If a tab says "this site can't be reached"**, nothing is listening on that
+port — the dashboard is not running, or it was pushed onto a different port by
+something else holding the old one. Start `dashboard.bat` and keep its window
+open; the tab works again on reload. The dashboard prints which port it took
+and says when an earlier run's tabs will not load.
+
 **Leave it running.** It follows you from match to match on its own, and
 recovers by itself when the game client's session ages out (about an hour) or
 when VALORANT restarts and its local port changes -- both of which used to

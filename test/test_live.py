@@ -1137,3 +1137,66 @@ def test_each_new_match_opens_its_own_tab_once(tmp_path, monkeypatch):
 
     assert opened == ["http://127.0.0.1:8787/m/m1",
                       "http://127.0.0.1:8787/m/m2"], "one tab per match, once each"
+
+
+
+@pytest.fixture(autouse=True)
+def _isolated_port_file(tmp_path, monkeypatch):
+    """No test may read or write the real dashboard-port file.
+
+    It lives beside the database, so without this the suite both inherits
+    whatever port the user's last real run chose -- which made one test fail
+    on a developer machine and pass in CI -- and writes into their data
+    directory, changing which port their next dashboard binds.
+    """
+    from valwr.dash import server as S
+    monkeypatch.setattr(S, "port_file", lambda: tmp_path / "dashboard-port")
+
+
+# --- coming back to the same port --------------------------------------
+
+def test_the_port_the_last_run_used_is_preferred(tmp_path, monkeypatch):
+    """Every per-match tab is an absolute address with a port in it.
+
+    A run that binds somewhere else leaves every one of those tabs dead --
+    ERR_CONNECTION_REFUSED, with nothing the page can do about it, because
+    nothing is listening to serve it.
+    """
+    from valwr.dash import server as S
+    path = tmp_path / "dashboard-port"
+    monkeypatch.setattr(S, "port_file", lambda: path)
+
+    assert S.remembered_port() is None, "nothing remembered on a fresh install"
+    assert S.preferred_port(None, None) == S.PORT
+
+    S.remember_port(8790)
+    assert S.remembered_port() == 8790
+    assert S.preferred_port(None, S.remembered_port()) == 8790
+
+
+def test_an_explicit_port_beats_the_remembered_one():
+    from valwr.dash import server as S
+    assert S.preferred_port(9001, 8790) == 9001
+
+
+@pytest.mark.parametrize("junk", ["", "  ", "not-a-port", "80", "99999"])
+def test_a_damaged_port_file_is_ignored(tmp_path, monkeypatch, junk):
+    """A truncated or hand-edited file must not stop the dashboard starting,
+    and must not send it at a privileged or impossible port."""
+    from valwr.dash import server as S
+    path = tmp_path / "dashboard-port"
+    path.write_text(junk, encoding="utf-8")
+    monkeypatch.setattr(S, "port_file", lambda: path)
+    assert S.remembered_port() is None
+    assert S.preferred_port(None, S.remembered_port()) == S.PORT
+
+
+def test_remembering_a_port_never_fails_the_launch(tmp_path, monkeypatch):
+    """Best effort: an unwritable directory is not a reason not to start."""
+    from valwr.dash import server as S
+    monkeypatch.setattr(S, "port_file",
+                        lambda: tmp_path / "nope" / "deeper" / "dashboard-port")
+    S.remember_port(8788)
+    monkeypatch.setattr(S, "port_file", lambda: None)
+    S.remember_port(8788)
+    assert S.remembered_port() is None

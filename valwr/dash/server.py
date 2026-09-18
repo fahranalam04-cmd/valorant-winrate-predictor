@@ -147,6 +147,55 @@ def content_policy(host: str) -> str:
             "form-action 'none'; frame-ancestors 'none'")
 
 
+def port_file() -> Path | None:
+    """Where the last working port is remembered, beside the database."""
+    try:
+        from valwr import config
+        return config.load(require_key=False).database_path.parent / "dashboard-port"
+    except Exception:                                # noqa: BLE001
+        return None
+
+
+def remembered_port() -> int | None:
+    """The port this dashboard last ran on, if it is still a sane one."""
+    path = port_file()
+    if path is None or not path.exists():
+        return None
+    try:
+        port = int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+    return port if 1024 <= port <= 65535 else None
+
+
+def remember_port(port: int) -> None:
+    """Record the port so the next run can land on it again.
+
+    Every tab this dashboard opens is an absolute address with a port in it --
+    one per match, kept so they can be read after the game. If the next run
+    binds somewhere else, every one of those tabs is dead: the browser shows
+    ERR_CONNECTION_REFUSED and there is nothing the page can do about it,
+    because nothing is listening to serve it. Coming back to the same port is
+    what makes yesterday's tabs work today.
+    """
+    path = port_file()
+    if path is None:
+        return
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(str(port), encoding="utf-8")
+    except OSError:
+        pass                                         # not worth failing over
+
+
+def preferred_port(explicit: int | None, remembered: int | None) -> int:
+    """Which port to try first: what was asked for, then last time's, then the
+    default."""
+    if explicit is not None:
+        return explicit
+    return remembered or PORT
+
+
 def port_free(host: str, port: int) -> bool:
     """Whether this address can be bound, asked before uvicorn tries.
 
@@ -563,7 +612,9 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="valwr.dash")
-    ap.add_argument("--port", type=int, default=PORT)
+    ap.add_argument("--port", type=int, default=None,
+                    help=f"default {PORT}, or whatever the last run used -- "
+                         f"tabs opened then point at that one")
     ap.add_argument("--no-fetch", action="store_true",
                     help="cache only; never spend API quota")
     ap.add_argument("--no-browser", action="store_true")
@@ -580,6 +631,14 @@ def main(argv=None) -> int:
     ap.add_argument("--no-tabs", action="store_true",
                     help="do not open a tab of its own for each match")
     args = ap.parse_args(argv)
+
+    # Come back to the port the last run used, so the per-match tabs it opened
+    # still resolve. Only when nothing was asked for explicitly.
+    last = remembered_port()
+    args.port = preferred_port(args.port, last)
+    if last is not None and last != PORT and args.port == last:
+        print(f"  reusing port {last} from the last run, so tabs opened then "
+              f"still work.")
 
     # A second launch is the common case: the first window is still open, and
     # its browser tab is still connected. Bind-time failure told the user
@@ -600,6 +659,9 @@ def main(argv=None) -> int:
             return 1
         print(f"  port {args.port} is in use by something else; "
               f"using {moved} instead.")
+        print("  tabs opened by an earlier run pointed at the old port and "
+              "will not load;")
+        print("  close whatever is holding it and restart to get them back.")
         args.port = moved
 
     import uvicorn
@@ -621,6 +683,10 @@ def main(argv=None) -> int:
         print("  control, and stop it when you are done.")
     print(f"  scorecard: {url}results")
     print("  Keep this window open. Ctrl+C to stop.\n")
+
+    # Remembered once the port is settled, so the next run lands here and the
+    # tabs this run is about to open keep working.
+    remember_port(args.port)
 
     app = build_app(no_fetch=args.no_fetch, deadline=args.deadline,
                     demo=args.demo, match=args.match)
