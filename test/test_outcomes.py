@@ -30,6 +30,11 @@ def _leakage():
     return module
 
 
+def _ingest(conn, *matches):
+    """Store finished matches the way the crawler does."""
+    _leakage().ingest(conn, *matches)
+
+
 @pytest.fixture
 def conn(tmp_path):
     c = schema.connect(tmp_path / "t.db")
@@ -93,13 +98,35 @@ def test_a_state_with_no_prediction_is_not_recorded(conn):
     assert conn.execute("SELECT COUNT(*) FROM live_predictions").fetchone()[0] == 0
 
 
-def test_only_matches_old_enough_are_chased_for_a_result(conn):
+def test_a_match_still_being_played_is_not_asked_about(conn):
+    """The clock starts when the match LOADS, not when it ends.
+
+    This is the bug that made the whole feature look broken: the first version
+    asked three minutes in and gave up after six tries a minute apart, so every
+    attempt landed while the match was still being played. Every recorded match
+    failed to settle, no comparison ever appeared, and the log filled with 404s
+    that read like a dead endpoint.
+    """
     outcomes.record(conn, state(), now=1000)
     assert outcomes.pending(conn, now=1000) == []
-    assert outcomes.pending(conn, now=1000 + outcomes.SETTLE_AFTER_SECONDS + 1) == ["m1"]
+    # Ten minutes in: still playing. A competitive match runs 25-45 minutes.
+    assert outcomes.pending(conn, now=1000 + 10 * 60) == []
+    assert outcomes.pending(conn, now=1000 + 21 * 60) == ["m1"]
+
+
+def test_the_retries_spread_out_instead_of_burning_down(conn):
+    """Each attempt waits longer, so a slow match is still chased hours later
+    rather than having its budget spent in the first ten minutes."""
+    outcomes.record(conn, state(), now=1000)
+    conn.execute("UPDATE live_predictions SET attempts = 5")
+    assert outcomes.pending(conn, now=1000 + 60 * 60) == [], "too soon for a 6th"
+    assert outcomes.pending(conn, now=1000 + 6 * 3600) == ["m1"]
+    # The last attempt reaches beyond a day, so an overnight publish lands.
+    assert outcomes.due_after(outcomes.MAX_ATTEMPTS - 1) > 24 * 3600
+
     conn.execute("UPDATE live_predictions SET attempts = ?",
                  (outcomes.MAX_ATTEMPTS,))
-    assert outcomes.pending(conn, now=10_000) == [], "a match that never lands stops being asked about"
+    assert outcomes.pending(conn, now=10 ** 9) == [],         "a match that never lands stops being asked about"
 
 
 # --- settling ----------------------------------------------------------
@@ -178,9 +205,35 @@ def test_settle_pending_walks_everything_due(conn):
 
 
 def test_no_client_means_no_calls_and_no_crash(conn):
+    """Without an API client there is nothing to fetch, but nothing breaks --
+    the match is simply still waiting."""
     outcomes.record(conn, state(), now=1000)
     assert outcomes.settle_pending(conn, None, "na", now=99_999) == {
-        "settled": 0, "waiting": 0, "error": 0}
+        "settled": 0, "waiting": 1, "error": 0}
+
+
+def test_a_match_the_crawler_already_holds_settles_without_an_api_call(conn):
+    """The crawler collects matches through other players' histories.
+
+    When it has already stored this one, asking the API again spends a
+    rate-limited call to learn what is in front of us -- and the settle has to
+    work even when no client exists at all.
+    """
+    outcomes.record(conn, state(), now=1000)
+    _ingest(conn, finished(winner="Blue"))
+    assert outcomes.settle_pending(conn, None, "na", now=99_999) == {
+        "settled": 1, "waiting": 0, "error": 0}
+    row = conn.execute("SELECT * FROM live_predictions").fetchone()
+    assert row["settled_at"] is not None
+    assert row["own_won"] == 1 and row["correct"] == 1
+
+
+def test_the_api_is_not_called_when_the_match_is_already_stored(conn):
+    outcomes.record(conn, state(), now=1000)
+    _ingest(conn, finished(winner="Blue"))
+    api = FakeAPI(finished())
+    assert outcomes.settle(conn, api, "na", "m1", now=99_999) == "settled"
+    assert api.calls == 0, "it already had the match"
 
 
 # --- reading it back ---------------------------------------------------

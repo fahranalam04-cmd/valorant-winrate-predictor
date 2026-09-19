@@ -30,14 +30,27 @@ import time
 
 from valwr.store import normalize
 
-# How long after a match is recorded before its result is worth asking for.
-# Riot publishes a finished match within a couple of minutes; asking sooner
-# spends an API call on a 404.
-SETTLE_AFTER_SECONDS = 180
+# A prediction is recorded as the match *loads*, so the clock starts before a
+# single round is played. A competitive match runs 25 to 45 minutes, which is
+# the fact the first version of this got wrong: it began asking three minutes
+# in and gave up after six tries a minute apart, so the whole retry budget was
+# spent inside the first ten minutes of a match that had not finished. Every
+# recorded match failed to settle, and the dashboard showed no comparison ever
+# -- with a log full of 404s that looked like a broken endpoint rather than a
+# question asked far too early.
+FIRST_ATTEMPT_SECONDS = 20 * 60
 
-# A match that never appears is not worth chasing forever: a custom game, or a
-# mode the API does not carry, will never settle.
-MAX_ATTEMPTS = 6
+# Each further attempt waits half as long again, so the retries spread out
+# instead of hammering a match that is still being played. Twelve attempts
+# reach about 28 hours, which covers a long session and a match the API is slow
+# to publish.
+ATTEMPT_BACKOFF = 1.5
+MAX_ATTEMPTS = 12
+
+
+def due_after(attempts: int) -> float:
+    """How long after recording an attempt number is worth making."""
+    return FIRST_ATTEMPT_SECONDS * (ATTEMPT_BACKOFF ** max(attempts, 0))
 
 COLUMNS = (
     "match_id, made_at, phase, map, mode, standard_mode, is_custom, own_puuid, "
@@ -89,12 +102,20 @@ def record(conn: sqlite3.Connection, state: dict, now: int | None = None) -> boo
 
 
 def pending(conn: sqlite3.Connection, now: int | None = None) -> list[str]:
-    """Matches whose result is worth asking for, oldest first."""
-    cutoff = int(now or time.time()) - SETTLE_AFTER_SECONDS
-    return [r["match_id"] for r in conn.execute(
-        "SELECT match_id FROM live_predictions WHERE settled_at IS NULL "
-        "AND made_at < ? AND attempts < ? ORDER BY made_at",
-        (cutoff, MAX_ATTEMPTS))]
+    """Matches whose result is worth asking for, oldest first.
+
+    Each match backs off on its own schedule, so one that is still being played
+    is not asked about every minute until its budget is gone.
+    """
+    now = int(now or time.time())
+    out = []
+    for r in conn.execute(
+            "SELECT match_id, made_at, attempts FROM live_predictions "
+            "WHERE settled_at IS NULL AND attempts < ? ORDER BY made_at",
+            (MAX_ATTEMPTS,)):
+        if now - r["made_at"] >= due_after(r["attempts"]):
+            out.append(r["match_id"])
+    return out
 
 
 def actual_best(conn: sqlite3.Connection, match_id: str,
@@ -139,14 +160,21 @@ def settle(conn: sqlite3.Connection, client, region: str, match_id: str,
         return "error"
 
     note = None
-    try:
-        payload = client.match(region, match_id)
-        data = (payload or {}).get("data")
-        # ingest takes a matchlist; one match is a list of one.
-        normalize.ingest(conn,
-                         {"data": [data] if isinstance(data, dict) else data})
-    except Exception as e:                           # noqa: BLE001
-        note = f"{type(e).__name__}: {e}"[:200]
+    # The crawler may already have collected this match through somebody's
+    # history. It is the same data the API would return, stored the same way,
+    # so fetching it again would spend a rate-limited call to learn nothing.
+    known = conn.execute(
+        "SELECT winner FROM matches WHERE match_id = ? AND winner IS NOT NULL",
+        (match_id,)).fetchone()
+    if known is None and client is not None:
+        try:
+            payload = client.match(region, match_id)
+            data = (payload or {}).get("data")
+            # ingest takes a matchlist; one match is a list of one.
+            normalize.ingest(conn,
+                             {"data": [data] if isinstance(data, dict) else data})
+        except Exception as e:                       # noqa: BLE001
+            note = f"{type(e).__name__}: {e}"[:200]
 
     played = conn.execute(
         "SELECT winner, rounds_blue, rounds_red FROM matches WHERE match_id = ?",
@@ -185,8 +213,12 @@ def settle(conn: sqlite3.Connection, client, region: str, match_id: str,
 def settle_pending(conn: sqlite3.Connection, client, region: str,
                    now: int | None = None) -> dict[str, int]:
     """Try every match that is due. Safe to call on a timer."""
+    # `client` may be None -- a match the crawler already holds settles from
+    # the database alone, with no call to make. A missing database is the one
+    # thing that stops this cold, and the live view hands one over only once
+    # its context is open.
     out = {"settled": 0, "waiting": 0, "error": 0}
-    if client is None:
+    if conn is None:
         return out
     for match_id in pending(conn, now):
         out[settle(conn, client, region, match_id, now)] += 1
