@@ -706,14 +706,36 @@ function setMapArt(){
   const name = STATE && STATE.map
     ? STATE.map.toLowerCase().replace(/[^a-z0-9]/g, "") : "";
   document.body.style.setProperty("--mapart",
-    name ? `url("maps/${name}-splash.jpg")` : "none");
+    name ? `url("${base()}maps/${name}-splash.jpg")` : "none");
 }
 
-/* Relative, not rooted: the server mounts these beside the page, and the
-   interactive demo on GitHub Pages lives under /valorant-winrate-predictor/,
-   where a rooted "/agents/" would point at a different site entirely. */
+/* Where the artwork sits relative to whatever page is open.
+
+   Rooting these at "/agents/" would break the interactive demo, which lives
+   under /valorant-winrate-predictor/ on GitHub Pages. But plain relative paths
+   broke something worse: a match's own page is served at /m/<id>, one level
+   deeper, so every agent portrait and the map background resolved to
+   /m/agents/... and 404'd. The saved tab -- the one kept specifically to read
+   after the game -- was the only page in the app with no artwork at all. */
+function base(){
+  const pinned = location.pathname.match(/^(.*\/)m\/[^/]*$/);
+  return pinned ? pinned[1] : location.pathname.replace(/[^/]*$/, "");
+}
 const artURL = (p, k) =>
-  p.agent_id ? `agents/${encodeURIComponent(p.agent_id)}-${k}.png` : "";
+  p.agent_id ? `${base()}agents/${encodeURIComponent(p.agent_id)}-${k}.png` : "";
+/* The client reports a mode as "BombGameMode.BombGameMode_C", which is an
+   identifier, not something to print at a reader. */
+function modeLabel(m){
+  if (!m) return "—";
+  const tail = String(m).split("/").pop().split(".").pop()
+    .replace(/_C$/, "").replace(/GameMode$/i, "");
+  const known = {bomb: "Standard", deathmatch: "Deathmatch",
+                 swiftplay: "Swiftplay", spikerush: "Spike rush",
+                 escalation: "Escalation", teamdeathmatch: "Team deathmatch",
+                 hurm: "Team deathmatch", ggteam: "Escalation",
+                 onefa: "Replication", quickbomb: "Spike rush"};
+  return known[tail.toLowerCase()] || (tail || String(m));
+}
 const isAtk = t => t === "Red";
 
 function verdict(p){
@@ -1092,7 +1114,10 @@ function matchLinkHTML(matchId){
 function render(msg){
   if (msg.status === "error"){
     $("map").textContent = "—"; $("sub").textContent = msg.message;
-    $("stage").innerHTML = `<div class="idle">${esc(msg.message)}</div>`;
+    // The recorded matches stay listed here. Closing the game is what a player
+    // does right after finishing one, and that is when they want it.
+    $("stage").innerHTML = `<div class="idle">${esc(msg.message)}</div>`
+      + recentHTML(msg.recent);
     return;
   }
   /* Sent the moment the socket opens, because the first poll can spend its
@@ -1118,7 +1143,7 @@ function render(msg){
   $("map").textContent = s.map || "UNKNOWN MAP";
   setMapArt();
   const phase = s.is_custom ? "Custom" : s.phase === "pregame" ? "Agent select" : "Live";
-  $("sub").innerHTML = `${esc(phase)} <b>·</b> ${esc(s.mode || "—")} <b>·</b> ` +
+  $("sub").innerHTML = `${esc(phase)} <b>·</b> ${esc(modeLabel(s.mode))} <b>·</b> ` +
     `${esc(s.coverage)}/10 known <b>·</b> ${esc(s.confidence)} confidence`;
 
   indexParties(s);
