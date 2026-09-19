@@ -277,13 +277,25 @@ def _review_payload(match_id: str) -> dict:
             "top1_rate": None, "fresh": False}
 
 
-def _recent_for(ctx) -> list[dict]:
-    """Recently recorded matches, read on the pool thread that owns the
-    connection."""
-    if getattr(ctx, "conn", None) is None:
-        return []
+def recent_rows() -> list[dict]:
+    """Recently recorded matches, owning the connection it reads them with.
+
+    Deliberately not taken from the live context: the moment the game closes
+    there is no context, and that is exactly when a player wants the match they
+    just finished. Tying this to the context meant the page offered nothing but
+    "VALORANT is not running".
+    """
     try:
-        return review.recent(ctx.conn)
+        from valwr import config
+        from valwr.store import schema
+        s = config.load(require_key=False)
+        if not s.database_path.exists():
+            return []
+        conn = schema.connect(s.database_path)
+        try:
+            return review.recent(conn)
+        finally:
+            conn.close()
     except Exception:                                # noqa: BLE001
         return []                                    # never break the poll
 
@@ -632,8 +644,14 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                     continue
                 ctx = await loop.run_in_executor(pool, context)
                 if ctx is None:
+                    # No game client, which is the normal state right after a
+                    # match. The recorded ones still have to be reachable, so
+                    # they ride along with the error rather than leaving the
+                    # page with nothing but "VALORANT is not running".
+                    recent = await loop.run_in_executor(None, recent_rows)
                     await socket.send_text(json.dumps(
-                        {"status": "error", "message": app.state.error}))
+                        {"status": "error", "message": app.state.error,
+                         "recent": recent}))
                     await asyncio.sleep(POLL_SECONDS)
                     # The game may start later; clear the error and retry.
                     app.state.error = None
@@ -653,14 +671,21 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                     # game comes back, which is the whole point of polling.
                     app.state.ctx = None
                     app.state.error = None
+                    # The game being closed is the normal state right after a
+                    # match, and the recorded ones have to stay reachable then
+                    # above all.
+                    recent = await loop.run_in_executor(None, recent_rows)
                     await socket.send_text(json.dumps(
-                        {"status": "error", "message": f"{e} Retrying."}))
+                        {"status": "error", "message": f"{e} Retrying.",
+                         "recent": recent}))
                     await asyncio.sleep(POLL_SECONDS)
                     continue
                 except Exception as e:                  # noqa: BLE001
+                    recent = await loop.run_in_executor(None, recent_rows)
                     await socket.send_text(json.dumps(
                         {"status": "error",
-                         "message": f"{type(e).__name__}: {e}"}))
+                         "message": f"{type(e).__name__}: {e}",
+                         "recent": recent}))
                     await asyncio.sleep(POLL_SECONDS)
                     continue
                 if state is None:
@@ -677,8 +702,7 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                     # Without this the page says "waiting for a match" and the
                     # game just played is unreachable unless the tab the server
                     # popped open was caught at the time.
-                    recent = await loop.run_in_executor(
-                        pool, _recent_for, ctx)
+                    recent = await loop.run_in_executor(None, recent_rows)
                     await socket.send_text(json.dumps(
                         {"status": "lobby", "recent": recent}))
                     last = None

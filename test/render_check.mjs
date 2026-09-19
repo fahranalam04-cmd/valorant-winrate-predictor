@@ -191,6 +191,16 @@ ck("no recorded matches yet is not an empty box",
 render({ status: "error", message: "VALORANT is not running" });
 ck("error branch", /not running/.test(els.stage.innerHTML));
 
+// Closing the game is what a player does straight after a match, so this is
+// exactly when the recorded ones have to stay reachable.
+render({ status: "error", message: "VALORANT is not running", recent: [
+  { match_id: "ccc-333", map: "Ascent", made_at: Math.floor(Date.now() / 1000) - 900,
+    settled: true, own_won: 1, correct: 1, score: "13-8" },
+]});
+ck("with the game closed, the recorded matches are still listed",
+   /href="\/m\/ccc-333"/.test(els.stage.innerHTML)
+   && /not running/.test(els.stage.innerHTML));
+
 // non-standard mode drops the side labels
 const dm = JSON.parse(JSON.stringify(state));
 dm.standard_mode = false;

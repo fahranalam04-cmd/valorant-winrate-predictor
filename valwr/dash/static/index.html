@@ -918,7 +918,10 @@ function matchLinkHTML(matchId){
 function render(msg){
   if (msg.status === "error"){
     $("map").textContent = "—"; $("sub").textContent = msg.message;
-    $("stage").innerHTML = `<div class="idle">${esc(msg.message)}</div>`;
+    // The recorded matches stay listed here. Closing the game is what a player
+    // does right after finishing one, and that is when they want it.
+    $("stage").innerHTML = `<div class="idle">${esc(msg.message)}</div>`
+      + recentHTML(msg.recent);
     return;
   }
   /* Sent the moment the socket opens, because the first poll can spend its

@@ -9,6 +9,8 @@ building this, and each has a test.
 
 from __future__ import annotations
 
+import types
+
 import pytest
 
 from valwr.live import lockfile, resolve as R, roster
@@ -1274,3 +1276,31 @@ def test_the_demo_never_collects_results(monkeypatch):
     with TestClient(DS.build_app(demo=True)):
         _time.sleep(0.15)
     assert calls == []
+
+
+def test_the_recorded_matches_do_not_need_a_live_context(monkeypatch, tmp_path):
+    """Read with their own connection, because the moment the game closes
+    there is no context -- and that is when they matter most."""
+    from valwr.dash import server as DS
+    from valwr.live import outcomes
+    from valwr.store import schema
+
+    db = tmp_path / "s.db"
+    conn = schema.connect(db)
+    schema.create_all(conn)
+    state = {"match_id": "m1", "phase": "coregame", "map": "Split",
+             "mode": "Bomb", "standard_mode": True, "is_custom": False,
+             "own_team": "Blue", "coverage": 8, "confidence": "moderate",
+             "model": "logistic regression", "players": [],
+             "prediction": {"own_probability": 0.6, "win_probability": 0.6}}
+    outcomes.record(conn, state, now=1000)
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(DS, "review", DS.review)
+    monkeypatch.setattr("valwr.config.load",
+                        lambda require_key=True: types.SimpleNamespace(
+                            database_path=db, region="na"))
+    got = DS.recent_rows()
+    assert [r["match_id"] for r in got] == ["m1"]
+    assert got[0]["map"] == "Split" and got[0]["settled"] is False
