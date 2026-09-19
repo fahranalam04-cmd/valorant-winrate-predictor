@@ -47,8 +47,14 @@ ck("the connection shows as live", els.pulse.className === "pulse");
 
 window.__demo.set("map", "Lotus");
 ck("changing the map re-renders it", els.map.textContent === "Lotus");
-ck("and swaps the background art",
-   document.body.style._v["--mapart"] === 'url("maps/lotus-splash.jpg")');
+// Addressed from the directory the page is served from, so the demo works
+// under the Pages sub-path and a match's own page at /m/<id> works too.
+// This harness serves the page from /valorant-winrate-predictor/, as Pages
+// does, so the art has to carry that prefix. A rooted "/maps/" would point at
+// the wrong site; a bare "maps/" breaks a match's own page at /m/<id>.
+ck("and swaps the background art, under the sub-path it is served from",
+   document.body.style._v["--mapart"]
+   === 'url("/valorant-winrate-predictor/maps/lotus-splash.jpg")');
 
 window.__demo.set("side", "Red");
 ck("switching side moves 'you' to Red", /you are on Red/.test(els.stage.innerHTML));

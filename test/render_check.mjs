@@ -107,10 +107,14 @@ const select = puuid => { escape(); fire(puuid); };
 fire(first.puuid);
 let p = els.stage.innerHTML;
 ck("panel opens on click", p.includes(first.name) && /class="panel"/.test(p));
-ck("panel portrait", p.includes(`src="agents/${first.agent_id}-portrait.png"`));
-// Rooted paths broke the page under GitHub Pages' /valorant-winrate-predictor/.
-ck("art paths are relative, so the page works under a sub-path",
-   !p.includes('src="/agents/') && !out.includes('src="/agents/'));
+ck("panel portrait", p.includes(`src="/agents/${first.agent_id}-portrait.png"`));
+// Artwork is addressed against the directory the page is served from, which is
+// "/" here. A hardcoded "/agents/" would break the demo under GitHub Pages'
+// /valorant-winrate-predictor/; a plain relative "agents/" broke a match's own
+// page at /m/<id>. Both cases are checked where pinnedMatch() is tested.
+ck("art is addressed from the page's own directory",
+   p.includes('src="/agents/') && artURL({ agent_id: "x" }, "row")
+     === "/agents/x-row.png");
 ck("panel score", new RegExp(`<b style="color:[^"]+">${first.score}</b>`).test(p));
 ck("record & form section", /record &amp; form/.test(p));
 ck("on-map section", p.includes(`on ${state.map}`));
@@ -233,7 +237,7 @@ render({ status: "match", state, top1_rate: 0.296 });
 render({ status: "match", state, top1_rate: 0.296 });
 const slug = state.map.toLowerCase().replace(/[^a-z0-9]/g, "");
 ck("the background is the map being played",
-   (body.style._v["--mapart"] || "") === `url("maps/${slug}-splash.jpg")`);
+   (body.style._v["--mapart"] || "") === `url("/maps/${slug}-splash.jpg")`);
 
 // Every map has to swap the art, which is the whole point of the theme.
 for (const name of ["Pearl", "Bind", "Fracture", "Icebox"]){
@@ -301,8 +305,34 @@ render({ status: "match", state, top1_rate: 0.296 });
 // A tab pinned to one match reads the id out of its own address.
 location.pathname = "/m/abc%20123";
 ck("a pinned tab reads its match from the address", pinnedMatch() === "abc 123");
+
+// Artwork is addressed relative to the page, and a match's own page is served
+// one level deeper at /m/<id>. Plain relative paths sent every portrait and the
+// map background to /m/agents/... and /m/maps/..., so the saved tab -- the one
+// kept specifically to read after the game -- was the only page with no art.
+{
+  const art = artURL({ agent_id: "jett-uuid" }, "row");
+  ck("a pinned tab resolves artwork above /m/", art === "/agents/jett-uuid-row.png");
+  ck("and never into /m/", !art.includes("/m/"));
+}
+location.pathname = "/valorant-winrate-predictor/m/xyz";
+ck("the same holds under a subdirectory, as on Pages",
+   artURL({ agent_id: "sage" }, "row")
+   === "/valorant-winrate-predictor/agents/sage-row.png");
+location.pathname = "/valorant-winrate-predictor/";
+ck("the demo keeps its subdirectory prefix",
+   artURL({ agent_id: "sage" }, "row")
+   === "/valorant-winrate-predictor/agents/sage-row.png");
 location.pathname = "/";
 ck("the live tab is not pinned to anything", pinnedMatch() === "");
+ck("and addresses artwork beside itself",
+   artURL({ agent_id: "sage" }, "row") === "/agents/sage-row.png");
+
+// The client reports a mode as an identifier, not a label.
+ck("the mode is readable", modeLabel("BombGameMode.BombGameMode_C") === "Standard");
+ck("an unknown mode still prints something",
+   modeLabel("/Game/GameModes/Weird/WeirdGameMode.WeirdGameMode_C") === "Weird");
+ck("a missing mode does not print undefined", modeLabel(null) === "—");
 
 // The first thing the socket sends, before a poll that may take 25 seconds.
 render({ status: "working", message: "reading the match and looking up players" });

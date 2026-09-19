@@ -542,3 +542,28 @@ def test_unstick_does_not_touch_settled_matches(conn):
     _ingest(conn, finished())
     outcomes.settle(conn, FakeAPI(finished()), "na", "m1", now=9000)
     assert outcomes.unstick(conn, now=10 ** 9) == 0
+
+
+def test_the_client_leaving_a_match_asks_for_the_result_at_once(conn):
+    """The backoff is anchored on the loading screen, so waiting for it means
+    sitting through the rest of the game before the first attempt."""
+    outcomes.record(conn, state(), now=1000)
+    conn.execute("UPDATE live_predictions SET attempts = 3")
+    conn.commit()
+    _ingest(conn, finished(winner="Blue"))
+
+    assert outcomes.match_ended(conn, None, "na", "m1", now=3000) == "settled"
+    row = conn.execute("SELECT * FROM live_predictions").fetchone()
+    assert row["settled_at"] == 3000 and row["own_won"] == 1
+
+
+def test_a_match_that_ended_but_is_not_published_keeps_its_place(conn):
+    """One immediate attempt, then the ordinary schedule -- from now rather
+    than from the loading screen."""
+    outcomes.record(conn, state(), now=1000)
+    conn.execute("UPDATE live_predictions SET attempts = 9")
+    conn.commit()
+    assert outcomes.match_ended(conn, FakeAPI(None), "na", "m1", now=3000) == "error"
+    row = conn.execute("SELECT * FROM live_predictions").fetchone()
+    assert row["attempts"] == 1, "the spent budget is given back, then one used"
+    assert row["settled_at"] is None

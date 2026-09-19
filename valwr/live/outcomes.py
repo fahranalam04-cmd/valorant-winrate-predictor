@@ -210,6 +210,23 @@ def settle(conn: sqlite3.Connection, client, region: str, match_id: str,
     return "settled"
 
 
+def match_ended(conn: sqlite3.Connection, client, region: str, match_id: str,
+                now: int | None = None) -> str:
+    """The live client has left this match, so ask for its result now.
+
+    The backoff is anchored on when a prediction was RECORDED, which is when
+    the match loaded. Waiting for it means sitting through the rest of the game
+    before the first attempt -- the player is back at the menu watching a page
+    that says "waiting for the result" for another ten minutes. The client
+    dropping out of the match is the one signal that says it is over, so it is
+    worth one immediate attempt and a fresh schedule from here.
+    """
+    conn.execute("UPDATE live_predictions SET attempts = 0 "
+                 "WHERE match_id = ? AND settled_at IS NULL", (match_id,))
+    conn.commit()
+    return settle(conn, client, region, match_id, now)
+
+
 def unstick(conn: sqlite3.Connection, now: int | None = None) -> int:
     """Give back the attempts the old schedule burned. Returns how many.
 

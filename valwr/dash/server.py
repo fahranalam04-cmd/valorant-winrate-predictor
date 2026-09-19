@@ -400,11 +400,66 @@ def poll_and_record(ctx) -> dict | None:
     return state
 
 
+SETTLE_EVERY_SECONDS = 60
+
+
+def settle_tick(no_fetch: bool = False) -> dict[str, int]:
+    """One pass at collecting results, owning everything it needs.
+
+    Deliberately independent of the live context. Settling used to run inside
+    the websocket loop, which meant it required both a browser tab to be open
+    AND the game to be running -- and when the game was closed the loop gave up
+    before it ever reached this step. Finishing a match and quitting VALORANT
+    is the most ordinary thing a player does, and it was the one case where the
+    result was never fetched.
+    """
+    from valwr import config
+    from valwr.collect.client import HenrikClient
+    from valwr.collect.limiter import TokenBucket
+    from valwr.store import schema
+    s = config.load(require_key=False)
+    conn = schema.connect(s.database_path)
+    client = None
+    try:
+        if not no_fetch:
+            try:
+                full = config.load()
+                client = HenrikClient(full.henrik_api_key, conn=conn,
+                                      limiter=TokenBucket(full.requests_per_minute))
+            except Exception:                        # noqa: BLE001
+                client = None        # no key: the crawler's own matches still settle
+        return outcomes.settle_pending(conn, client, s.region)
+    finally:
+        if client is not None:
+            client.close()
+        conn.close()
+
+
 def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
               demo: bool = False, match: str | None = None):
+    async def settling(_app):
+        """Collect results forever, whatever else the dashboard is doing."""
+        loop = asyncio.get_running_loop()
+        while True:
+            try:
+                got = await loop.run_in_executor(None, settle_tick, no_fetch)
+                if got.get("settled"):
+                    print(f"  scored {got['settled']} finished match(es); "
+                          f"their comparisons are ready.")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:                   # noqa: BLE001
+                print(f"  could not collect results this time ({e}).")
+            await asyncio.sleep(SETTLE_EVERY_SECONDS)
+
     @asynccontextmanager
     async def lifespan(_app):
+        task = None
+        if not (demo or match):
+            task = asyncio.create_task(settling(_app))
         yield
+        if task is not None:
+            task.cancel()
         _app.state.pool.shutdown(wait=False, cancel_futures=True)
 
     app = FastAPI(title="valwr live", docs_url=None, redoc_url=None,
@@ -589,14 +644,6 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                 # Any failure is reported to the page rather than closing the
                 # socket: a dropped connection renders as "disconnected" with
                 # no cause, which is the least useful thing it could say.
-                # Results for matches that have since finished. Once a
-                # minute, and one API call per match at most.
-                if time.time() - app.state.settled_at > 60:
-                    app.state.settled_at = time.time()
-                    await loop.run_in_executor(
-                        pool, outcomes.settle_pending, ctx.conn, ctx.client,
-                        ctx.settings.region)
-
                 try:
                     state = await loop.run_in_executor(pool, poll_and_record, ctx)
                 except st.NotReady as e:
@@ -617,6 +664,15 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                     await asyncio.sleep(POLL_SECONDS)
                     continue
                 if state is None:
+                    # The client just left a match: that is the moment it
+                    # ended, and the only signal this side has for it. Asking
+                    # now saves the player watching "waiting for the result"
+                    # while a schedule anchored on the loading screen catches
+                    # up.
+                    if last is not None:
+                        await loop.run_in_executor(
+                            pool, outcomes.match_ended, ctx.conn, ctx.client,
+                            ctx.settings.region, last)
                     # Between matches, hand over the ones already recorded.
                     # Without this the page says "waiting for a match" and the
                     # game just played is unreachable unless the tab the server

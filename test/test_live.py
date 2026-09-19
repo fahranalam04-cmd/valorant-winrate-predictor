@@ -1227,3 +1227,50 @@ def test_a_browser_that_will_not_open_cannot_take_down_the_live_view(monkeypatch
     monkeypatch.setattr(S.webbrowser, "open", lambda url: opened.append(url) or True)
     assert S.open_match_tab("http://127.0.0.1:8787/", "m2") is True
     assert opened == ["http://127.0.0.1:8787/m/m2"]
+
+
+def test_results_are_collected_without_a_browser_or_the_game(monkeypatch):
+    """Settling must not depend on a websocket or on VALORANT running.
+
+    It used to live inside the websocket loop, which needed a tab open, and the
+    loop gave up before reaching it whenever the game was closed. Finishing a
+    match and quitting the game is the most ordinary thing a player does, and
+    it was exactly the case where the result was never fetched: the prediction
+    sat unsettled and the comparison never appeared.
+    """
+    import time as _time
+
+    from fastapi.testclient import TestClient
+
+    from valwr.dash import server as DS
+
+    calls = []
+    monkeypatch.setattr(DS, "settle_tick",
+                        lambda no_fetch=False: (calls.append(no_fetch),
+                                                {"settled": 0})[1])
+    monkeypatch.setattr(DS, "SETTLE_EVERY_SECONDS", 0.02)
+    # No websocket is ever opened, and no live context exists.
+    with TestClient(DS.build_app(no_fetch=True)):
+        for _ in range(100):
+            if calls:
+                break
+            _time.sleep(0.02)
+    assert calls, "nothing collected results with no tab open"
+    assert calls[0] is True, "the no-fetch flag has to reach it"
+
+
+def test_the_demo_never_collects_results(monkeypatch):
+    """The demo touches no database, so it must not start a settler either."""
+    import time as _time
+
+    from fastapi.testclient import TestClient
+
+    from valwr.dash import server as DS
+
+    calls = []
+    monkeypatch.setattr(DS, "settle_tick",
+                        lambda no_fetch=False: calls.append(1))
+    monkeypatch.setattr(DS, "SETTLE_EVERY_SECONDS", 0.02)
+    with TestClient(DS.build_app(demo=True)):
+        _time.sleep(0.15)
+    assert calls == []
