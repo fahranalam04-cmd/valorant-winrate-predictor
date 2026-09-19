@@ -162,6 +162,28 @@ ck("escape closes the panel", /Select any player/.test(els.stage.innerHTML));
 // lobby / error branches must not throw
 render({ status: "lobby" });
 ck("lobby branch", els.map.textContent === "STANDBY");
+
+// Between matches the page must still offer a way back into the game just
+// played. Without this it says "waiting for a match" and the only route back
+// is a pop-up tab the browser may have refused or the player may have closed.
+render({ status: "lobby", recent: [
+  { match_id: "aaa-111", map: "Split", made_at: Math.floor(Date.now() / 1000) - 600,
+    settled: true, own_won: 0, correct: 1, score: "6-13" },
+  { match_id: "bbb-222", map: "Lotus", made_at: Math.floor(Date.now() / 1000) - 60,
+    settled: false, own_won: null, correct: null, score: null },
+]});
+{
+  const q = els.stage.innerHTML;
+  ck("recorded matches are listed between games",
+     /href="\/m\/aaa-111"/.test(q) && /href="\/m\/bbb-222"/.test(q));
+  ck("each says how it went", /lost/.test(q) && /6-13/.test(q)
+     && /called it/.test(q));
+  ck("one still waiting says so", /waiting for the result/.test(q));
+  ck("and the scorecard is reachable", /href="\/results"/.test(q));
+}
+render({ status: "lobby" });
+ck("no recorded matches yet is not an empty box",
+   !/recentrow/.test(els.stage.innerHTML));
 render({ status: "error", message: "VALORANT is not running" });
 ck("error branch", /not running/.test(els.stage.innerHTML));
 
@@ -319,6 +341,8 @@ ck("the opening message says what it is doing",
   render({ status: "match", state, review: rv, top1_rate: 0.296 });
   const q = els.stage.innerHTML;
   ck("a played match shows the result", /class="result won"/.test(q) && q.includes("13-9"));
+  ck("a live match links to its own page",
+     /class="ownpage"/.test(q) && /href="\/m\/demo"/.test(q));
   ck("and whether the call was right", /called it/.test(q));
   ck("and who actually played best", q.includes("Yarrow#na2"));
   ck("the summary says what it got right",

@@ -277,6 +277,41 @@ def _review_payload(match_id: str) -> dict:
             "top1_rate": None, "fresh": False}
 
 
+def _recent_for(ctx) -> list[dict]:
+    """Recently recorded matches, read on the pool thread that owns the
+    connection."""
+    if getattr(ctx, "conn", None) is None:
+        return []
+    try:
+        return review.recent(ctx.conn)
+    except Exception:                                # noqa: BLE001
+        return []                                    # never break the poll
+
+
+def open_match_tab(base_url: str, match_id: str) -> bool:
+    """Open this match's own page, and say so in the console.
+
+    Printed because a tab that fails to appear is otherwise invisible: there
+    was no way to tell a browser that refused from a dashboard that never
+    tried. Failure is caught rather than raised -- this runs inside the poll
+    loop, and losing the websocket because a browser would not launch would
+    take the live view down with it.
+    """
+    url = f"{base_url}m/{match_id}"
+    try:
+        ok = webbrowser.open(url)
+    except Exception as e:                           # noqa: BLE001
+        print(f"  could not open a tab for this match ({e}).")
+        print(f"  open it yourself: {url}")
+        return False
+    if ok:
+        print(f"  this match has its own tab: {url}")
+    else:
+        print("  no browser would open a tab for this match.")
+        print(f"  open it yourself: {url}")
+    return bool(ok)
+
+
 def _demo_top1() -> float | None:
     """How often the shipped score picks the best player, from the index.
 
@@ -582,7 +617,14 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                     await asyncio.sleep(POLL_SECONDS)
                     continue
                 if state is None:
-                    await socket.send_text(json.dumps({"status": "lobby"}))
+                    # Between matches, hand over the ones already recorded.
+                    # Without this the page says "waiting for a match" and the
+                    # game just played is unreachable unless the tab the server
+                    # popped open was caught at the time.
+                    recent = await loop.run_in_executor(
+                        pool, _recent_for, ctx)
+                    await socket.send_text(json.dumps(
+                        {"status": "lobby", "recent": recent}))
                     last = None
                 else:
                     # Every match gets a tab of its own, opened once. This tab
@@ -591,8 +633,7 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                     if (app.state.base_url
                             and state["match_id"] not in app.state.opened):
                         app.state.opened.add(state["match_id"])
-                        webbrowser.open(
-                            f"{app.state.base_url}m/{state['match_id']}")
+                        open_match_tab(app.state.base_url, state["match_id"])
                     # The figure has to belong to the score being shown.
                     # Quoting the old index's rate beside a per-role score
                     # would advertise an accuracy this page does not have.
@@ -687,6 +728,21 @@ def main(argv=None) -> int:
     # Remembered once the port is settled, so the next run lands here and the
     # tabs this run is about to open keep working.
     remember_port(args.port)
+
+    # Predictions left stranded by the old settle schedule, which spent every
+    # retry while the match was still being played. They are still settleable.
+    try:
+        from valwr import config as _cfg
+        from valwr.store import schema as _schema
+        _conn = _schema.connect(_cfg.load(require_key=False).database_path)
+        freed = outcomes.unstick(_conn)
+        _conn.commit()
+        _conn.close()
+        if freed:
+            print(f"  {freed} earlier match(es) can be scored again; their "
+                  f"results are fetched shortly.")
+    except Exception:                                # noqa: BLE001
+        pass                                         # never block a launch
 
     app = build_app(no_fetch=args.no_fetch, deadline=args.deadline,
                     demo=args.demo, match=args.match)

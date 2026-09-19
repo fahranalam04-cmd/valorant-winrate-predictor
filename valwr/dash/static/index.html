@@ -279,6 +279,31 @@ body{
 .compare tr.you td{color:var(--gold)}
 .compare tr.enemy td{color:var(--bone-dim)}
 .compare .beat{color:var(--win)} .compare .under{color:var(--val)}
+.ownpage{margin-bottom:10px}
+.ownpage a{display:inline-block;background:var(--steel);border-left:3px solid var(--def);
+  padding:9px 13px;color:var(--bone-dim);text-decoration:none;font-size:12.5px}
+.ownpage a:hover{color:var(--bone);border-left-color:var(--gold)}
+.recent{margin-top:18px;background:var(--steel);padding:14px 16px 16px}
+.recent h2{font:600 10.5px/1 var(--display);letter-spacing:.24em;
+  text-transform:uppercase;color:var(--slate);margin:0 0 10px}
+a.recentrow{display:grid;grid-template-columns:110px 110px minmax(0,1fr) 130px 150px;
+  gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid var(--line-soft);
+  color:var(--bone-dim);text-decoration:none;font-size:13px}
+a.recentrow:hover{color:var(--bone)}
+a.recentrow:hover .ropen{color:var(--gold)}
+.rmap{font-family:var(--display);font-stretch:condensed;font-weight:700;
+  font-size:15px;color:var(--bone)}
+.rwhen,.rcall{color:var(--ghost);font-size:12px}
+.rres b.won{color:var(--win)} .rres b.lost{color:var(--val)}
+.rres .wait{color:var(--ghost);font-style:italic}
+.ropen{text-align:right;font:600 9.5px/1 var(--display);letter-spacing:.14em;
+  text-transform:uppercase;color:var(--slate)}
+.recentnote{color:var(--ghost);font-size:11.5px;line-height:1.6;margin-top:10px}
+.recentnote a{color:var(--bone-dim)}
+@media(max-width:720px){
+  a.recentrow{grid-template-columns:1fr 1fr;gap:2px 10px}
+  .ropen{text-align:left}
+}
 .compare h3{font:600 9.5px/1 var(--display);letter-spacing:.2em;
   text-transform:uppercase;color:var(--ghost);margin:16px 0 8px}
 .compare h3:first-of-type{margin-top:6px}
@@ -816,6 +841,57 @@ function compareHTML(rv){
       play, not against the rest of the lobby.</span></div></div>`;
 }
 
+/* The matches this dashboard has already recorded.
+
+   The live view follows whatever is happening now, so the moment a match ends
+   it drops back to "waiting for a match" and the game just played is gone from
+   the screen. Getting back to it used to depend entirely on having caught the
+   tab the server popped open at the time -- miss that and the comparison was
+   unreachable without typing a URL. */
+function ago(t){
+  if (!t) return "";
+  const mins = Math.round((Date.now() / 1000 - t) / 60);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + (hrs === 1 ? " hour ago" : " hours ago");
+  const days = Math.round(hrs / 24);
+  return days + (days === 1 ? " day ago" : " days ago");
+}
+
+function recentHTML(list){
+  if (!list || !list.length) return "";
+  return `<div class="recent"><h2>Matches this dashboard recorded</h2>
+    ${list.map(m => {
+      const won = m.own_won === 1;
+      const result = !m.settled ? `<span class="wait">waiting for the result</span>`
+        : `<b class="${won ? "won" : "lost"}">${won ? "won" : "lost"}${
+            m.score ? " " + esc(m.score) : ""}</b>`;
+      const call = m.correct === 1 ? `<span class="beat">called it</span>`
+                 : m.correct === 0 ? `<span class="under">called it wrong</span>` : "";
+      return `<a class="recentrow" href="/m/${encodeURIComponent(m.match_id)}">
+        <span class="rmap">${esc(m.map || "—")}</span>
+        <span class="rwhen">${esc(ago(m.made_at))}</span>
+        <span class="rres">${result}</span>
+        <span class="rcall">${call}</span>
+        <span class="ropen">${m.settled ? "see the comparison" : "open"} →</span>
+      </a>`;
+    }).join("")}
+    <div class="recentnote">Every match keeps its own page, and it stays after
+      the game ends. The scorecard across all of them is at
+      <a href="/results">/results</a>.</div></div>`;
+}
+
+/* A match in progress has a page of its own too, and saying so on the live
+   view means it is never only reachable through a pop-up the browser may have
+   refused or the player may have closed. */
+function matchLinkHTML(matchId){
+  if (!matchId || pinnedMatch()) return "";
+  return `<div class="ownpage"><a href="/m/${encodeURIComponent(matchId)}"
+    target="_blank" rel="noopener">This match has its own page — it keeps the
+    prediction and fills in the comparison when the game ends ↗</a></div>`;
+}
+
 /* ---------------- page ---------------- */
 function render(msg){
   if (msg.status === "error"){
@@ -834,7 +910,8 @@ function render(msg){
   }
   if (msg.status === "lobby"){
     $("map").textContent = "STANDBY"; $("sub").textContent = "waiting for a match";
-    $("stage").innerHTML = `<div class="idle">Queue, or start a custom game.</div>`;
+    $("stage").innerHTML = `<div class="idle">Queue, or start a custom game.</div>`
+      + recentHTML(msg.recent);
     STATE = null; return;
   }
 
@@ -853,7 +930,7 @@ function render(msg){
   if (msg.review){ REVIEW = msg.review; REVIEW_ID = s.match_id; }
   else if (REVIEW_ID !== s.match_id){ REVIEW = null; REVIEW_ID = null; }
   const review = REVIEW;
-  let head = "";
+  let head = matchLinkHTML(s.match_id);
   for (const w of s.warnings) head += `<div class="warn">${esc(w)}</div>`;
   if ((s.parties || []).some(g => g.source === "inferred"))
     head += `<div class="partynote">Party markers are inferred from who has

@@ -114,6 +114,32 @@ def verdict(p: float | None) -> str:
     return f"{side} heavily favoured"
 
 
+def recent(conn: sqlite3.Connection, limit: int = 6) -> list[dict]:
+    """The last few matches the dashboard recorded, newest first.
+
+    The live page follows whatever match is happening now, so when one ends it
+    drops back to "waiting for a match" and the game just played disappears
+    from view. Getting back to it relied entirely on catching the tab the
+    server popped open at the time. This is the list that makes it reachable
+    from the page itself.
+    """
+    out = []
+    for r in conn.execute(
+            "SELECT match_id, map, mode, made_at, settled_at, own_won, correct, "
+            "rounds_blue, rounds_red, own_team FROM live_predictions "
+            "ORDER BY made_at DESC LIMIT ?", (limit,)):
+        own = r["rounds_blue"] if r["own_team"] == "Blue" else r["rounds_red"]
+        theirs = r["rounds_red"] if r["own_team"] == "Blue" else r["rounds_blue"]
+        out.append({
+            "match_id": r["match_id"], "map": r["map"], "mode": r["mode"],
+            "made_at": r["made_at"], "settled": r["settled_at"] is not None,
+            "own_won": r["own_won"], "correct": r["correct"],
+            "score": (f"{own}-{theirs}" if own is not None and theirs is not None
+                      else None),
+        })
+    return out
+
+
 def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
     """One match: the prediction, the result, and every player either way."""
     row = conn.execute("SELECT * FROM live_predictions WHERE match_id = ?",

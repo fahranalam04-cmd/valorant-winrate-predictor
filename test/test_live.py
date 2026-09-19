@@ -1200,3 +1200,30 @@ def test_remembering_a_port_never_fails_the_launch(tmp_path, monkeypatch):
     monkeypatch.setattr(S, "port_file", lambda: None)
     S.remember_port(8788)
     assert S.remembered_port() is None
+
+
+def test_a_browser_that_will_not_open_cannot_take_down_the_live_view(monkeypatch,
+                                                                    capsys):
+    """Opening the per-match tab runs inside the poll loop.
+
+    A browser that refuses -- or throws, which it does on a machine with none
+    registered -- would otherwise kill the websocket and take the live view
+    with it, for the sake of a convenience window.
+    """
+    from valwr.dash import server as S
+
+    def boom(url):
+        raise OSError("no browser here")
+    monkeypatch.setattr(S.webbrowser, "open", boom)
+    assert S.open_match_tab("http://127.0.0.1:8787/", "m1") is False
+    said = capsys.readouterr().out
+    assert "m/m1" in said, "the URL has to be printed so it is still reachable"
+
+    monkeypatch.setattr(S.webbrowser, "open", lambda url: False)
+    assert S.open_match_tab("http://127.0.0.1:8787/", "m1") is False
+    assert "m/m1" in capsys.readouterr().out
+
+    opened = []
+    monkeypatch.setattr(S.webbrowser, "open", lambda url: opened.append(url) or True)
+    assert S.open_match_tab("http://127.0.0.1:8787/", "m2") is True
+    assert opened == ["http://127.0.0.1:8787/m/m2"]

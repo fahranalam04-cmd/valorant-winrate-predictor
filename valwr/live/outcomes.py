@@ -210,6 +210,27 @@ def settle(conn: sqlite3.Connection, client, region: str, match_id: str,
     return "settled"
 
 
+def unstick(conn: sqlite3.Connection, now: int | None = None) -> int:
+    """Give back the attempts the old schedule burned. Returns how many.
+
+    Before the backoff existed, every retry for a match was spent inside the
+    first ten minutes of a game that runs forty, so predictions were left with
+    a full attempt count and no result -- permanently, since the budget was
+    gone. Those rows are still recoverable: the matches finished long ago and
+    the result is there for the asking.
+
+    A row is only cleared when it is older than a match can last and still has
+    nothing recorded against it, so this cannot rescue a match that genuinely
+    does not exist -- that one simply spends its attempts again, slowly.
+    """
+    now = int(now or time.time())
+    cutoff = now - int(due_after(1))
+    return conn.execute(
+        "UPDATE live_predictions SET attempts = 0, last_error = NULL "
+        "WHERE settled_at IS NULL AND attempts > 0 AND made_at < ?",
+        (cutoff,)).rowcount
+
+
 def settle_pending(conn: sqlite3.Connection, client, region: str,
                    now: int | None = None) -> dict[str, int]:
     """Try every match that is due. Safe to call on a timer."""

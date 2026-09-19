@@ -484,3 +484,61 @@ def test_the_post_match_ranking_matches_the_order_that_was_shown(conn):
     got = review.compare(conn, "m1")
     ranked = {p["puuid"]: p["predicted_rank"] for p in got["players"]}
     assert ranked["b0"] == 1 and ranked["b1"] == 2
+
+
+# --- getting back to a match after it ends ------------------------------
+
+def test_recorded_matches_are_listed_newest_first(conn):
+    """The live page follows the current match, so when one ends the game just
+    played leaves the screen. This is the list that makes it reachable."""
+    outcomes.record(conn, state(match_id="old"), now=1000)
+    outcomes.record(conn, state(match_id="m1"), now=5000)
+    _ingest(conn, finished(winner="Blue"))
+    outcomes.settle(conn, FakeAPI(finished()), "na", "m1", now=9000)
+
+    got = review.recent(conn)
+    assert [r["match_id"] for r in got] == ["m1", "old"]
+    assert got[0]["settled"] is True and got[0]["own_won"] == 1
+    assert got[0]["score"] == "14-12", "from the player's own side"
+    assert got[1]["settled"] is False, "still waiting is not an error"
+    assert got[1]["score"] is None
+
+
+def test_the_recent_list_is_capped(conn):
+    for i in range(9):
+        outcomes.record(conn, state(match_id=f"m{i}"), now=1000 + i)
+    assert len(review.recent(conn, limit=4)) == 4
+    assert len(review.recent(conn)) == 6
+
+
+def test_an_empty_record_lists_nothing_rather_than_failing(conn):
+    assert review.recent(conn) == []
+
+
+def test_predictions_stranded_by_the_old_schedule_are_recoverable(conn):
+    """Anyone who ran the version that gave up after ten minutes has rows with
+    a spent budget and no result. The matches are long finished; the attempts
+    were wasted on asking too early."""
+    outcomes.record(conn, state(match_id="stranded"), now=1000)
+    conn.execute("UPDATE live_predictions SET attempts = 6, last_error = '404'")
+    conn.commit()
+    assert outcomes.pending(conn, now=1000 + 3600) == [], "still backing off"
+
+    freed = outcomes.unstick(conn, now=1000 + 3600)
+    conn.commit()
+    assert freed == 1
+    assert outcomes.pending(conn, now=1000 + 3600) == ["stranded"]
+
+
+def test_unstick_leaves_a_match_that_is_still_being_played_alone(conn):
+    outcomes.record(conn, state(match_id="live-now"), now=1000)
+    conn.execute("UPDATE live_predictions SET attempts = 1")
+    conn.commit()
+    assert outcomes.unstick(conn, now=1000 + 60) == 0
+
+
+def test_unstick_does_not_touch_settled_matches(conn):
+    outcomes.record(conn, state(), now=1000)
+    _ingest(conn, finished())
+    outcomes.settle(conn, FakeAPI(finished()), "na", "m1", now=9000)
+    assert outcomes.unstick(conn, now=10 ** 9) == 0
