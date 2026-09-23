@@ -297,14 +297,15 @@ predicted and fills in the result a few minutes after the game ends
 ([what that looks like](docs/images/dashboard-result.jpg)): won or lost, the
 final score, whether the call was right, and then a block for every player --
 where the 0-100 score ranked them against where they finished, and their career
-ACS, K/D and headshot rate from before the match against what they did in it.
+damage per round, K/D and headshot rate from before the match against what
+they did in it.
 `/results` scores every match it has recorded, with the interval around each
 figure.
 
 What is on the page, and what each number means, is in
 [docs/DASHBOARD.md](docs/DASHBOARD.md). In short: both teams' odds and what is
 moving them; all ten players by team with rank, party, a 0–100 score scored
-against others on the same role, ACS, K/D,
+against others on the same role, damage per round, K/D,
 last-20 K/D and headshot rate, competitive games only; and a card per player
 with their record, form and history on this map.
 

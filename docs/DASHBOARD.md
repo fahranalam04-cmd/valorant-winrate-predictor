@@ -120,7 +120,7 @@ show dashes rather than guesses.
 | ◆ | Playing far above their rank — see *The flag* below. |
 | Agent, **rank** | The rank badge is the short form (D3 = Diamond 3); hover for the full name. |
 | Reason | The largest thing lifting or lowering the score, in words: *wins duels*, *consistently strong*, *below par lately, but only 4 games*. |
-| **ACS** | Average combat score, career. |
+| **ADR** | Damage per round, career. It replaced combat score on this page when patch 13.06 removed ACS from the game's own scoreboard. |
 | **K/D** | Career kills over career deaths — pooled, the way trackers compute it. |
 | **Last 20** | K/D over their twenty most recent games: current form. |
 | **HS%** | Headshots as a share of all hits. |
@@ -138,12 +138,12 @@ the card fills two columns so nothing needs scrolling.
 - **What makes the score** — each component marked above or below average.
   The map adjustment reads *not counted* until the player has six games on this
   map: below that, map history is noise, and it contributes exactly zero.
-- **Record & form** — career beside the last 20: games, ACS, K/D, headshot %,
+- **Record & form** — career beside the last 20: games, damage per round, K/D, headshot %,
   win rate and kills/deaths/assists. When all of a player's stored games fall
   inside the last 20, the card says the two columns are the same games.
 - **On this map** — the same record for this map only, and the agents they
   have played here.
-- **Last matches** — map, agent, win or loss, ACS, kills and deaths, and how
+- **Last matches** — map, agent, win or loss, damage per round, kills and deaths, and how
   long ago.
 - **Data** — how fresh their history is, how many matches are on record, and a
   reminder that only competitive games count.
@@ -164,8 +164,9 @@ dashboard spends one API call on it and the tab shows:
 - won or lost, the final score, and whether the prediction was right
 - **a block per player, not a summary row**: every player who played gets
   their 0-100 score, the reason the score gave, and where it ranked them,
-  against where they actually finished on combat score -- then their own career
-  ACS, K/D and headshot rate from before the match set against what they did in
+  against where they actually finished -- ranked by match impact, the same
+  measure the accuracy figures use -- then their own career damage per round,
+  K/D and headshot rate from before the match set against what they did in
   it, with the change signed in each row.
 
   The per-player comparison is deliberately against the player rather than

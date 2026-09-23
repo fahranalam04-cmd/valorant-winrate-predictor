@@ -63,12 +63,29 @@ def check_all() -> tuple[list[str], list[str], bool]:
         problems.append("No trained model. Run:  "
                         ".venv\\Scripts\\python -m valwr.model.train")
 
+    # The per-role index is what scores players on the page. Checking only the
+    # older one reported all-clear while the dashboard quietly fell back to a
+    # formula it no longer ships.
+    try:
+        from valwr.rating import roleindex
+        role_idx = roleindex.RoleIndex.load()
+        rate = (f", best of five {role_idx.top1_rate * 100:.1f}%"
+                if role_idx.top1_rate else "")
+        lines.append(f"{OK}player score          fitted on "
+                     f"{role_idx.n:,} samples{rate}")
+    except (FileNotFoundError, KeyError, ValueError):
+        lines.append(f"{NO}player score          not built -- the page falls "
+                     f"back to the older formula")
+        problems.append("Optional. For the per-role 0-100 score, run:  "
+                        ".venv\\Scripts\\python tools\\build_role_index.py")
+
     try:
         idx = pot.PerfIndex.load()
-        lines.append(f"{OK}player score          fitted on {idx.n:,} samples")
+        lines.append(f"{OK}card reference        fitted on {idx.n:,} samples")
     except FileNotFoundError:
-        lines.append(f"{NO}player score          not built -- table will be skipped")
-        problems.append("Optional. For the per-player 0-100 table, run:  "
+        lines.append(f"{NO}card reference        not built -- career and form "
+                     f"blocks will be skipped")
+        problems.append("Optional. For the rest of the player card, run:  "
                         ".venv\\Scripts\\python tools\\build_perf_index.py")
 
     try:
