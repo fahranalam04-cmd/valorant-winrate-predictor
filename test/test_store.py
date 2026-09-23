@@ -14,8 +14,25 @@ def conn(tmp_path):
     return c
 
 
+def _spike_rounds():
+    """Three rounds: p0 plants twice, p1 defuses once, nobody else touches it."""
+    def who(puuid):
+        return {"player": {"puuid": puuid, "name": puuid, "tag": "NA1",
+                           "team": "Blue"}, "round_time_in_ms": 30_000,
+                "site": "A"}
+    return [
+        {"id": 0, "ceremony": "", "winning_team": "Blue", "stats": [],
+         "plant": who("p0"), "defuse": None},
+        {"id": 1, "ceremony": "", "winning_team": "Red", "stats": [],
+         "plant": who("p0"), "defuse": who("p1")},
+        {"id": 2, "ceremony": "", "winning_team": "Blue", "stats": [],
+         "plant": None, "defuse": None},
+    ]
+
+
 def make_match(match_id="m1", started="2026-08-23T05:39:55.948Z", n=10,
-               winner="Blue", map_name="Sunset", agent="Jett", casts=True):
+               winner="Blue", map_name="Sunset", agent="Jett", casts=True,
+               spike=False):
     return {
         "metadata": {"match_id": match_id, "started_at": started,
                      "map": {"name": map_name}, "region": "na",
@@ -34,7 +51,43 @@ def make_match(match_id="m1", started="2026-08-23T05:39:55.948Z", n=10,
                                            "ability2": 21, "ultimate": 0}}
                         if casts else {})}
                     for i in range(n)],
+        **({"rounds": _spike_rounds()} if spike else {}),
     }
+
+
+def test_spike_plants_and_defuses_are_counted_per_player(conn):
+    """Patch 13.06 replaced ACS with Performance Score, which counts plants and
+    defuses. They are stated outright in the round data -- each event names the
+    player -- so they need no inference, unlike clutches."""
+    _ingest(conn, make_match(spike=True))
+    rows = {r["puuid"]: r for r in
+            conn.execute("SELECT puuid, plants, defuses FROM match_players")}
+    assert rows["p0"]["plants"] == 2, "planted in two of the three rounds"
+    assert rows["p0"]["defuses"] == 0
+    assert rows["p1"]["defuses"] == 1
+    assert rows["p1"]["plants"] == 0
+    # Everyone else touched neither, and that is zero rather than unknown.
+    assert rows["p5"]["plants"] == 0 and rows["p5"]["defuses"] == 0
+
+
+def test_a_round_nobody_planted_in_is_not_counted(conn):
+    """A parsed match with no spike events is zero, not NULL. NULL is reserved
+    for rows written before these columns existed."""
+    _ingest(conn, make_match())
+    row = conn.execute("SELECT plants, defuses FROM match_players "
+                       "LIMIT 1").fetchone()
+    assert row["plants"] == 0 and row["defuses"] == 0
+
+
+def test_reparsing_fills_the_spike_columns_into_existing_rows(conn):
+    """The recovery path for 77,000 matches already stored without them."""
+    _ingest(conn, make_match(spike=False))
+    assert conn.execute("SELECT plants FROM match_players WHERE puuid = 'p0'"
+                        ).fetchone()[0] == 0
+    _ingest(conn, make_match(spike=True))
+    assert conn.execute("SELECT plants FROM match_players WHERE puuid = 'p0'"
+                        ).fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM match_players").fetchone()[0] == 10
 
 
 def test_ability_casts_are_stored_per_slot(conn):

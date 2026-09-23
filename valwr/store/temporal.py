@@ -63,6 +63,9 @@ SELECT mp.match_id, mp.started_at, mp.puuid, mp.team, mp.agent, mp.tier,
        -- with valwr/rating/components.py.
        mp.rounds_played, mp.first_bloods, mp.first_deaths, mp.multikills,
        mp.trade_kills, mp.traded_deaths, mp.kast_rounds, mp.clutches,
+       -- The spike. NULL on rows written before these columns existed, which
+       -- is a different thing from a player who never planted.
+       mp.plants, mp.defuses,
        -- Ability casts, read by the per-role score. NULL on any row ingested
        -- before these columns existed, which is a different thing from zero
        -- and has to stay distinguishable: zero means they cast nothing.

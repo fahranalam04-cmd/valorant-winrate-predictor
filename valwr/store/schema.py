@@ -79,6 +79,10 @@ CREATE TABLE IF NOT EXISTS match_players (
   traded_deaths INTEGER,
   kast_rounds   INTEGER,
   clutches      INTEGER,
+  -- The spike, per player. Part of what patch 13.06's Performance Score
+  -- counts and no fragging column records.
+  plants        INTEGER,
+  defuses       INTEGER,
   -- Ability casts, one column per slot. Present in the API response from the
   -- start but never stored until the per-role score needed them; older rows
   -- are filled by re-running valwr.store.normalize over raw_response.
@@ -216,6 +220,10 @@ MIGRATIONS: dict[str, dict[str, str]] = {
         "traded_deaths": "INTEGER",
         "kast_rounds": "INTEGER",
         "clutches": "INTEGER",
+        # Spike plants and defuses, added when ACS was replaced by
+        # Performance Score and the things it counts had to be measurable.
+        "plants": "INTEGER",
+        "defuses": "INTEGER",
         # Ability casts, added for the per-role score.
         "ability_grenade": "INTEGER",
         "ability_1": "INTEGER",

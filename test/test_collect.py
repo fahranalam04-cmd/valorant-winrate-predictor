@@ -328,6 +328,7 @@ def test_claim_prefers_players_appearing_in_more_collected_matches(conn):
              "rounds_played": 20, "first_bloods": 0, "first_deaths": 0,
              "multikills": 0, "trade_kills": 0, "traded_deaths": 0,
              "kast_rounds": 10, "clutches": 0,
+             "plants": None, "defuses": None,
              "ability_grenade": None, "ability_1": None,
              "ability_2": None, "ability_ultimate": None,
              "_name": p, "_tag": "NA1"}

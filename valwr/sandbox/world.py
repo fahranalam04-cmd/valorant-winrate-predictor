@@ -276,6 +276,9 @@ def write_player(conn: sqlite3.Connection, puuid: str, p: PlayerProfile,
             "rounds_played": ROUNDS,
             "first_bloods": int(round(m["fb_rate"] * ROUNDS)),
             "first_deaths": int(round(m["fd_rate"] * ROUNDS)),
+            # The sandbox models neither the spike nor ability usage, and
+            # NULL says so rather than claiming nobody ever planted.
+            "plants": None, "defuses": None,
             # The sandbox does not model ability usage, and NULL says so.
             # Inventing counts here would feed the per-role score synthetic
             # numbers it could not tell apart from real ones.

@@ -44,6 +44,8 @@ def blank() -> dict[str, int]:
         "traded_deaths": 0,
         "kast_rounds": 0,
         "clutches": 0,
+        "plants": 0,
+        "defuses": 0,
     }
 
 
@@ -123,6 +125,18 @@ def match_components(m: dict) -> dict[str, dict[str, int]]:
             if (puuid in killers_this_round or puuid in assisted
                     or puuid not in victims or puuid in traded):
                 out[puuid]["kast_rounds"] += 1
+
+        # The spike. Unlike clutches these are stated outright: both events
+        # name the player who made them. Worth deriving because patch 13.06
+        # replaced ACS with Performance Score, and plants and defuses are part
+        # of what that counts as contribution -- a lurking sentinel who defuses
+        # twice did something no fragging column records.
+        planter = _puuid((rnd.get("plant") or {}).get("player"))
+        if planter in out:
+            out[planter]["plants"] += 1
+        defuser = _puuid((rnd.get("defuse") or {}).get("player"))
+        if defuser in out:
+            out[defuser]["defuses"] += 1
 
         # Clutches are INFERRED. `ceremony` marks that a clutch happened but
         # not who won it, so we take the sole survivor on the winning team.

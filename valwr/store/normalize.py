@@ -158,6 +158,7 @@ PLAYER_COLS = ["match_id", "puuid", "team", "agent", "party_id", "tier",
                "started_at", "map", "won",
                "rounds_played", "first_bloods", "first_deaths", "multikills",
                "trade_kills", "traded_deaths", "kast_rounds", "clutches",
+               "plants", "defuses",
                "ability_grenade", "ability_1", "ability_2", "ability_ultimate"]
 
 
