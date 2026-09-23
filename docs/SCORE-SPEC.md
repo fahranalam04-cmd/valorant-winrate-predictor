@@ -11,6 +11,51 @@ and one match is 84% noise, so the ranking it gives up is small and the thing
 it buys is a number that means the same for a Sage as for a Jett. The
 measurement stays in this document rather than being quietly dropped.
 
+---
+
+## What patch 13.06 changed, and what was measured on the day
+
+VALORANT removed ACS on **22 September 2026**. It is replaced by **Performance
+Score**, a 0-500 per-match number, and MVP and scoreboard position are decided
+by it. Riot describes it only as measuring "more than just damage and kills";
+community reporting adds that it folds in damage, kills, ability usage, trades,
+and spike plants and defuses.
+
+Three things were measured before any of this was rewritten:
+
+1. **The API still returns the old `score` field, unchanged.** Matches from the
+   22nd and 23rd carry the same distribution as before the patch -- mean around
+   210 per round, median around 205. The crawl and the win model were never
+   broken; what changed is what the game displays.
+2. **No public API exposes Performance Score.** Live responses on the 23rd
+   carried only `assists, bodyshots, damage, deaths, headshots, kills,
+   legshots, score`. HenrikDev's newest match endpoint is v4 -- the one already
+   in use -- and no release note mentions PS. It cannot be ingested.
+3. **What PS counts is recoverable.** Damage, kills, assists and ability casts
+   were already stored. Plants and defuses were not, but they sit in the raw
+   round data with the acting player named: 62% of rounds have a plant, 18% a
+   defuse. They are now derived in `rating/components.py` and backfilled.
+
+What follows from that:
+
+- **Combat score stays, out of sight.** It is still delivered and still the most
+  predictive column available, so it remains an input to the win model. It is
+  no longer shown anywhere, because the game no longer has it. If Riot stops
+  populating the field, the win model loses four of its 52 features and will
+  need a retrain -- worth watching for.
+- **The card shows damage per round** where it showed combat score, and the map
+  term is a damage delta rather than a combat-score one. The two correlate
+  0.98, so the term means what it always did.
+- **"Played best" is the ten-part match rating**, in the comparison table and in
+  the recorded pick alike. This also settles a contradiction this document
+  already carried: section "One inconsistency to fix" flagged that
+  `live/review.py` judged it by ACS while the validation harness did not.
+- **No invented 0-500 number.** A fabricated Performance Score sitting beside
+  the real one in the client would be worse than showing none. Whether the
+  local game client exposes the real figure is still open.
+
+---
+
 The current score is one formula for everybody: four components
 (`acs` 45%, `rating` 25%, `kd` 15%, `map_edge` 15%), z-scored against the whole
 training population, combined, and mapped to a percentile. Two things are wrong

@@ -35,7 +35,7 @@ def conn(tmp_path):
 def play(conn, mid, *, started, agent="Jett", map_name="Sunset", rounds=20,
          score=4000, kills=15, deaths=15, assists=5, kast=14, damage=2800,
          fb=2, fd=2, headshots=10, bodyshots=20, legshots=2, casts=None,
-         puuid="p1"):
+         plants=0, defuses=0, trades=2, puuid="p1"):
     """One stored match for one player. `casts` of None means not recorded."""
     conn.execute(
         "INSERT OR REPLACE INTO matches (match_id, started_at, map, mode, region,"
@@ -48,12 +48,13 @@ def play(conn, mid, *, started, agent="Jett", map_name="Sunset", rounds=20,
         " tier, account_level, score, kills, deaths, assists, headshots,"
         " bodyshots, legshots, damage_dealt, damage_taken, started_at, map, won,"
         " rounds_played, first_bloods, first_deaths, multikills, trade_kills,"
-        " traded_deaths, kast_rounds, clutches, ability_grenade, ability_1,"
-        " ability_2, ability_ultimate) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " traded_deaths, kast_rounds, clutches, plants, defuses,"
+        " ability_grenade, ability_1, ability_2, ability_ultimate) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (mid, puuid, "Blue", agent, 13, 100, score, kills, deaths, assists,
          headshots, bodyshots, legshots, damage, 2900, started, map_name, 1,
-         rounds, fb, fd, 1, 2, 2, kast, 0, g, a1, a2, ult))
+         rounds, fb, fd, 1, trades, 2, kast, 0, plants, defuses,
+         g, a1, a2, ult))
     conn.commit()
 
 
@@ -157,18 +158,23 @@ def test_fitting_the_population_sees_unshrunk_values(conn):
 # --- the map component --------------------------------------------------
 
 def test_the_map_component_says_nothing_below_three_games(conn):
+    # Damage, not combat score: the map term measures what the card shows, and
+    # patch 13.06 took combat score off the card.
     for i in range(2):
-        play(conn, f"a{i}", started=AS_OF - (i + 1) * DAY, map_name="Lotus", score=6000)
-    play(conn, "b0", started=AS_OF - 9 * DAY, map_name="Sunset", score=2000)
+        play(conn, f"a{i}", started=AS_OF - (i + 1) * DAY, map_name="Lotus",
+             damage=4000)
+    play(conn, "b0", started=AS_OF - 9 * DAY, map_name="Sunset", damage=1800)
     assert measure(conn, map_name="Lotus").map_edge == 0.0
     assert measure(conn, map_name="Lotus").n_map_games == 2
 
 
 def test_the_map_component_fires_at_three_games(conn):
     for i in range(3):
-        play(conn, f"a{i}", started=AS_OF - (i + 1) * DAY, map_name="Lotus", score=6000)
+        play(conn, f"a{i}", started=AS_OF - (i + 1) * DAY, map_name="Lotus",
+             damage=4000)
     for i in range(3):
-        play(conn, f"b{i}", started=AS_OF - (10 + i) * DAY, map_name="Sunset", score=2000)
+        play(conn, f"b{i}", started=AS_OF - (10 + i) * DAY, map_name="Sunset",
+             damage=1800)
     got = measure(conn, map_name="Lotus")
     assert got.n_map_games == 3
     assert got.map_edge > 0, "they are better on Lotus than overall"
@@ -234,3 +240,41 @@ def test_a_match_recorded_before_the_raw_existed_falls_back(conn):
     assert R.standing({"score": 40}) == 40.0
     assert R.standing({"score": None}) is None
     assert R.standing({}) is None
+
+
+# --- what the new scoreboard rewards ------------------------------------
+
+def test_spike_actions_are_measured_per_round_they_were_recorded_for(conn):
+    """Plants and defuses arrived after most matches were already stored, so
+    they get their own denominator -- the same treatment ability casts needed,
+    and for the same reason: dividing recovered counts by every round a player
+    has ever played halves the figure for anyone with history either side of
+    the line where the column appeared."""
+    play(conn, "m1", started=AS_OF - DAY, rounds=20, plants=4, defuses=2)
+    play(conn, "m2", started=AS_OF - 2 * DAY, rounds=20,
+         plants=None, defuses=None)
+    got = measure(conn)
+    assert got.values["plants"] == pytest.approx(0.2), "4 over 20 rounds"
+    assert got.values["defuses"] == pytest.approx(0.1)
+    assert got.counts["plants"] == 1, "only the match that recorded them"
+    assert got.n_games == 2
+
+    # Each component keeps its own denominator, not one shared "spike" one: a
+    # match that recorded plants but not defuses counts toward plants alone.
+    play(conn, "m3", started=AS_OF - 3 * DAY, rounds=20, plants=0, defuses=None)
+    again = measure(conn)
+    assert again.counts["plants"] == 2 and again.counts["defuses"] == 1
+
+
+def test_a_player_whose_matches_predate_the_columns_has_no_spike_value(conn):
+    play(conn, "m1", started=AS_OF - DAY, plants=None, defuses=None)
+    got = measure(conn)
+    assert got.values["plants"] is None and got.values["defuses"] is None
+    assert got.values["adr"] is not None
+
+
+def test_trades_are_measured(conn):
+    """Trading a teammate is one of the things the new score counts, and the
+    column has been stored all along."""
+    play(conn, "m1", started=AS_OF - DAY, rounds=20, trades=6)
+    assert measure(conn).values["trades"] == pytest.approx(0.3)

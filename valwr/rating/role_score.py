@@ -37,7 +37,8 @@ from valwr.rating.potential import _band as potential_band
 from valwr.store import temporal
 
 # Components built as a weighted count over weighted rounds.
-PER_ROUND = ("acs", "adr", "assists", "kast", "fb", "fd", "abilities")
+PER_ROUND = ("acs", "adr", "assists", "kast", "fb", "fd", "trades",
+             "abilities", "plants", "defuses")
 # Components built as a weighted count over weighted deaths.
 PER_DEATH = ("kd", "kda")
 # Headshots over hits, which is its own denominator again.
@@ -49,9 +50,22 @@ COMPONENTS = PER_ROUND + PER_DEATH + SHARES
 NUMERATOR = {
     "acs": ("score",), "adr": ("damage_dealt",), "assists": ("assists",),
     "kast": ("kast_rounds",), "fb": ("first_bloods",), "fd": ("first_deaths",),
+    "trades": ("trade_kills",),
     "kd": ("kills",), "kda": ("kills", "assists"), "hs": ("headshots",),
+    "plants": ("plants",), "defuses": ("defuses",),
 }
 ABILITY_SLOTS = ("ability_grenade", "ability_1", "ability_2", "ability_ultimate")
+
+# Components whose columns were added after matches were already stored, so a
+# row can legitimately hold nothing for them. Each gets its own denominator:
+# dividing recovered counts by every round a player has ever played would
+# quietly halve the figure for anyone with history on both sides of the line
+# where the column appeared.
+OPTIONAL: dict[str, tuple[str, ...]] = {
+    "abilities": ABILITY_SLOTS,
+    "plants": ("plants",),
+    "defuses": ("defuses",),
+}
 
 RECENCY_HALFLIFE_DAYS = 30.0     # matches features/player.py and potential.py
 
@@ -87,9 +101,11 @@ class _Sums:
     rounds: float = 0.0
     deaths: float = 0.0
     hits: float = 0.0
-    ability_rounds: float = 0.0     # rounds from matches that recorded casts
+    # Rounds and matches behind each component that carries its own
+    # denominator -- see OPTIONAL.
+    opt_rounds: dict[str, float] = field(default_factory=dict)
+    opt_games: dict[str, int] = field(default_factory=dict)
     games: int = 0
-    ability_games: int = 0
 
     def add(self, row: dict, w: float) -> None:
         rounds = row.get("rounds_played") or 0
@@ -101,21 +117,25 @@ class _Sums:
         self.hits += w * sum((row.get(k) or 0) for k in
                              ("headshots", "bodyshots", "legshots"))
         for name, cols in NUMERATOR.items():
+            if name in OPTIONAL:
+                continue
             self.num[name] = self.num.get(name, 0.0) + w * sum(
                 (row.get(c) or 0) for c in cols)
-        # Only matches that actually recorded casts contribute, numerator and
-        # denominator together.
-        if any(row.get(k) is not None for k in ABILITY_SLOTS):
-            self.ability_games += 1
-            self.ability_rounds += w * rounds
-            self.num["abilities"] = self.num.get("abilities", 0.0) + w * sum(
-                (row.get(k) or 0) for k in ABILITY_SLOTS)
+        # Only matches that actually recorded the column contribute, numerator
+        # and denominator together.
+        for name, cols in OPTIONAL.items():
+            if not any(row.get(c) is not None for c in cols):
+                continue
+            self.opt_games[name] = self.opt_games.get(name, 0) + 1
+            self.opt_rounds[name] = self.opt_rounds.get(name, 0.0) + w * rounds
+            self.num[name] = self.num.get(name, 0.0) + w * sum(
+                (row.get(c) or 0) for c in cols)
 
     def value(self, name: str) -> float | None:
         """One component, or None when its denominator is empty."""
-        if name == "abilities":
-            return (self.num.get("abilities", 0.0) / self.ability_rounds
-                    if self.ability_rounds else None)
+        if name in OPTIONAL:
+            rounds = self.opt_rounds.get(name, 0.0)
+            return self.num.get(name, 0.0) / rounds if rounds else None
         if name in PER_ROUND:
             return self.num.get(name, 0.0) / self.rounds if self.rounds else None
         if name in PER_DEATH:
@@ -125,8 +145,10 @@ class _Sums:
         raise KeyError(name)
 
     def count(self, name: str) -> int:
-        """Matches behind a component -- not the same for abilities."""
-        return self.ability_games if name == "abilities" else self.games
+        """Matches behind a component. Not the same for every one of them: the
+        late-added columns are only present on the rows that recorded them."""
+        return (self.opt_games.get(name, 0) if name in OPTIONAL
+                else self.games)
 
 
 @dataclass(frozen=True)
@@ -206,7 +228,7 @@ def measure(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
         return None
 
     all_sums, role_sums = _Sums(), _Sums()
-    map_weight = map_rounds = map_score = 0.0
+    map_rounds = map_damage = 0.0
     n_map = 0
     for raw in history:
         row = dict(raw)
@@ -217,8 +239,7 @@ def measure(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
         if map_name and row.get("map") == map_name and (row.get("rounds_played") or 0):
             n_map += 1
             map_rounds += w * row["rounds_played"]
-            map_score += w * (row.get("score") or 0)
-            map_weight += w
+            map_damage += w * (row.get("damage_dealt") or 0)
 
     values: dict[str, float | None] = {}
     counts: dict[str, int] = {}
@@ -230,18 +251,19 @@ def measure(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
 
     # The map component is a difference against the player's own level, so it
     # is zero by construction for someone with no map history -- "no opinion",
-    # never "average". Combat score is the measure because it is the one
-    # component present on every row ever stored.
+    # never "average". Damage per round is the measure: it is on every row ever
+    # stored, and it replaced combat score when patch 13.06 removed that from
+    # the game. The two correlate 0.98, so the term means what it always did.
     map_edge = 0.0
     if n_map >= MIN_MAP_GAMES and map_rounds and all_sums.rounds:
-        overall_acs = all_sums.num.get("acs", 0.0) / all_sums.rounds
-        map_edge = (map_score / map_rounds) - overall_acs
+        overall_adr = all_sums.num.get("adr", 0.0) / all_sums.rounds
+        map_edge = (map_damage / map_rounds) - overall_adr
 
     newest = dict(history[0])
     return RoleComponents(
         role=role, agent=agent, values=values, counts=counts, map_edge=map_edge,
         n_games=all_sums.games, n_role_games=role_sums.games, n_map_games=n_map,
-        n_ability_games=all_sums.ability_games,
+        n_ability_games=all_sums.opt_games.get("abilities", 0),
         tier=newest.get("tier"), account_level=newest.get("account_level"))
 
 
@@ -278,6 +300,7 @@ def roles_by_agent(conn: sqlite3.Connection) -> dict[str, str]:
 
 COMPONENT_LABELS = {
     "acs": "combat score", "adr": "damage per round", "kd": "kills per death",
+    "trades": "trades", "plants": "spike plants", "defuses": "defuses",
     "kda": "kills and assists per death", "kast": "rounds contributed to",
     "assists": "assists per round", "fb": "opening kills",
     "fd": "opening deaths", "hs": "headshot rate",
@@ -288,6 +311,8 @@ COMPONENT_LABELS = {
 # deliberately absent: it is an adjustment against the player's own level, not
 # a trait, and narrating it produced sentences nobody could act on.
 _HIGH = {
+    "trades": "trades out teammates", "plants": "plants the spike",
+    "defuses": "defuses under pressure",
     "acs": "high combat score", "adr": "damages every round",
     "kd": "wins duels", "kda": "in on most kills",
     "kast": "contributes nearly every round", "assists": "sets up teammates",
@@ -295,6 +320,8 @@ _HIGH = {
     "hs": "headshot-heavy aim", "abilities": "uses their kit heavily",
 }
 _LOW = {
+    "trades": "rarely trades a teammate", "plants": "rarely plants",
+    "defuses": "rarely defuses",
     "acs": "low combat score", "adr": "does little damage",
     "kd": "loses duels", "kda": "little involved in kills",
     "kast": "quiet rounds", "assists": "rarely assists",

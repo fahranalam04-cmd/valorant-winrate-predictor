@@ -107,6 +107,33 @@ def variants() -> dict[str, dict[str, dict[str, float]]]:
     }
     out["evidence-led"] = {r: rescale(w) for r, w in evidence.items()}
 
+    # --- life after ACS -------------------------------------------------
+    # Patch 13.06 replaced combat score with Performance Score, which counts
+    # damage, kills, ability use, trades and spike plants/defuses. These tables
+    # drop combat score and spend it on what the new score actually measures.
+    # Which of them ships is decided here, not by taste.
+    ps = {
+        "Duelist":    {"adr": 26, "kd": 21, "kast": 14, "trades": 10,
+                       "abilities": 10, "fb": 9, "hs": 6, "plants": 3,
+                       "defuses": 1},
+        "Initiator":  {"adr": 22, "kda": 22, "kast": 20, "abilities": 18,
+                       "trades": 8, "hs": 6, "plants": 3, "defuses": 1},
+        "Controller": {"adr": 18, "kd": 19, "abilities": 18, "kast": 18,
+                       "assists": 13, "trades": 7, "hs": 5, "plants": 1,
+                       "defuses": 1},
+        "Sentinel":   {"kda": 21, "kast": 19, "abilities": 17, "adr": 15,
+                       "trades": 8, "defuses": 7, "plants": 5, "hs": 6,
+                       "fd": -2},
+    }
+    out["ps-shaped"] = {r: rescale(w) for r, w in ps.items()}
+    # The same, with ability casts cut to what they were measured to be worth
+    # (a stable trait that predicts performance at roughly zero).
+    out["ps-shaped, abilities at 3"] = {
+        r: rescale(w, set_to={"abilities": 3.0}) for r, w in ps.items()}
+    # And with the spike left out, to see whether it carries anything at all.
+    out["ps-shaped, no spike"] = {
+        r: rescale(w, drop=("plants", "defuses")) for r, w in ps.items()}
+
     # Only the Duelist table changes; the support roles keep what ships. The
     # ablation says the aggregate loss is concentrated in Duelists, so this
     # asks whether the support gains can be kept while giving that back.
