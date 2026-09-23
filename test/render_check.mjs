@@ -78,7 +78,11 @@ ck("the rank is the short form", out.includes(`>${first.rank.short}<`));
               : "exact parties need no qualifier",
      /class="partynote"/.test(out) === inferred);
 }
-ck("acs on row", out.includes(first.career.acs.toFixed(1)));
+// Damage per round, not combat score: patch 13.06 removed ACS from the game's
+// own scoreboard, so it left this one too.
+ck("damage per round on row", out.includes(first.career.adr.toFixed(1)));
+ck("and the row no longer prints combat score",
+   !/\bACS\b/.test(out) && !out.includes(first.career.acs.toFixed(1)));
 ck("k/d on row", out.includes(first.career.kd.toFixed(2)));
 ck("last-20 on row", out.includes(first.recent.kd.toFixed(2)));
 ck("hs% on row", out.includes((first.career.headshot_rate * 100).toFixed(1) + "%"));

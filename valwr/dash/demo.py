@@ -137,8 +137,12 @@ def _components(role, agent, score, acs, kd, hs, mg):
 def _stats(games, acs, k, d, a, kd, hs, wr):
     wins = round(games * wr) if wr is not None else 0
     return {"games": games, "wins": wins, "losses": games - wins,
-            "kills": k, "deaths": d, "assists": a, "acs": acs, "kd": kd,
-            "headshot_rate": hs, "win_rate": wr}
+            "kills": k, "deaths": d, "assists": a, "acs": acs,
+            # Damage per round, which the card shows where combat score used to
+            # be. Held at the measured ratio between the two rather than
+            # invented separately: 140.3 ADR against 211.9 ACS, dataset-wide.
+            "adr": round(acs * 0.662, 1) if acs is not None else None,
+            "kd": kd, "headshot_rate": hs, "win_rate": wr}
 
 
 def _agent_ids(conn=None) -> dict[str, str]:
@@ -209,12 +213,15 @@ def demo_state(conn=None) -> dict:
                                     {"agent": "Omen", "games": 2}]),
                 "form": [
                     {"map": MAP, "agent": agent, "acs": round(acs * 1.15, 1),
+                     "adr": round(acs * 1.15 * 0.662, 1),
                      "kills": 21, "deaths": 14, "won": True,
                      "ago": "2 hours ago"},
                     {"map": "Lotus", "agent": "Omen", "acs": round(acs * 0.82, 1),
+                     "adr": round(acs * 0.82 * 0.662, 1),
                      "kills": 12, "deaths": 18, "won": False,
                      "ago": "yesterday"},
                     {"map": "Split", "agent": agent, "acs": round(acs * 1.02, 1),
+                     "adr": round(acs * 1.02 * 0.662, 1),
                      "kills": 17, "deaths": 16, "won": True, "ago": "2 days ago"},
                 ],
                 "freshness": {"games_known": games, "seconds_old": 7200,

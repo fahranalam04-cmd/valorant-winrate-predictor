@@ -448,7 +448,16 @@ def settle_tick(no_fetch: bool = False) -> dict[str, int]:
 
 
 def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
-              demo: bool = False, match: str | None = None):
+              demo: bool = False, match: str | None = None,
+              settle: bool = False):
+    """The app. `settle` starts the background collector, and only `main` asks
+    for it.
+
+    Off by default because building an app must not have side effects on the
+    real database. It did: every test that constructed one started a task that
+    opened the live database and wrote to it, which held the write lock and
+    killed two long backfills mid-run with "database is locked".
+    """
     async def settling(_app):
         """Collect results forever, whatever else the dashboard is doing."""
         loop = asyncio.get_running_loop()
@@ -467,7 +476,7 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
     @asynccontextmanager
     async def lifespan(_app):
         task = None
-        if not (demo or match):
+        if settle and not (demo or match):
             task = asyncio.create_task(settling(_app))
         yield
         if task is not None:
@@ -831,7 +840,7 @@ def main(argv=None) -> int:
         pass                                         # never block a launch
 
     app = build_app(no_fetch=args.no_fetch, deadline=args.deadline,
-                    demo=args.demo, match=args.match)
+                    demo=args.demo, match=args.match, settle=True)
     if not (args.no_tabs or args.no_browser or args.demo or args.match):
         app.state.base_url = url
     server = uvicorn.Server(uvicorn.Config(

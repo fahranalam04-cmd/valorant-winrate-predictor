@@ -1252,7 +1252,7 @@ def test_results_are_collected_without_a_browser_or_the_game(monkeypatch):
                                                 {"settled": 0})[1])
     monkeypatch.setattr(DS, "SETTLE_EVERY_SECONDS", 0.02)
     # No websocket is ever opened, and no live context exists.
-    with TestClient(DS.build_app(no_fetch=True)):
+    with TestClient(DS.build_app(no_fetch=True, settle=True)):
         for _ in range(100):
             if calls:
                 break
@@ -1273,7 +1273,7 @@ def test_the_demo_never_collects_results(monkeypatch):
     monkeypatch.setattr(DS, "settle_tick",
                         lambda no_fetch=False: calls.append(1))
     monkeypatch.setattr(DS, "SETTLE_EVERY_SECONDS", 0.02)
-    with TestClient(DS.build_app(demo=True)):
+    with TestClient(DS.build_app(demo=True, settle=True)):
         _time.sleep(0.15)
     assert calls == []
 
@@ -1304,3 +1304,26 @@ def test_the_recorded_matches_do_not_need_a_live_context(monkeypatch, tmp_path):
     got = DS.recent_rows()
     assert [r["match_id"] for r in got] == ["m1"]
     assert got[0]["map"] == "Split" and got[0]["settled"] is False
+
+
+def test_building_an_app_does_not_reach_the_real_database(monkeypatch):
+    """Constructing an app must have no side effects on the live database.
+
+    It used to. The results collector started with the app, so every test that
+    built one opened the user's real database and wrote to it -- holding the
+    write lock long enough to kill two full backfills mid-run with
+    "database is locked". Only `main` asks for the collector now.
+    """
+    import time as _time
+
+    from fastapi.testclient import TestClient
+
+    from valwr.dash import server as DS
+
+    calls = []
+    monkeypatch.setattr(DS, "settle_tick",
+                        lambda no_fetch=False: calls.append(1))
+    monkeypatch.setattr(DS, "SETTLE_EVERY_SECONDS", 0.01)
+    with TestClient(DS.build_app(no_fetch=True)):
+        _time.sleep(0.15)
+    assert calls == [], "an app built for a test collected results"

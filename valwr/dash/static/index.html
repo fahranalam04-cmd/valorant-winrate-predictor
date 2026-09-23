@@ -597,7 +597,7 @@ function rowHTML(p){
         ${rankTag(p.rank)}
         &nbsp;·&nbsp;${esc(p.reason)}</div>
     </div>
-    ${stat("acs", c ? n1(c.acs) : "—")}
+    ${stat("adr", c ? n1(c.adr) : "—")}
     ${stat("k/d", c ? n2(c.kd) : "—")}
     ${stat("last 20", r ? n2(r.kd) : "—", "form")}
     ${stat("hs%", c ? pc(c.headshot_rate) : "—")}
@@ -638,7 +638,7 @@ function twoUp(career, recent, win){
     <thead><tr><th class="l"></th><th>career</th>${
       same ? "" : `<th>last ${esc(recent.games)}</th>`}</tr></thead><tbody>
     ${line("Games", i0(career.games), i0(recent && recent.games))}
-    ${line("ACS", n1(career.acs), n1(recent && recent.acs))}
+    ${line("Damage / round", n1(career.adr), n1(recent && recent.adr))}
     ${line("K/D", n2(career.kd), n2(recent && recent.kd))}
     ${line("Headshot %", pc(career.headshot_rate), pc(recent && recent.headshot_rate))}
     ${line("Win rate", pc(career.win_rate), pc(recent && recent.win_rate))}
@@ -691,7 +691,7 @@ function panelHTML(s){
         <span>${esc(f.map || "?")} <span class="when">·</span> ${esc(f.agent || "?")}</span>
         <span><span class="${f.won === null ? "" : f.won ? "w" : "l"}">${
           f.won === null ? "–" : f.won ? "W" : "L"}</span>
-          <span class="num">&nbsp;${n1(f.acs)}</span>
+          <span class="num">&nbsp;${n1(f.adr)}</span>
           <span class="num">&nbsp;${i0(f.kills)}/${i0(f.deaths)}</span>
           <span class="when">&nbsp;${esc(f.ago)}</span></span></div>`).join("");
 
@@ -787,8 +787,13 @@ function playerBlock(p, rv, rated, placed){
   // history the block still renders -- the point is that the page said "--"
   // beforehand and should keep saying it.
   const rows = [
-    ["ACS", n1(p.career_acs), n1(p.acs),
-     deltaCell(p.acs_delta, v => Math.abs(v).toFixed(0), 1)],
+    p.career_adr != null || p.adr != null
+      ? ["Damage / round", n1(p.career_adr), n1(p.adr),
+         deltaCell(p.adr_delta, v => Math.abs(v).toFixed(0), 1)]
+      // Recorded before patch 13.06, when the card held combat score and no
+      // damage figure. Shown as it was rather than left blank.
+      : ["Combat score", n1(p.career_acs), n1(p.acs),
+         deltaCell(p.acs_delta, v => Math.abs(v).toFixed(0), 1)],
     ["K / D", p.career_kd == null ? "—" : Number(p.career_kd).toFixed(2),
      p.kd == null ? "—" : Number(p.kd).toFixed(2),
      deltaCell(p.kd_delta, v => Math.abs(v).toFixed(2), 1)],
@@ -1017,9 +1022,9 @@ function render(msg){
     (top1 != null ? `Picks the strongest of five ${(top1 * 100).toFixed(1)}% of
       the time against 20% by chance: a real edge, not a reliable one. ` : "") +
     `Career figures are raw totals; the score shrinks them toward the population
-     average, so a player with few games will show a career ACS that differs
-     from their score component. `
-    + `<b>Competitive only, and pooled.</b> Every figure here — ACS, K/D, the
+     average, so a player with few games will show a career damage figure that
+     differs from their score component. `
+    + `<b>Competitive only, and pooled.</b> Every figure here — damage, K/D, the
      last 20, headshot %, the map record — counts ranked games and nothing
      else; swiftplay, customs and the rotating queues are excluded in the
      query, not by luck. K/D is total kills over total deaths, the same way a
