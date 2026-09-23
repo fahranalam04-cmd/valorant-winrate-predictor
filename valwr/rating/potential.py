@@ -533,6 +533,9 @@ def _stats(c) -> dict:
         "losses": c.decided - c.wins,
         "kills": c.kills, "deaths": c.deaths, "assists": c.assists,
         "acs": round(c.acs, 1) if c.acs is not None else None,
+        # Damage per round, which took the place ACS held on the card when
+        # patch 13.06 removed ACS from the game's own scoreboard.
+        "adr": round(c.adr, 1) if c.adr is not None else None,
         "kd": round(c.kd, 2) if c.kd is not None else None,
         "headshot_rate": (round(c.headshot_rate, 4)
                           if c.headshot_rate is not None else None),

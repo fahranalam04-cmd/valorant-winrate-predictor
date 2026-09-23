@@ -817,6 +817,12 @@ def main(argv=None) -> int:
         _conn = _schema.connect(_cfg.load(require_key=False).database_path)
         freed = outcomes.unstick(_conn)
         _conn.commit()
+        # "Played best" changed meaning in 13.06. Re-judge what is already
+        # stored so the scorecard is not averaging two definitions.
+        moved = outcomes.rescore(_conn)
+        if moved:
+            print(f"  re-judged {moved} match(es) against the current "
+                  f"definition of the best game.")
         _conn.close()
         if freed:
             print(f"  {freed} earlier match(es) can be scored again; their "

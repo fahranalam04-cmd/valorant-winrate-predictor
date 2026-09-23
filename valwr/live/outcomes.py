@@ -120,15 +120,23 @@ def pending(conn: sqlite3.Connection, now: int | None = None) -> list[str]:
 
 def actual_best(conn: sqlite3.Connection, match_id: str,
                 team: str | None) -> str | None:
-    """Who actually had the highest combat score on that team."""
+    """Who actually played best on that team.
+
+    Measured by `rating.match_impact`, not by combat score. The game stopped
+    showing combat score in patch 13.06, and ranking by it disagreed with the
+    way this project has always measured the same question elsewhere.
+    """
     if not team:
         return None
-    row = conn.execute(
-        "SELECT puuid FROM match_players WHERE match_id = ? AND team = ? "
-        "AND rounds_played > 0 "
-        "ORDER BY CAST(score AS REAL) / rounds_played DESC LIMIT 1",
-        (match_id, team)).fetchone()
-    return row["puuid"] if row else None
+    from valwr.rating.rating import match_impact
+    best, best_value = None, None
+    for r in conn.execute(
+            "SELECT * FROM match_players WHERE match_id = ? AND team = ? "
+            "AND rounds_played > 0", (match_id, team)):
+        value = match_impact(dict(r))
+        if value is not None and (best_value is None or value > best_value):
+            best, best_value = r["puuid"], value
+    return best
 
 
 def top_pick(state: dict, team: str | None) -> str | None:
@@ -225,6 +233,35 @@ def match_ended(conn: sqlite3.Connection, client, region: str, match_id: str,
                  "WHERE match_id = ? AND settled_at IS NULL", (match_id,))
     conn.commit()
     return settle(conn, client, region, match_id, now)
+
+
+def rescore(conn: sqlite3.Connection) -> int:
+    """Re-judge every settled match against the current definition of "best".
+
+    `top_pick_hit` was recorded with whatever definition was live at the time,
+    and patch 13.06 changed it: combat score left the game, and "played best"
+    became match impact. Leaving the old values in place would put two
+    definitions in one column and let the scorecard average them together --
+    the sort of silent mismatch this project keeps finding.
+
+    Cheap and idempotent: it re-reads the stored state, so it can run at every
+    launch rather than being a migration somebody has to remember.
+    """
+    changed = 0
+    for row in conn.execute(
+            "SELECT match_id, own_team, state_json, top_pick_hit "
+            "FROM live_predictions WHERE settled_at IS NOT NULL"):
+        state = json.loads(row["state_json"])
+        picked = top_pick(state, row["own_team"])
+        best = actual_best(conn, row["match_id"], row["own_team"])
+        hit = None if not (picked and best) else int(picked == best)
+        if hit != row["top_pick_hit"]:
+            conn.execute("UPDATE live_predictions SET top_pick_hit = ? "
+                         "WHERE match_id = ?", (hit, row["match_id"]))
+            changed += 1
+    if changed:
+        conn.commit()
+    return changed
 
 
 def unstick(conn: sqlite3.Connection, now: int | None = None) -> int:

@@ -22,7 +22,7 @@ import json
 import math
 import sqlite3
 
-from valwr.rating import role_score
+from valwr.rating import rating, role_score
 
 # Buckets for the calibration table. Predictions cluster hard around the
 # middle, so the edges are wide and the centre is not.
@@ -39,6 +39,10 @@ WELL_ABOVE, ABOVE, BELOW, WELL_BELOW = 1.15, 1.05, 0.95, 0.85
 
 def against_usual(actual: float | None, career: float | None) -> str | None:
     """How a match compares with the player's own career average.
+
+    Measured on damage per round. It was combat score until patch 13.06 removed
+    that from the game; damage is what the card shows in its place, and the two
+    correlate 0.98, so the verdict this produces barely moves.
 
     The 0-100 score ranks players against each other. This asks a different and
     more answerable question -- did this player do what they usually do -- which
@@ -151,9 +155,9 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
 
     played = {
         r["puuid"]: r for r in conn.execute(
-            "SELECT puuid, team, agent, kills, deaths, assists, score, "
-            "rounds_played, headshots, bodyshots, legshots "
-            "FROM match_players WHERE match_id = ?", (match_id,))
+            # Every column: rating a match needs the round-derived ones
+            # (KAST, trades, entries) as well as the scoreboard line.
+            "SELECT * FROM match_players WHERE match_id = ?", (match_id,))
     }
 
     # Ranked the way the scoreboard was ordered, so "put #2 of the players the
@@ -165,15 +169,25 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
              if role_score.standing(p) is not None),
             key=role_score.standing, reverse=True))
     }
-    actual_acs = {}
+    # Where each player actually finished. By match impact, which is how the
+    # rest of the project measures "played best" -- combat score ranked this
+    # table until patch 13.06 removed it from the game, and it disagreed with
+    # the accuracy figures the scorecard reports.
+    actual_adr, actual_acs, impact = {}, {}, {}
     for puuid, r in played.items():
         rounds = r["rounds_played"] or 0
-        if rounds:
-            actual_acs[puuid] = (r["score"] or 0) / rounds
+        if not rounds:
+            continue
+        actual_adr[puuid] = (r["damage_dealt"] or 0) / rounds
+        # Still carried for matches recorded before 13.06, whose stored state
+        # has a career ACS to compare against and no career ADR.
+        actual_acs[puuid] = (r["score"] or 0) / rounds
+        got = rating.match_impact(dict(r))
+        if got is not None:
+            impact[puuid] = got
     actual_rank = {
         puuid: i + 1
-        for i, puuid in enumerate(sorted(actual_acs, key=actual_acs.get,
-                                         reverse=True))
+        for i, puuid in enumerate(sorted(impact, key=impact.get, reverse=True))
     }
 
     players = []
@@ -188,8 +202,18 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
         career = p.get("career") or {}
         recent = p.get("recent") or {}
         acs_now = actual_acs.get(p["puuid"])
+        adr_now = actual_adr.get(p["puuid"])
         kd_now = ((r["kills"] or 0) / r["deaths"]) if r and r["deaths"] else None
+        # Matches recorded before 13.06 stored a career ACS and no career ADR.
+        # The verdict is a ratio against the player's own average, so it holds
+        # on either -- but the two must never be mixed in one comparison.
+        usual = (against_usual(adr_now, career.get("adr"))
+                 if career.get("adr") else against_usual(acs_now, career.get("acs")))
         players.append({
+            "career_adr": career.get("adr"),
+            "adr_delta": (round(adr_now - career["adr"], 1)
+                          if adr_now is not None and career.get("adr") else None),
+            "adr": round(adr_now, 1) if adr_now is not None else None,
             "career_acs": career.get("acs"),
             "career_kd": career.get("kd"),
             "career_hs": career.get("headshot_rate"),
@@ -202,7 +226,7 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
             "hs_delta": (round(shots - career["headshot_rate"], 4)
                          if shots is not None and career.get("headshot_rate")
                          else None),
-            "versus_usual": against_usual(acs_now, career.get("acs")),
+            "versus_usual": usual,
             "puuid": p["puuid"], "name": p.get("name"), "team": p.get("team"),
             "agent": p.get("agent"), "is_you": p.get("is_you", False),
             "rank": p.get("rank"),

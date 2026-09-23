@@ -191,14 +191,26 @@ class Career:
     bodyshots: int
     legshots: int
     score: int
+    damage: int
     rounds: int
     wins: int
     decided: int          # matches with a winner; `games` includes draws/aborts
 
     @property
     def acs(self) -> float | None:
-        """Average combat score per round, the number the scoreboard shows."""
+        """Average combat score per round.
+
+        The scoreboard stopped showing this in patch 13.06, when ACS was
+        replaced by Performance Score. It is still delivered by the API and
+        still the most predictive column available, so it stays -- as an input,
+        not as something to print at a reader.
+        """
         return self.score / self.rounds if self.rounds else None
+
+    @property
+    def adr(self) -> float | None:
+        """Damage per round, which is what the card shows where ACS was."""
+        return self.damage / self.rounds if self.rounds else None
 
     @property
     def kd(self) -> float | None:
@@ -234,14 +246,14 @@ class Career:
                    deaths=total("deaths"), assists=total("assists"),
                    headshots=total("headshots"), bodyshots=total("bodyshots"),
                    legshots=total("legshots"), score=total("score"),
-                   rounds=total("rounds_played"),
+                   damage=total("damage_dealt"), rounds=total("rounds_played"),
                    wins=sum(1 for r in rows if r["won"]),
                    decided=sum(1 for r in rows if r["won"] is not None))
 
 
 def _totals(conn, puuid: str, as_of: int, last_n: int | None = None) -> Career:
     inner = ("SELECT kills, deaths, assists, headshots, bodyshots, legshots, "
-             "score, rounds_played, won FROM match_players mp "
+             "score, damage_dealt, rounds_played, won FROM match_players mp "
              "WHERE puuid = ? AND started_at < ?" + _ONLY_COMPETITIVE)
     args: list = [puuid, as_of, COMPETITIVE]
     if last_n is not None:
@@ -257,13 +269,15 @@ def _totals(conn, puuid: str, as_of: int, last_n: int | None = None) -> Career:
         "COALESCE(SUM(bodyshots), 0) bodyshots, "
         "COALESCE(SUM(legshots), 0) legshots, "
         "COALESCE(SUM(score), 0) score, "
+        "COALESCE(SUM(damage_dealt), 0) damage, "
         "COALESCE(SUM(rounds_played), 0) rounds, "
         "COALESCE(SUM(won), 0) wins, COUNT(won) decided "
         f"FROM ({inner})", args).fetchone()
     return Career(games=row["games"], kills=row["kills"], deaths=row["deaths"],
                   assists=row["assists"], headshots=row["headshots"],
                   bodyshots=row["bodyshots"], legshots=row["legshots"],
-                  score=row["score"], rounds=row["rounds"], wins=row["wins"],
+                  score=row["score"], damage=row["damage"],
+                  rounds=row["rounds"], wins=row["wins"],
                   decided=row["decided"])
 
 

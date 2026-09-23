@@ -567,3 +567,35 @@ def test_a_match_that_ended_but_is_not_published_keeps_its_place(conn):
     row = conn.execute("SELECT * FROM live_predictions").fetchone()
     assert row["attempts"] == 1, "the spent budget is given back, then one used"
     assert row["settled_at"] is None
+
+
+# --- what "played best" means, after 13.06 -----------------------------
+
+def test_the_best_game_is_match_impact_not_combat_score(conn):
+    """Patch 13.06 removed combat score from the game, and ranking by it also
+    disagreed with how the rest of the project measures the same question."""
+    outcomes.record(conn, state(), now=1000)
+    # b3 is given the highest combat score, b1 the better all-round match.
+    payload = finished(best="b3")
+    for p in payload["players"]:
+        if p["puuid"] == "b1":
+            p["stats"].update(kills=30, deaths=2, assists=10,
+                              damage={"dealt": 6000, "received": 1200})
+    _ingest(conn, payload)
+    best = outcomes.actual_best(conn, "m1", "Blue")
+    assert best == "b1", "the better match wins, not the bigger combat score"
+
+
+def test_rescoring_replaces_a_verdict_recorded_under_the_old_rule(conn):
+    """Stored rows were judged by combat score. Left alone, the scorecard
+    would average two different definitions of the same column."""
+    outcomes.record(conn, state(scores=(90, 70, 50, 30, 10)), now=1000)
+    outcomes.settle(conn, FakeAPI(finished(best="b3")), "na", "m1", now=2000)
+    conn.execute("UPDATE live_predictions SET top_pick_hit = 1")
+    conn.commit()
+
+    assert outcomes.rescore(conn) == 1
+    got = conn.execute("SELECT top_pick_hit FROM live_predictions").fetchone()[0]
+    assert got == 0, "the pick did not have the best match after all"
+    # Idempotent: a second pass changes nothing, so it can run every launch.
+    assert outcomes.rescore(conn) == 0

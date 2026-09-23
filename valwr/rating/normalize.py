@@ -97,6 +97,35 @@ class Norms:
         return (value - mean) / std
 
 
+_SHIPPED: Norms | None = None
+
+
+def shipped_norms() -> Norms | None:
+    """The norms the live model was trained with, loaded once.
+
+    Rating a finished match needs a population to compare it against, and
+    rebuilding one scans the whole table -- far too slow for a page request.
+    The trained bundle already carries the norms fitted on the training period,
+    which is also the right reference: scoring a match against norms that
+    include it would let the match move its own yardstick.
+
+    None when no model has been built yet, and every caller treats that as
+    "cannot rate this" rather than substituting something else.
+    """
+    global _SHIPPED
+    if _SHIPPED is None:
+        try:
+            import joblib
+
+            from valwr import config
+            s = config.load(require_key=False)
+            path = s.database_path.parent.parent / "models" / "model.joblib"
+            _SHIPPED = (joblib.load(path) or {}).get("norms")
+        except Exception:                            # noqa: BLE001
+            return None
+    return _SHIPPED
+
+
 def build_norms(conn: sqlite3.Connection, as_of: int) -> Norms:
     """Build population norms from matches strictly before `as_of`."""
     norms = Norms()

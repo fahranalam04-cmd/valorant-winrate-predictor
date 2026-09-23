@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from valwr.collect.frontier import band_of
 from valwr.rating import adjust as adjust_mod
 from valwr.rating.components import per_round_rates
-from valwr.rating.normalize import Norms
+from valwr.rating.normalize import Norms, shipped_norms
 
 # Weights on z-scored components. Rationale, since these are hand-set and an
 # interviewer will reasonably ask:
@@ -94,6 +94,23 @@ def rate_performance(row: dict, norms: Norms, gap: float | None = None) -> Ratin
     normalised = weighted / weight_used * sum(abs(w) for w in WEIGHTS.values())
     value = adjust_mod.adjust(BASELINE + SCALE * normalised, gap)
     return Rating(value=value, components=zs, coverage=len(zs), gap=gap)
+
+
+def match_impact(row: dict, norms: Norms | None = None) -> float | None:
+    """How well one player played in one finished match.
+
+    The single definition of "who played best", used by the post-match
+    comparison and by the pick that gets scored afterwards. It used to be
+    combat score in both places -- which patch 13.06 removed from the game, and
+    which disagreed with how `tools/validate_potential.py` had always measured
+    the same thing. One definition, so the end-of-game table and the accuracy
+    figures cannot tell different stories about the same match.
+
+    None when there is no model to borrow norms from, or when the row carries
+    no rounds; callers leave the player unranked rather than guessing.
+    """
+    got = rate_performance(row, norms or shipped_norms() or Norms())
+    return got.value if got is not None else None
 
 
 def rate_player_history(conn: sqlite3.Connection, puuid: str, as_of: int,
