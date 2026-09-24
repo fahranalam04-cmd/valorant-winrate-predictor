@@ -76,7 +76,7 @@ def open_context(no_fetch: bool = False,
 
     settings = config.load(require_key=False)
     conn = schema.connect(settings.database_path)
-    model_path = settings.database_path.parent.parent / "models" / "model.joblib"
+    model_path = settings.models_path / "model.joblib"
     if not model_path.exists():
         raise NotReady(f"no model at {model_path}; run python -m valwr.model.train")
 

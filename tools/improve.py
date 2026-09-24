@@ -47,7 +47,7 @@ OUT = ROOT / "reports" / "live_review.json"
 
 def bundle_path():
     s = config.load(require_key=False)
-    return Path(s.database_path).parent.parent / "models" / "model.joblib"
+    return s.models_path / "model.joblib"
 
 
 def load_bundle():

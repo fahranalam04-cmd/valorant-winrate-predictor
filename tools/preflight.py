@@ -52,7 +52,7 @@ def check_all() -> tuple[list[str], list[str], bool]:
         problems.append(f"No database at {s.database_path}. Run the crawler "
                         f"first:  crawl.bat")
 
-    model = s.database_path.parent.parent / "models" / "model.joblib"
+    model = s.models_path / "model.joblib"
     if model.exists():
         import joblib
         b = joblib.load(model)

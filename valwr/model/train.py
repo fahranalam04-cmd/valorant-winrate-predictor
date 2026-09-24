@@ -381,7 +381,7 @@ def main(argv=None) -> int:
     import joblib
     from valwr.store import reference
 
-    models = Path(s.database_path).parent.parent / "models"
+    models = s.models_path
     models.mkdir(exist_ok=True)
 
     print(f"\n  log-loss standard error {se:.4f}; "

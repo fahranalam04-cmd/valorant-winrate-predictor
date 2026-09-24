@@ -119,7 +119,7 @@ def shipped_norms() -> Norms | None:
 
             from valwr import config
             s = config.load(require_key=False)
-            path = s.database_path.parent.parent / "models" / "model.joblib"
+            path = s.models_path / "model.joblib"
             _SHIPPED = (joblib.load(path) or {}).get("norms")
         except Exception:                            # noqa: BLE001
             return None

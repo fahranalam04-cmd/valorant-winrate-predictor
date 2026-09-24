@@ -24,6 +24,7 @@ from __future__ import annotations
 import sqlite3
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from valwr.features import context as ctx
 from valwr.features import player as pf
@@ -198,7 +199,11 @@ def main(argv=None) -> int:
         help=("Unix timestamp at the train/validation boundary; population "
               "statistics are fitted only on earlier rows"),
     )
-    ap.add_argument("--out", default="data/features.parquet")
+    ap.add_argument(
+        "--out",
+        default=None,
+        help="where to write the matrix (default: beside the database)",
+    )
     args = ap.parse_args(argv)
 
     s = config.load(require_key=False)
@@ -214,7 +219,9 @@ def main(argv=None) -> int:
         return 1
 
     df = to_frame(rows)
-    out = s.database_path.parent / "features.parquet"
+    # --out was accepted and then ignored here, so anyone passing it got the
+    # default location and no warning.
+    out = Path(args.out) if args.out else s.database_path.parent / "features.parquet"
     df.to_parquet(out, index=False)
     print(f"\nwrote {out}  {df.shape[0]:,} rows x {df.shape[1]} cols")
     print(f"target balance: {df['target'].mean():.3f}  (0.5 = balanced)")

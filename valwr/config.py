@@ -36,6 +36,7 @@ class Settings:
     riot_name: str
     riot_tag: str
     database_path: Path
+    models_path: Path
 
     @property
     def requests_per_minute(self) -> int:
@@ -98,6 +99,14 @@ def load(require_key: bool = True) -> Settings:
     if not db_path.is_absolute():
         db_path = REPO_ROOT / db_path
 
+    # Trained models used to be found by walking two directories up from the
+    # database, which silently assumed it sat in <repo>/data. Moving the
+    # database to another drive sent every lookup to <drive>/<dir>/models and
+    # reported the model as missing rather than misplaced.
+    models_dir = Path(os.getenv("MODELS_PATH", "models"))
+    if not models_dir.is_absolute():
+        models_dir = REPO_ROOT / models_dir
+
     return Settings(
         henrik_api_key=api_key,
         henrik_tier=tier,
@@ -106,4 +115,5 @@ def load(require_key: bool = True) -> Settings:
         riot_name=os.getenv("RIOT_NAME", "").strip(),
         riot_tag=os.getenv("RIOT_TAG", "").strip().lstrip("#"),
         database_path=db_path,
+        models_path=models_dir,
     )

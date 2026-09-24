@@ -262,8 +262,11 @@ def test_analyze_reads_the_same_bundle_train_writes():
     written = (root / "valwr" / "model" / "train.py").read_text(encoding="utf-8")
     read = (root / "valwr" / "model" / "analyze.py").read_text(encoding="utf-8")
 
-    w = set(re.findall(r'models / "([^"]+\.joblib)"', written))
-    r = set(re.findall(r'"models" / "([^"]+\.joblib)"', read))
+    # Match the filename however the directory is spelled. Pinning the exact
+    # path expression made this fail when the models directory stopped being
+    # derived from the database path -- a rename the test has no opinion on.
+    w = set(re.findall(r'/ "([^"]+\.joblib)"', written))
+    r = set(re.findall(r'/ "([^"]+\.joblib)"', read))
     assert w and r, f"could not locate bundle names (write={w} read={r})"
     assert w == r, f"train writes {w} but analyze reads {r}"
 

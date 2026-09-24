@@ -126,7 +126,7 @@ def main(argv=None) -> int:
 
     s = config.load(require_key=False)
     conn = schema.connect(s.database_path)
-    bundle_path = Path(s.database_path).parent.parent / "models" / "model.joblib"
+    bundle_path = s.models_path / "model.joblib"
     if not bundle_path.exists():
         print(f"no model at {bundle_path}; run python -m valwr.model.train first")
         return 1

@@ -39,11 +39,24 @@ HUNG_SECONDS = 1200
 REPO = Path(__file__).resolve().parent.parent.parent
 
 
+def log_path() -> Path:
+    """The same crawl.log the supervisor writes, wherever the database lives.
+
+    This hardcoded REPO/"data" once, so moving the database to another drive
+    split the log in two: the supervisor wrote beside the database and the
+    watchdog kept writing into the repo, where nobody thought to look.
+    """
+    try:
+        return config.load(require_key=False).database_path.parent / "crawl.log"
+    except Exception:
+        return REPO / "data" / "crawl.log"      # unconfigured; log somewhere
+
+
 def log(msg: str) -> None:
     line = f"{datetime.now():%Y-%m-%d %H:%M:%S}  [watchdog] {msg}"
     print(line, flush=True)
     try:
-        with open(REPO / "data" / "crawl.log", "a", encoding="utf-8") as fh:
+        with open(log_path(), "a", encoding="utf-8") as fh:
             fh.write(line + "\n")
     except OSError:
         pass

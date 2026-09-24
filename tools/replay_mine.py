@@ -111,7 +111,7 @@ def main(argv=None) -> int:
         gained = refresh(conn, s, puuid)
         print(f"refreshed your account: {gained:+d} new player-rows\n")
 
-    bundle = joblib.load(s.database_path.parent.parent / "models" / "model.joblib")
+    bundle = joblib.load(s.models_path / "model.joblib")
     norms = build_norms(conn, bundle["norms_as_of"])
     index = P.PerfIndex.load()
 

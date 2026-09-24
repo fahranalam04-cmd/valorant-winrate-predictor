@@ -372,7 +372,7 @@ def _replay_payload(match_id: str) -> dict:
 
     s = config.load(require_key=False)
     conn = schema.connect(s.database_path)
-    bundle = joblib.load(s.database_path.parent.parent / "models" / "model.joblib")
+    bundle = joblib.load(s.models_path / "model.joblib")
     try:
         index = pot.PerfIndex.load()
     except FileNotFoundError:

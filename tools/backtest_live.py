@@ -89,8 +89,7 @@ def main(argv=None) -> int:
     s = config.load(require_key=False)
     conn = schema.connect(s.database_path)
     b = split.compute(conn)
-    bundle = joblib.load(s.database_path.parent.parent / "models" /
-                         "model.joblib")
+    bundle = joblib.load(s.models_path / "model.joblib")
     print(f"model: {bundle['best']}, {len(bundle['columns'])} features")
 
     lo, hi = ((b.train_end, b.val_end) if args.period == "val"
