@@ -12,9 +12,11 @@ why a row is suspect and Phase 4 can decide what to exclude.
 
 from __future__ import annotations
 
+import shutil
 import sqlite3
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Iterator
 
 from valwr.rating import components
@@ -240,8 +242,43 @@ def ingest(conn: sqlite3.Connection, payload: dict) -> dict[str, int]:
     return stats
 
 
+class OutOfSpace(RuntimeError):
+    """Stopped before the disk filled. Everything parsed so far is committed."""
+
+
+def _free_bytes(conn: sqlite3.Connection) -> int:
+    """Free space on whichever drive the database actually lives on."""
+    row = conn.execute("PRAGMA database_list").fetchone()
+    path = Path(row[2]) if row and row[2] else Path.cwd()
+    return shutil.disk_usage(path.parent).free
+
+
+def checkpoint(conn: sqlite3.Connection) -> None:
+    """Fold the write-ahead log back into the database.
+
+    SQLite cannot do this while a reader holds a snapshot open, so during a
+    long re-parse the log grows without bound -- 14.9 GB here, which filled a
+    476 GB disk and killed the run three times with errors that pointed
+    everywhere except the cause. Checkpointing as it goes keeps it flat.
+    """
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except sqlite3.OperationalError:
+        pass            # a reader holds a snapshot; the next pass will get it
+
+
+# Stop while there is still room to recover. Below this the checkpoint itself
+# cannot run, which is what turns a full disk into a puzzle.
+FREE_SPACE_FLOOR = 4 * 1024 ** 3
+
+# How often to fold the log back in, counted in committed batches.
+CHECKPOINT_EVERY = 10
+
+
 def normalize_all(conn: sqlite3.Connection, verbose: bool = True) -> dict[str, int]:
     stats = {"matches": 0, "players": 0, "flagged": 0, "errors": 0}
+    checkpoint(conn)
+    batches = 0
     for m in iter_matches(conn):
         try:
             match_row, player_rows, flags = parse_match(m)
@@ -258,6 +295,19 @@ def normalize_all(conn: sqlite3.Connection, verbose: bool = True) -> dict[str, i
             stats["flagged"] += 1
         if stats["matches"] % COMMIT_EVERY == 0:
             conn.commit()          # release the write lock; let the crawler in
+            batches += 1
+            if batches % CHECKPOINT_EVERY == 0:
+                checkpoint(conn)
+                free = _free_bytes(conn)
+                if free < FREE_SPACE_FLOOR:
+                    conn.commit()
+                    raise OutOfSpace(
+                        f"stopping at {stats['matches']:,} matches: "
+                        f"{free / 1024 ** 3:.1f} GB free, below the "
+                        f"{FREE_SPACE_FLOOR / 1024 ** 3:.0f} GB floor. "
+                        f"Everything parsed so far is committed. Free some "
+                        f"space and re-run: it starts over, and re-parsing "
+                        f"overwrites rows rather than duplicating them.")
         if verbose and stats["matches"] % 500 == 0:
             print(f"  normalised {stats['matches']} matches")
     conn.commit()

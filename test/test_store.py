@@ -287,3 +287,44 @@ def test_migrate_is_idempotent(conn):
     assert schema.migrate(conn) == []
     schema.create_all(conn)
     assert schema.migrate(conn) == []
+
+
+def _store_raw(conn, *matches):
+    """Put matches where the re-parse reads them from: stored API responses."""
+    import json as _json
+
+    from valwr.store import raw
+    for m in matches:
+        raw.record(conn, "/valorant/v4/by-puuid/matches/na/pc/x", {}, 200,
+                   _json.dumps({"data": [m]}))
+
+
+# --- not filling the disk again -----------------------------------------
+
+def test_the_reparse_stops_before_the_disk_fills(conn, monkeypatch):
+    """A long re-parse grew the write-ahead log to 14.9 GB and filled a 476 GB
+    disk, because SQLite cannot fold the log back in while a reader holds a
+    snapshot. Stopping with room to spare keeps the failure recoverable: below
+    a few GB the checkpoint itself cannot run."""
+    from valwr.store import normalize as N
+
+    _store_raw(conn, make_match("m1"), make_match("m2"))
+    monkeypatch.setattr(N, "_free_bytes", lambda conn_: 1 * 1024 ** 3)
+    monkeypatch.setattr(N, "COMMIT_EVERY", 1)
+    monkeypatch.setattr(N, "CHECKPOINT_EVERY", 1)
+
+    with pytest.raises(N.OutOfSpace) as caught:
+        N.normalize_all(conn, verbose=False)
+    assert "GB free" in str(caught.value)
+    assert "re-run" in str(caught.value), "it has to say what to do next"
+
+
+def test_the_reparse_runs_when_there_is_room(conn, monkeypatch):
+    from valwr.store import normalize as N
+
+    _store_raw(conn, make_match("m1"))
+    monkeypatch.setattr(N, "_free_bytes", lambda conn_: 400 * 1024 ** 3)
+    monkeypatch.setattr(N, "COMMIT_EVERY", 1)
+    monkeypatch.setattr(N, "CHECKPOINT_EVERY", 1)
+    stats = N.normalize_all(conn, verbose=False)
+    assert stats["matches"] >= 1 and stats["errors"] == 0
