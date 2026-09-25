@@ -318,7 +318,7 @@ corrections above. Nothing reads the process command line.
 
 ### Match detection — polled
 
-**As built, the client is polled every five seconds** (`valwr/live/roster.py`):
+**As built, the client is polled every three seconds** (`valwr/live/roster.py`):
 
 ```
 GET  {glz}/core-game/v1/players/{puuid}        # CoreGame_FetchPlayer -> match id
@@ -339,7 +339,7 @@ is visible.
 The client can also push these events over its local websocket
 (`OnJsonApiEvent_riot-messaging-service_v1_message`, URI prefixes
 `ares-pregame/pregame/v1/matches/` and `ares-core-game/core-game/v1/matches/`).
-It is not used: at a five-second cadence polling is just as timely, and it
+It is not used: at a three-second cadence polling is just as timely, and it
 survives the client restarting without reconnect logic.
 
 ### The rate-limit squeeze at match start

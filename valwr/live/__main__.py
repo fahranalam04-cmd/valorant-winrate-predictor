@@ -18,7 +18,7 @@ import time
 from valwr.live import lockfile, render
 from valwr.live import state as st
 
-POLL_SECONDS = 5.0
+POLL_SECONDS = 3.0             # the dashboard's cadence; see dash/server.py
 
 
 def main(argv=None) -> int:

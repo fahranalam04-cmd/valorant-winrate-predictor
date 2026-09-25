@@ -2,7 +2,7 @@
 
 A page on your own PC that shows the match you have just loaded into: both
 teams' odds, all ten players, and what is known about each of them. It updates
-by itself every five seconds, from agent select through the match.
+by itself every three seconds, from agent select through the match.
 
 ![The dashboard with one player's card open](images/dashboard.jpg)
 

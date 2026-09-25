@@ -58,7 +58,12 @@ from valwr.live import state as st
 
 HOST = "127.0.0.1"          # never 0.0.0.0 -- see the module docstring
 PORT = 8787
-POLL_SECONDS = 5.0
+# How often Riot's servers are asked whether you are in a match. Agent select
+# allows about a minute to lock in, and at five seconds an average 2.5 of it
+# went by before the page noticed; at three it is 1.5. Not lower: every poll
+# is a request made with your session, and docs/ETHICS-AND-TOS.md allows
+# polling "every few seconds". live/__main__.py keeps the same cadence.
+POLL_SECONDS = 3.0
 
 STATIC = Path(__file__).resolve().parent / "static"
 AGENTS = STATIC / "agents"

@@ -1564,3 +1564,15 @@ def test_the_live_dashboard_still_remembers_its_port(tmp_path, monkeypatch):
     assert S.main(["--port", "8790", "--no-browser", "--no-tabs"]) == 0
     assert path.read_text(encoding="utf-8") == "8790"
 
+
+def test_the_poll_is_quick_enough_for_agent_select_and_no_quicker():
+    """Agent select allows about a minute to lock in; at five seconds an
+    average 2.5 of it passed before the page noticed. Every poll is a request
+    to Riot's servers made with the player's session, and the project's own
+    rules allow polling "every few seconds" -- so there is a floor as well as a
+    ceiling. The terminal view answers the same question and keeps the same
+    cadence, which is what the docs promise."""
+    from valwr.dash import server as DS
+    from valwr.live import __main__ as LV
+    assert 2.0 <= DS.POLL_SECONDS <= 3.0
+    assert LV.POLL_SECONDS == DS.POLL_SECONDS
