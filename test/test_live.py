@@ -1506,3 +1506,61 @@ def test_a_new_match_is_looked_up_afresh(tmp_path, monkeypatch):
     st.poll_once(ctx)
     assert ("me", 0) in client.calls[before:]
 
+
+@pytest.mark.parametrize("flags", [["--demo", "pregame"], ["--demo"],
+                                   ["--match", "m1"]])
+def test_a_demo_or_replay_does_not_move_the_live_dashboard(tmp_path,
+                                                            monkeypatch, flags):
+    """A demo on a side port recorded that port as the dashboard's, so the
+    next dashboard.bat quietly moved to it -- and every match tab left open
+    from the live one pointed at nothing. Only the live view opens those
+    tabs, so only it may say where the dashboard lives."""
+    import uvicorn
+
+    from valwr import config
+    from valwr.dash import server as S
+    path = tmp_path / "dashboard-port"
+    path.write_text("8787", encoding="utf-8")
+    monkeypatch.setattr(S, "port_file", lambda: path)
+    monkeypatch.setattr(S, "port_free", lambda host, port: True)
+
+    def no_database(**kw):
+        raise RuntimeError("tests must not open the real database")
+    monkeypatch.setattr(config, "load", no_database)
+
+    class _Server:
+        def __init__(self, cfg):
+            self.started = True
+
+        def run(self):
+            pass
+    monkeypatch.setattr(uvicorn, "Server", _Server)
+
+    assert S.main([*flags, "--port", "8788", "--no-browser"]) == 0
+    assert path.read_text(encoding="utf-8") == "8787"
+
+
+def test_the_live_dashboard_still_remembers_its_port(tmp_path, monkeypatch):
+    import uvicorn
+
+    from valwr import config
+    from valwr.dash import server as S
+    path = tmp_path / "dashboard-port"
+    monkeypatch.setattr(S, "port_file", lambda: path)
+    monkeypatch.setattr(S, "port_free", lambda host, port: True)
+
+    def no_database(**kw):
+        raise RuntimeError("tests must not open the real database")
+    monkeypatch.setattr(config, "load", no_database)
+
+    class _Server:
+        def __init__(self, cfg):
+            self.started = True
+
+        def run(self):
+            pass
+    monkeypatch.setattr(uvicorn, "Server", _Server)
+
+    assert S.main(["--port", "8790", "--no-browser", "--no-tabs"]) == 0
+    assert path.read_text(encoding="utf-8") == "8790"
+

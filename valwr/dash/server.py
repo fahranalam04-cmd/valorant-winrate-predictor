@@ -839,8 +839,12 @@ def main(argv=None) -> int:
     print("  Keep this window open. Ctrl+C to stop.\n")
 
     # Remembered once the port is settled, so the next run lands here and the
-    # tabs this run is about to open keep working.
-    remember_port(args.port)
+    # tabs this run is about to open keep working. Only the live view opens
+    # those tabs. A demo or replay on a side port used to record its port too,
+    # so the next dashboard.bat quietly moved there and every match tab left
+    # open from the live one pointed at nothing.
+    if not (args.demo or args.match):
+        remember_port(args.port)
 
     # Predictions left stranded by the old settle schedule, which spent every
     # retry while the match was still being played. They are still settleable.
