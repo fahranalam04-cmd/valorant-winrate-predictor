@@ -23,6 +23,7 @@ No real player appears in them.
 | `phone.bat` | The same, readable from a phone on your wifi. Prints the address to open. |
 | `live.bat` | The same information in the terminal instead of a browser. |
 | `python -m valwr.dash --demo` | The invented match, to see the page without playing. |
+| `python -m valwr.dash --demo pregame` | The same, in agent select: your team as cards, one player still being looked up. |
 | `python -m valwr.dash --match <id>` | A finished match, rebuilt from only what was knowable at its loading screen. |
 
 `dashboard.bat` runs a preflight check first and says in plain language if
@@ -102,6 +103,29 @@ The few features pushing the odds hardest, with a bar for how hard and a label
 for which way — **toward you** or **toward them**. For the linear model this is
 exact: each bar is that feature's weight times how far apart the teams are on
 it, and together they make up the prediction.
+
+### Agent select
+
+About a minute to lock in, and Riot has not shown you the enemy yet, so the
+page gives the whole screen to your own team: one card per player, with
+everything showing at once rather than behind a click.
+
+- **The 0–100 rating**, the same score as in the match
+- **Last 20** competitive games, per game: K/D/A, then K/D, headshot %,
+  damage per round and win rate. The label says how many games it really
+  covers when fewer than twenty are stored.
+- **On this map**: the agents they have played here most, with their record
+- **Last comp**: result and round score, map, agent, K/D/A, headshot %, and
+  how long ago
+
+Players already in the database appear the moment agent select is detected --
+about 30 ms for a whole team, measured. Anyone who is not stored shows
+*Looking up their last 20* until their lookup lands, and each card fills in
+as it does; teammates are looked up before your own account. A player whose
+lookup has finished with nothing to find says *No competitive history*,
+which is a different thing and is never shown early.
+
+Clicking a card still opens the full breakdown in the side panel.
 
 ### The two teams
 

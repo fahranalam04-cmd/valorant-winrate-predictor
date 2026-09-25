@@ -156,7 +156,9 @@ def _agent_ids(conn=None) -> dict[str, str]:
         return {}
 
 
-def demo_state(conn=None) -> dict:
+def demo_state(conn=None, phase: str = "coregame") -> dict:
+    """The invented match. `phase="pregame"` is agent select: your team only,
+    two players still picking, and one still being looked up."""
     ids = _agent_ids(conn)
     players = []
     for i, (agent, (name, tag), prof) in enumerate(
@@ -214,15 +216,21 @@ def demo_state(conn=None) -> dict:
                 "form": [
                     {"map": MAP, "agent": agent, "acs": round(acs * 1.15, 1),
                      "adr": round(acs * 1.15 * 0.662, 1),
-                     "kills": 21, "deaths": 14, "won": True,
+                     "kills": 21, "deaths": 14, "assists": 3,
+                     "headshot_rate": 0.27, "rounds_won": 13,
+                     "rounds_lost": 9, "won": True,
                      "ago": "2 hours ago"},
                     {"map": "Lotus", "agent": "Omen", "acs": round(acs * 0.82, 1),
                      "adr": round(acs * 0.82 * 0.662, 1),
-                     "kills": 12, "deaths": 18, "won": False,
+                     "kills": 12, "deaths": 18, "assists": 9,
+                     "headshot_rate": 0.18, "rounds_won": 8,
+                     "rounds_lost": 13, "won": False,
                      "ago": "yesterday"},
                     {"map": "Split", "agent": agent, "acs": round(acs * 1.02, 1),
                      "adr": round(acs * 1.02 * 0.662, 1),
-                     "kills": 17, "deaths": 16, "won": True, "ago": "2 days ago"},
+                     "kills": 17, "deaths": 16, "assists": 5,
+                     "headshot_rate": 0.24, "rounds_won": 13,
+                     "rounds_lost": 11, "won": True, "ago": "2 days ago"},
                 ],
                 "freshness": {"games_known": games, "seconds_old": 7200,
                               "label": "last match 2 hours ago", "stale": False},
@@ -236,6 +244,9 @@ def demo_state(conn=None) -> dict:
     players.sort(key=lambda r: (standing(r) is not None, standing(r) or 0),
                  reverse=True)
 
+    if phase == "pregame":
+        return _pregame(players)
+
     return {
         "match_id": "demo", "phase": "coregame", "is_custom": False,
         "standard_mode": True, "map": MAP, "mode": "BombGameMode",
@@ -246,8 +257,40 @@ def demo_state(conn=None) -> dict:
         "warnings": ["Demo data. These players are invented and no database, "
                      "game client or network was touched to build this."],
         "players": players,
+        "lookup": {"pending": [], "remaining": 0},
         "prediction": {"own_probability": 0.5731, "win_probability": 0.5731,
                        "factors": [{"name": "d_rank", "value": 0.182},
                                    {"name": "d_acs", "value": -0.061},
                                    {"name": "d_kd", "value": 0.044}]},
+    }
+
+
+def _pregame(players: list[dict]) -> dict:
+    """Agent select, in the shape poll_once returns there.
+
+    Riot describes only your own team before the match starts, so the enemy
+    side is absent rather than unknown. Two players have not picked yet, and
+    the one with no stored history is still being looked up -- the state the
+    page spends its first seconds in, and the one easiest to render wrongly.
+    """
+    ours = [dict(p) for p in players if p["team"] == "Blue"]
+    for p in ours:
+        if p["puuid"] in ("demo-03", "demo-04"):
+            p.update(agent=None, agent_id=None, role=None)
+    pending = [p["puuid"] for p in ours if p["score"] is None]
+    return {
+        "match_id": "demo-pregame", "phase": "pregame", "is_custom": False,
+        "standard_mode": True, "map": MAP, "mode": "BombGameMode",
+        "as_of": 0, "own_team": "Blue", "enemy_team": "Red",
+        "team_sizes": {"Blue": len(ours), "Red": 0},
+        "coverage": sum(p["score"] is not None for p in ours),
+        "confidence": "low", "fetched": 0, "model": "logistic regression",
+        "parties": [g for g in PARTIES if g["team"] == "Blue"],
+        "warnings": ["Demo data. These players are invented and no database, "
+                     "game client or network was touched to build this.",
+                     "Enemy team is hidden during agent select. It fills in "
+                     "once the match starts."],
+        "players": ours,
+        "lookup": {"pending": pending, "remaining": 2 * len(pending)},
+        "prediction": None,
     }

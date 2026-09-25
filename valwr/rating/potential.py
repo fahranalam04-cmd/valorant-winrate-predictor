@@ -543,6 +543,17 @@ def _stats(c) -> dict:
     }
 
 
+def _round_scores(conn: sqlite3.Connection,
+                  match_ids: list[str]) -> dict[str, tuple[int, int]]:
+    """match_id -> (rounds Red won, rounds Blue won), in one query."""
+    if not match_ids:
+        return {}
+    q = ",".join("?" * len(match_ids))
+    return {r[0]: (r[1], r[2]) for r in conn.execute(
+        f"SELECT match_id, rounds_red, rounds_blue FROM matches "
+        f"WHERE match_id IN ({q})", match_ids)}
+
+
 def detail(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
            norms: Norms, index: PerfIndex, form_games: int = 5) -> dict | None:
     """Everything behind one player's score, as plain data.
@@ -613,16 +624,27 @@ def detail(conn: sqlite3.Connection, puuid: str, as_of: int, map_name: str,
 
     # --- recent form ---------------------------------------------------
     history = temporal.player_history(conn, puuid, as_of, limit=form_games)
+    rounds = _round_scores(conn, [dict(r)["match_id"] for r in history])
     form = []
     for r in history:
         d = dict(r)
         rp = d.get("rounds_played") or 0
+        shots = sum(d.get(k) or 0 for k in ("headshots", "bodyshots", "legshots"))
+        red, blue = rounds.get(d["match_id"], (None, None))
+        ours, theirs = (red, blue) if d.get("team") == "Red" else (blue, red)
         form.append({
             "map": d.get("map"),
             "agent": d.get("agent"),
             "acs": round(d["score"] / rp, 1) if rp else None,
             "adr": round((d.get("damage_dealt") or 0) / rp, 1) if rp else None,
             "kills": d.get("kills"), "deaths": d.get("deaths"),
+            # The agent-select card prints a whole last game on one line --
+            # 21/14/3, 27% headshots, won 13-9 -- so it needs the parts a
+            # K/D alone leaves out.
+            "assists": d.get("assists"),
+            "headshot_rate": (round((d.get("headshots") or 0) / shots, 4)
+                              if shots else None),
+            "rounds_won": ours, "rounds_lost": theirs,
             "won": bool(d["won"]) if d.get("won") is not None else None,
             "ago": _ago(as_of - (d.get("started_at") or as_of)),
         })

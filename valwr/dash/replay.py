@@ -102,6 +102,7 @@ def replay_state(conn, match_id: str, bundle: dict, index, own_puuid: str,
                        "Red": match.team_size("Red")},
         "coverage": resolution.coverage, "confidence": resolution.confidence,
         "fetched": 0, "model": bundle.get("best", "?"),
+        "lookup": {"pending": [], "remaining": 0},
         "warnings": [],
         # Exact, not inferred: a finished match records who queued with whom.
         "parties": ST.parties(conn, match, as_of,

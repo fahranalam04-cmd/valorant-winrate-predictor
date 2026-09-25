@@ -28,6 +28,7 @@ DOCUMENTED_KEYS = {
     "match_id", "phase", "is_custom", "standard_mode", "map", "mode", "as_of",
     "own_team", "enemy_team", "team_sizes", "coverage", "confidence",
     "fetched", "model", "warnings", "parties", "players", "prediction",
+    "lookup",
 }
 
 CARD_KEYS = {"puuid", "name", "known_name", "agent", "role", "team", "is_you",

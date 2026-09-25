@@ -566,7 +566,7 @@ def test_the_context_and_the_poll_share_one_thread(monkeypatch):
         seen["opened"] = threading.get_ident()
         return _Ctx()
 
-    def fake_poll(ctx):
+    def fake_poll(ctx, on_progress=None):
         seen["polled"] = threading.get_ident()
         return None
 
@@ -832,7 +832,7 @@ def test_the_dashboard_reopens_its_context_instead_of_staying_stuck(monkeypatch)
 
     polls = []
 
-    def poll_once(ctx):
+    def poll_once(ctx, on_progress=None):
         polls.append(1)
         if len(polls) == 1:
             raise DS.st.NotReady("lost the game client -- no lockfile.")
@@ -1119,7 +1119,7 @@ def test_each_new_match_opens_its_own_tab_once(tmp_path, monkeypatch):
         def close(self):
             pass
 
-    def poll(ctx):
+    def poll(ctx, on_progress=None):
         seen.append(1)
         return {"match_id": "m1" if len(seen) < 3 else "m2", "players": [],
                 "warnings": [], "prediction": None}
@@ -1327,3 +1327,182 @@ def test_building_an_app_does_not_reach_the_real_database(monkeypatch):
     with TestClient(DS.build_app(no_fetch=True)):
         _time.sleep(0.15)
     assert calls == [], "an app built for a test collected results"
+
+
+# --- agent select ------------------------------------------------------
+# Agent select allows about a minute to lock in, and the API allows roughly
+# one lookup every two and a half seconds. What the screen shows inside that
+# minute is decided by what gets fetched first and what never gets repeated.
+
+class _Recorder:
+    def __init__(self, fail=None):
+        self.calls, self.fail = [], fail
+
+    def matches(self, region, platform, puuid, size, mode, start=0):
+        self.calls.append((puuid, start))
+        if self.fail:
+            raise self.fail
+        return {"data": []}
+
+
+def _pregame(*teammates):
+    return LiveMatch("live", "pregame", "Ascent", "BombGameMode",
+                     [LivePlayer("me", "Blue", "x", None)]
+                     + [LivePlayer(t, "Blue", "x", None) for t in teammates])
+
+
+def test_agent_select_looks_up_teammates_before_you(tmp_path):
+    """You know how you play. The four strangers are what the screen is for."""
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [("m0", "me", now - 300)])
+    client = _Recorder()
+    R.resolve(conn, _pregame("t1", "t2"), "me", now, client=client,
+              deadline_seconds=30, teammates_first=True)
+    first_own = client.calls.index(("me", 0))
+    assert {("t1", 0), ("t2", 0)} <= set(client.calls[:first_own]), (
+        f"teammates must come first in agent select: {client.calls}")
+    assert ("me", 0) in client.calls, "your own refresh still happens, last"
+
+
+def test_outside_agent_select_your_own_account_still_comes_first(tmp_path):
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [("m0", "me", now - 300)])
+    client = _Recorder()
+    R.resolve(conn, _pregame("t1"), "me", now, client=client,
+              deadline_seconds=30)
+    assert client.calls[0] == ("me", 0)
+
+
+def test_a_lookup_that_answered_is_not_repeated_in_the_same_match(tmp_path):
+    """The dashboard polls every few seconds. Anyone short of twenty stored
+    games -- or with no competitive history at all -- was re-fetched on every
+    one of those polls, spending the quota agent select needs on answers the
+    last poll already had."""
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [("m0", "me", now - 300)])
+    first = _Recorder()
+    out = R.resolve(conn, _pregame("t1"), "me", now, client=first,
+                    deadline_seconds=30, teammates_first=True)
+    assert out.completed == set(first.calls) and first.calls
+
+    second = _Recorder()
+    R.resolve(conn, _pregame("t1"), "me", now, client=second,
+              deadline_seconds=30, teammates_first=True,
+              already=out.completed)
+    assert second.calls == [], f"repeated lookups: {second.calls}"
+
+
+def test_the_first_report_comes_before_any_lookup(tmp_path):
+    """The first paint: everyone already stored is shown immediately, with
+    the players still to come named, rather than after the slowest lookup."""
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [(f"m{i}", "known", now - 600 - i)
+                               for i in range(8)])
+    client = _Recorder()
+    seen = []
+
+    def progress(res):
+        seen.append((len(client.calls), set(res.known), set(res.pending)))
+
+    R.resolve(conn, _pregame("known", "stranger"), "me", now, client=client,
+              deadline_seconds=30, teammates_first=True, on_progress=progress)
+    calls_then, known, pending = seen[0]
+    assert calls_then == 0, "the first report must not wait on the API"
+    assert "known" in known
+    assert "stranger" in pending, "the page must be told who is still coming"
+
+
+def test_a_lookup_cut_off_by_the_deadline_stays_pending(tmp_path):
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [])
+    out = R.resolve(conn, _pregame("t1", "t2"), "me", now, client=_Recorder(),
+                    deadline_seconds=0, teammates_first=True)
+    assert {"t1", "t2", "me"} <= out.pending
+    assert not out.completed
+
+
+def test_running_out_of_quota_leaves_the_lookup_for_the_next_poll(tmp_path):
+    """Rate limiting is temporary. Marking the lookup done would stop the next
+    poll from retrying it, and the player would stay blank all match."""
+    from valwr.collect.client import RateLimited
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [])
+    out = R.resolve(conn, _pregame("t1"), "me", now,
+                    client=_Recorder(fail=RateLimited(60.0)),
+                    deadline_seconds=30, teammates_first=True)
+    assert ("t1", 0) not in out.completed
+    assert "t1" in out.pending
+
+
+def _agent_select_ctx(tmp_path, monkeypatch, match):
+    """A live context around a real store and a recording client, with the
+    scoring stubbed out -- these tests are about when states are sent."""
+    import types
+
+    from valwr.live import predict as P
+    from valwr.live import state as st
+    conn = _tiny_db(tmp_path, [(f"k{i}", "known", 1_999_990_000 - i)
+                               for i in range(8)])
+    monkeypatch.setattr(st, "current_match", lambda ctx: match)
+    monkeypatch.setattr(st, "display_map", lambda conn, m: m)
+    monkeypatch.setattr(st, "_player_rows", lambda *a, **k: [])
+    monkeypatch.setattr(st, "parties", lambda *a, **k: [])
+    monkeypatch.setattr(P, "predict", lambda *a, **k: None)
+    monkeypatch.setattr(st.time, "time", lambda: 2_000_000_000)
+
+    class Sess:
+        puuid = "me"
+
+    client = _Recorder()
+    ctx = st.LiveContext(conn=conn, bundle={"best": "lr"}, index=None,
+                         session=Sess(), client=client, deadline=30,
+                         settings=types.SimpleNamespace(region="na",
+                                                        platform="pc"))
+    return ctx, client
+
+
+def test_agent_select_paints_before_the_first_lookup(tmp_path, monkeypatch):
+    """The page used to show nothing until every lookup had finished -- up to
+    25 seconds of a 60-second pick -- although most of the lobby was usually
+    stored all along."""
+    from valwr.live import state as st
+    ctx, client = _agent_select_ctx(tmp_path, monkeypatch,
+                                    _pregame("known", "stranger"))
+    sent = []
+    final = st.poll_once(
+        ctx, on_progress=lambda s: sent.append((len(client.calls), s)))
+
+    calls_then, first = sent[0]
+    assert calls_then == 0, "the first paint must not wait on the API"
+    assert set(first) == set(final), "a partial state has the final shape"
+    assert "stranger" in first["lookup"]["pending"]
+    assert final["lookup"] == {"pending": [], "remaining": 0}
+
+
+def test_the_next_poll_repeats_no_lookup(tmp_path, monkeypatch):
+    from valwr.live import state as st
+    ctx, client = _agent_select_ctx(tmp_path, monkeypatch,
+                                    _pregame("known", "stranger"))
+    st.poll_once(ctx)
+    first = len(client.calls)
+    assert first, "the first poll should have looked players up"
+    st.poll_once(ctx)
+    assert len(client.calls) == first, (
+        f"second poll repeated lookups: {client.calls[first:]}")
+
+
+def test_a_new_match_is_looked_up_afresh(tmp_path, monkeypatch):
+    """Remembered lookups belong to one match. Carrying them into the next
+    would skip your own refresh -- the bug that froze a score for 12 days."""
+    import dataclasses
+
+    from valwr.live import state as st
+    match = _pregame("known")
+    ctx, client = _agent_select_ctx(tmp_path, monkeypatch, match)
+    st.poll_once(ctx)
+    before = len(client.calls)
+    monkeypatch.setattr(st, "current_match",
+                        lambda c: dataclasses.replace(match, match_id="next"))
+    st.poll_once(ctx)
+    assert ("me", 0) in client.calls[before:]
+

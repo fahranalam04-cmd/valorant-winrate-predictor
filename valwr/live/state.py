@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from valwr import config
@@ -51,6 +51,10 @@ class LiveContext:
     settings: Any
     role_index: Any = None      # roleindex.RoleIndex | None
     deadline: float = DEFAULT_DEADLINE
+    # Lookups already answered in the current match. The poll runs every few
+    # seconds and must not repeat them; see resolve.Resolution.completed.
+    work_match: str | None = None
+    work_done: set = field(default_factory=set)
 
     @property
     def model_name(self) -> str:
@@ -315,10 +319,17 @@ def current_match(ctx: LiveContext):
             raise NotReady(f"the game client is not answering -- {e}") from e
 
 
-def poll_once(ctx: LiveContext) -> dict | None:
+def poll_once(ctx: LiveContext, on_progress=None) -> dict | None:
     """The current match as plain data, or None when not in one.
 
     Everything a renderer needs and nothing it has to compute for itself.
+
+    `on_progress`, if given, is handed a complete state every time the lookup
+    learns something: first with everything already stored, before a single
+    request is made, then again as each player lands. Agent select leaves
+    about a minute to lock in, and this used to show nothing until the last
+    lookup finished -- up to 25 seconds -- although most of the lobby was
+    usually in the database the whole time.
     """
     match = current_match(ctx)
     if match is None:
@@ -327,10 +338,35 @@ def poll_once(ctx: LiveContext) -> dict | None:
         match, map_name=display_map(ctx.conn, match.map_name))
 
     as_of = int(time.time())
+    if ctx.work_match != match.match_id:
+        ctx.work_match, ctx.work_done = match.match_id, set()
+
+    def progress(res):
+        # With nothing left to fetch, the final state is built the moment
+        # this returns; painting it twice would only cost a rebuild.
+        if not res.remaining:
+            return
+        try:
+            on_progress(_assemble(ctx, match, res, as_of))
+        except Exception:                           # noqa: BLE001
+            # A partial paint is a courtesy; the lookup it reports on is not,
+            # and must not die with it. A real fault in _assemble surfaces
+            # anyway, in the final state built from the same function below.
+            pass
+
     resolution = R.resolve(ctx.conn, match, ctx.session.puuid, as_of,
                            client=ctx.client, deadline_seconds=ctx.deadline,
                            region=ctx.settings.region,
-                           platform=ctx.settings.platform)
+                           platform=ctx.settings.platform,
+                           on_progress=progress if on_progress else None,
+                           already=ctx.work_done,
+                           teammates_first=match.phase == "pregame")
+    ctx.work_done |= resolution.completed
+    return _assemble(ctx, match, resolution, as_of)
+
+
+def _assemble(ctx: LiveContext, match, resolution, as_of: int) -> dict:
+    """The state for one moment of a lookup: partial or final, same shape."""
     prediction = P.predict(ctx.conn, match, ctx.bundle, resolution,
                            ctx.session.puuid, as_of=as_of)
 
@@ -354,6 +390,11 @@ def poll_once(ctx: LiveContext) -> dict | None:
         "warnings": _warnings(match, ctx.session.puuid),
         "parties": parties(ctx.conn, match, as_of),
         "players": _player_rows(ctx, match, as_of),
+        # Who is still being looked up. A player with no card data is either
+        # still coming or has no competitive history at all, and the page has
+        # to know which before it tells you something about them.
+        "lookup": {"pending": sorted(resolution.pending),
+                   "remaining": len(resolution.remaining)},
         "prediction": None,
     }
     if prediction is not None:

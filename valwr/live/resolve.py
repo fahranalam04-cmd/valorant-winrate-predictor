@@ -81,6 +81,20 @@ class Resolution:
     fetched: int = 0
     refreshed: int = 0
     seconds: float = 0.0
+    # Lookups that answered this call, as (puuid, first match index). The
+    # caller keeps them for the rest of the match and hands them back as
+    # `already`. Without that, the dashboard's poll re-asked, every few
+    # seconds, for every player short of twenty stored games -- and for anyone
+    # with no competitive history at all -- on every tick, forever, spending
+    # the quota agent select needs on answers it already had.
+    completed: set[tuple[str, int]] = field(default_factory=set)
+    # Lookups planned but not reached: the deadline or the quota ran out.
+    remaining: list[tuple[str, int]] = field(default_factory=list)
+
+    @property
+    def pending(self) -> set[str]:
+        """Players whose first page is still to come, so nothing to show yet."""
+        return {p for p, start in self.remaining if start == 0}
 
     @property
     def coverage(self) -> int:
@@ -157,11 +171,16 @@ def order_for_fetching(match: LiveMatch, own_puuid: str) -> list[str]:
 def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
             as_of: int, client=None, deadline_seconds: float = 25.0,
             region: str = "na", platform: str = "pc",
-            on_progress=None) -> Resolution:
+            on_progress=None, already=frozenset(),
+            teammates_first: bool = False) -> Resolution:
     """Resolve as many players as the deadline allows.
 
     `client` may be None, in which case this is cache-only -- useful for a
     dry run, and for the dashboard's first paint before any fetching starts.
+
+    `already` holds lookups answered earlier in this match, which are not
+    repeated. `teammates_first` is for agent select: your own refresh waits
+    until the people you are about to play with are known.
     """
     out = Resolution()
     started = time.monotonic()
@@ -175,19 +194,48 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
         else:
             out.unknown.add(puuid)
 
-    if on_progress:
-        on_progress(out)
-
-    # The local account is always worth one call, so it alone is not enough
-    # reason to stop here. This return used to fire whenever the lobby looked
-    # current, which skipped the unconditional refresh below entirely -- the
-    # comment said "unconditionally" and the code never reached it.
-    if client is None or not (out.unknown or out.stale or own_puuid):
+    if client is None:
+        if on_progress:
+            on_progress(out)
         out.seconds = time.monotonic() - started
         return out
 
+    # Everything to fetch, as (player, page) in priority order. Under a
+    # deadline the ordering decides what you end up knowing, so it is explicit:
+    #
+    #   1. your own history, because your own row is read every game and it
+    #      is the only account nothing else keeps current
+    #   2. page one for players we know nothing about -- a missing player
+    #      costs the prediction more than a shallow one
+    #   3. page one for players whose data is merely old
+    #   4. page two for anyone still short of the form window, which is what
+    #      makes their "last 20" actually their last 20
+    #
+    # In agent select that first item moves to the end. The screen exists to
+    # size up the four people you are about to play with inside a minute, and
+    # you already know how you play; your own refresh still happens, after
+    # theirs, and the in-game poll picks it up if the deadline did not.
+    others = [p for p in ordered if p != own_puuid]
+    own = ([(own_puuid, page * PAGE_SIZE) for page in range(HISTORY_PAGES)]
+           if own_puuid else [])
+    theirs = [(p, 0) for p in others if p in out.unknown]
+    theirs += [(p, 0) for p in others if p in out.stale]
+    theirs += [(p, page * PAGE_SIZE) for p in others
+               for page in range(1, HISTORY_PAGES)
+               if stored_depth(conn, p, as_of) < FORM_WINDOW]
+    work = theirs + own if teammates_first else own + theirs
+    work = [w for w in work if w not in already]
+    out.remaining = list(work)
+
+    # Reported before anything is fetched: this is the first paint. Everyone
+    # already in the database is on screen now rather than after the slowest
+    # lookup, which in agent select is the difference between reading the
+    # lobby and watching it load.
+    if on_progress:
+        on_progress(out)
+
     def fetch(puuid: str, start: int = 0) -> bool:
-        """One matchlist page. True if it landed, False to stop fetching."""
+        """One matchlist page. True if it answered, False to stop fetching."""
         try:
             payload = client.matches(region, platform, puuid, size=PAGE_SIZE,
                                      mode="competitive", start=start)
@@ -201,57 +249,30 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
                 out.known.add(puuid)
                 out.unknown.discard(puuid)
             out.stale.discard(puuid)
-            if on_progress:
-                on_progress(out)
-            return True
         except (RateLimited, TransientError):
             # Out of quota or off the network. Neither is worth waiting on
-            # inside agent select; the cached answer is what ships.
+            # inside agent select; the cached answer is what ships, and the
+            # lookup stays in `remaining` for the next poll.
             return False
         except HenrikError:
             out.stale.discard(puuid)    # unfetchable; do not keep retrying it
-            return True                 # the rest of the lobby still can be
+        out.completed.add((puuid, start))
+        out.remaining.remove((puuid, start))
+        if on_progress:
+            on_progress(out)
+        return True                     # the rest of the lobby still can be
 
-    # The local account first and *genuinely* unconditionally, before any
-    # deadline accounting. This comment claimed "unconditionally" while the
-    # code gated it on the staleness rule above, so finishing a game and
-    # requeueing five minutes later left your own last-20 missing the game you
-    # had just played -- the one row you actually read.
-    #
-    # It costs one call, it is the account nothing else keeps current (the
-    # crawl follows the players it discovers, not the person running this), and
-    # skipping it is what left the reported score frozen for twelve days.
+    # Your own first page is exempt from the deadline outside agent select:
+    # it costs one call, and skipping it is what left the reported score
+    # frozen for twelve days. A comment once claimed "unconditionally" while
+    # the code gated it on the staleness rule, so finishing a game and
+    # requeueing five minutes later left your own last-20 missing the game
+    # you had just played -- the one row you actually read.
     keep_going = True
-    was_unknown = own_puuid in out.unknown
-    if own_puuid:
-        keep_going = fetch(own_puuid)
-        if keep_going:
-            out.fetched += was_unknown
-            out.refreshed += not was_unknown
-
-    # Everything else, as (player, page) work in priority order. Under a
-    # deadline the ordering decides what you end up knowing, so it is explicit:
-    #
-    #   1. the rest of your own history, because your own row is the one read
-    #      every game and it is the only account nothing else keeps current
-    #   2. page one for players we know nothing about -- a missing player
-    #      costs the prediction more than a shallow one
-    #   3. page one for players whose data is merely old
-    #   4. page two for anyone still short of the form window, which is what
-    #      makes their "last 20" actually their last 20
-    others = [p for p in ordered if p != own_puuid]
-    work: list[tuple[str, int]] = []
-    if own_puuid:
-        work += [(own_puuid, page * PAGE_SIZE)
-                 for page in range(1, HISTORY_PAGES)]
-    work += [(p, 0) for p in others if p in out.unknown]
-    work += [(p, 0) for p in others if p in out.stale]
-    work += [(p, page * PAGE_SIZE) for p in others
-             for page in range(1, HISTORY_PAGES)
-             if stored_depth(conn, p, as_of) < FORM_WINDOW]
-
-    for puuid, start in work:
-        if not keep_going or time.monotonic() - started >= deadline_seconds:
+    for puuid, start in list(work):
+        exempt = not teammates_first and puuid == own_puuid and start == 0
+        if not keep_going or (not exempt and
+                              time.monotonic() - started >= deadline_seconds):
             break
         was_unknown = puuid in out.unknown
         keep_going = fetch(puuid, start)

@@ -337,7 +337,7 @@ def _demo_top1() -> float | None:
         return None
 
 
-def _demo_payload() -> dict:
+def _demo_payload(phase: str = "coregame") -> dict:
     """The demo match, with agent UUIDs filled in where a database exists."""
     from valwr.dash.demo import demo_state
     conn = None
@@ -353,7 +353,7 @@ def _demo_payload() -> dict:
         # Read from the index rather than written here: a literal in this
         # file is how the live view once advertised an accuracy two retrains
         # out of date, with nothing to catch it.
-        return {"status": "match", "state": demo_state(conn),
+        return {"status": "match", "state": demo_state(conn, phase),
                 "top1_rate": _demo_top1(), "fresh": True}
     finally:
         if conn is not None:
@@ -399,14 +399,26 @@ def _replay_payload(match_id: str) -> dict:
         conn.close()
 
 
-def poll_and_record(ctx) -> dict | None:
+def _match_payload(ctx, state: dict, last: str | None) -> dict:
+    """What the socket sends for a match, partial or final."""
+    # The figure has to belong to the score being shown. Quoting the old
+    # index's rate beside a per-role score would advertise an accuracy this
+    # page does not have.
+    top1 = (ctx.role_index.top1_rate if ctx.role_index
+            else ctx.index.top1_rate if ctx.index else None)
+    return {"status": "match", "state": state, "top1_rate": top1,
+            "fresh": state["match_id"] != last}
+
+
+def poll_and_record(ctx, on_progress=None) -> dict | None:
     """One poll, with the prediction logged. Runs on the pool's thread.
 
     Recording here rather than in the websocket keeps every database call on
     the thread that owns the connection, which is the rule the poll pool
-    exists to enforce.
+    exists to enforce. Only the finished state is recorded: the partial ones
+    handed to `on_progress` are paint, not the prediction being scored.
     """
-    state = st.poll_once(ctx)
+    state = st.poll_once(ctx, on_progress=on_progress)
     if state is not None:
         outcomes.record(ctx.conn, state)
     return state
@@ -448,7 +460,7 @@ def settle_tick(no_fetch: bool = False) -> dict[str, int]:
 
 
 def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
-              demo: bool = False, match: str | None = None,
+              demo: bool | str = False, match: str | None = None,
               settle: bool = False):
     """The app. `settle` starts the background collector, and only `main` asks
     for it.
@@ -647,7 +659,9 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                     # names and UUIDs, so the bundled artwork resolves. No
                     # player row is touched and no client call is made.
                     if app.state.demo_state is None:
-                        app.state.demo_state = _demo_payload()
+                        app.state.demo_state = _demo_payload(
+                            demo if demo in ("coregame", "pregame")
+                            else "coregame")
                     await socket.send_text(json.dumps(app.state.demo_state))
                     await asyncio.sleep(POLL_SECONDS)
                     continue
@@ -671,8 +685,23 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                 # Any failure is reported to the page rather than closing the
                 # socket: a dropped connection renders as "disconnected" with
                 # no cause, which is the least useful thing it could say.
+                def push(partial, ctx=ctx, last=last):
+                    """Send a mid-lookup state. Runs on the poll thread.
+
+                    Waits for each send to finish, so partial states and the
+                    final one reach the socket in order and never interleave.
+                    A tab closed mid-lookup must not stop the lookup.
+                    """
+                    fut = asyncio.run_coroutine_threadsafe(socket.send_text(
+                        json.dumps(_match_payload(ctx, partial, last))), loop)
+                    try:
+                        fut.result(timeout=5)
+                    except Exception:               # noqa: BLE001
+                        pass
+
                 try:
-                    state = await loop.run_in_executor(pool, poll_and_record, ctx)
+                    state = await loop.run_in_executor(
+                        pool, poll_and_record, ctx, push)
                 except st.NotReady as e:
                     # The client went away -- closed, restarted, or its session
                     # could not be renewed. Drop the context so the next tick
@@ -723,14 +752,7 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                             and state["match_id"] not in app.state.opened):
                         app.state.opened.add(state["match_id"])
                         open_match_tab(app.state.base_url, state["match_id"])
-                    # The figure has to belong to the score being shown.
-                    # Quoting the old index's rate beside a per-role score
-                    # would advertise an accuracy this page does not have.
-                    top1 = (ctx.role_index.top1_rate if ctx.role_index
-                            else ctx.index.top1_rate if ctx.index else None)
-                    payload = {"status": "match", "state": state,
-                               "top1_rate": top1,
-                               "fresh": state["match_id"] != last}
+                    payload = _match_payload(ctx, state, last)
                     last = state["match_id"]
                     await socket.send_text(json.dumps(payload))
                 await asyncio.sleep(POLL_SECONDS)
@@ -751,9 +773,11 @@ def main(argv=None) -> int:
     ap.add_argument("--host", default=HOST,
                     help="interface to bind. Defaults to 127.0.0.1; pass "
                          "0.0.0.0 to read it on a phone on the same network")
-    ap.add_argument("--demo", action="store_true",
+    ap.add_argument("--demo", nargs="?", const="coregame",
+                    choices=("coregame", "pregame"),
                     help="serve an invented match, to see the page without "
-                         "playing one; touches nothing real")
+                         "playing one; touches nothing real. `--demo pregame` "
+                         "shows agent select")
     ap.add_argument("--match", metavar="ID",
                     help="replay a finished match from history, scored only "
                          "on what was knowable before it started")

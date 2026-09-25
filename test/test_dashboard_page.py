@@ -220,3 +220,37 @@ def test_nothing_paints_over_the_map():
             assert not re.search(r"(?<!-)\bbackground\s*:", body), (
                 "a later body rule uses the `background` shorthand, which "
                 "resets the map image")
+
+
+@needs_node
+def test_agent_select_shows_every_number_on_each_card(tmp_path):
+    """About a minute to lock in: the rating, last-20 K/D/A, headshots, their
+    agents on this map and their last game, readable without a click -- and a
+    player still being looked up never shown as having no history."""
+    from valwr.dash.demo import demo_state
+
+    s = demo_state(phase="pregame")
+    for i, p_ in enumerate(s["players"]):
+        if p_["agent"]:
+            p_["agent_id"] = f"agent-{i:02d}"
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps(s), encoding="utf-8")
+    r = subprocess.run([node, str(ROOT / "test" / "pregame_check.mjs"),
+                        str(PAGE), str(state)],
+                       capture_output=True, text=True, timeout=120)
+    sys.stdout.write(r.stdout)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_the_pregame_demo_is_shaped_like_a_real_poll():
+    """The page is tested against this; if it drifted from what poll_once
+    sends in agent select, the test would pass on a screen nobody sees."""
+    from valwr.dash.demo import demo_state
+
+    s = demo_state(phase="pregame")
+    assert s["phase"] == "pregame"
+    assert {p["team"] for p in s["players"]} == {s["own_team"]}, (
+        "Riot describes only your own team in agent select")
+    assert s["prediction"] is None
+    assert s["lookup"]["pending"], "the looking-up state must be exercised"
+    assert any(p["agent"] is None for p in s["players"])

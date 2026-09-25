@@ -39,6 +39,7 @@ flush();
 let bad = 0;
 const ck = (n, ok) => { if (!ok) bad++; console.log(`  ${ok ? "ok  " : "FAIL"}  ${n}`); };
 const rows = () => (els.stage.innerHTML.match(/<button class="row/g) || []).length;
+const cards = () => (els.stage.innerHTML.match(/<button class="pcard/g) || []).length;
 
 ck("two scripts: the stand-in, then the page", scripts.length === 2);
 ck("the stand-in delivers the match on open", els.map.textContent === "Ascent");
@@ -65,6 +66,12 @@ ck("and low confidence", /low<\/span>|low confidence/.test(els.sub.innerHTML));
 
 window.__demo.set("phase", "pregame");
 ck("agent select is labelled", /Agent select/.test(els.sub.innerHTML));
+ck("agent select shows your team as cards", cards() === 5);
+ck("and nothing of the hidden enemy team", rows() === 0);
+ck("without claiming a prediction it cannot make",
+   !/class="odds"/.test(els.stage.innerHTML));
+window.__demo.set("phase", "coregame");
+ck("leaving it restores the full lobby", rows() === 10 && cards() === 0);
 
 window.__demo.set("status", "finished");
 // An earlier check switched sides, so this lobby is lost rather than won.

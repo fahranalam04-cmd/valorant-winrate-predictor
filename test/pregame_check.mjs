@@ -1,0 +1,110 @@
+// Agent select, rendered by the dashboard page's own JavaScript.
+//
+//     node test/pregame_check.mjs <index.html> <state.json>
+//
+// The state is `valwr.dash.demo.demo_state(phase="pregame")`: your team only,
+// two players still picking, one still being looked up. Agent select leaves
+// about a minute to lock in, so the checks are about what can be read at a
+// glance -- every number on the card, and the difference between a player
+// still being looked up and one with nothing to find.
+//
+// Prints one line per check and exits non-zero if any fail.
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+
+const [, , pagePath, statePath] = process.argv;
+const html = readFileSync(pagePath, "utf8");
+const code = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"));
+const state = JSON.parse(readFileSync(statePath, "utf8"));
+
+const els = {};
+for (const id of ["pulse", "map", "sub", "stage", "foot", "themes"])
+  els[id] = { id, innerHTML: "", textContent: "", className: "", scrollTop: 0,
+              addEventListener(t, fn){ (this._h ||= {})[t] = fn; } };
+const handlers = {};
+globalThis.document = {
+  body: { dataset: {}, style: { setProperty(){} } },
+  getElementById: id => els[id] || null,
+  addEventListener: (t, fn) => { (handlers[t] ||= []).push(fn); },
+  querySelectorAll: () => [],
+};
+globalThis.WebSocket = class { constructor(){ this.onopen = null; } };
+globalThis.location = { host: "127.0.0.1:8788", pathname: "/" };
+globalThis.setTimeout = () => {};
+vm.runInThisContext(code);
+
+let bad = 0;
+const ck = (n, ok, extra) => { if (!ok) bad++;
+  console.log(`  ${ok ? "ok  " : "FAIL"}  ${n}${!ok && extra ? "  -> " + extra : ""}`); };
+const count = (s, re) => (s.match(re) || []).length;
+
+render({ status: "match", state, top1_rate: 0.296 });
+let out = els.stage.innerHTML;
+
+const ours = state.players.filter(p => p.team === state.own_team);
+const known = ours.filter(p => p.score !== null);
+const pending = ours.filter(p => state.lookup.pending.includes(p.puuid));
+const first = known.find(p => p.detail && p.detail.form.length);
+
+ck("labelled as agent select", /Agent select/.test(els.sub.innerHTML));
+ck("counted out of your team, not ten",
+   els.sub.innerHTML.includes(`${state.coverage}/${ours.length} known`));
+ck("one card per teammate", count(out, /<button class="pcard/g) === ours.length);
+ck("no scoreboard rows", count(out, /<button class="row/g) === 0);
+ck("no odds bar without an enemy to predict against", !/class="odds"/.test(out));
+ck("no 'not enough known' blaming the lookup", !/Not enough of the roster/.test(out));
+ck("says how many are still being looked up",
+   out.includes(`looking up ${pending.length}`));
+
+// --- a known player: every number, the one they would be read for --------
+{
+  const r = first.recent, m = first.detail.map, f = first.detail.form[0];
+  const per = n => (n / r.games).toFixed(1);
+  const pct = v => Math.round(v * 100) + "%";
+  ck("the 0-100 rating", out.includes(`<div class="score">${first.score}</div>`));
+  ck("labelled with how many games it covers", out.includes(`last ${r.games}`));
+  ck("K/D/A per game over those games",
+     out.includes(`${per(r.kills)}/${per(r.deaths)}/${per(r.assists)}`));
+  ck("K/D", out.includes(r.kd.toFixed(2)));
+  ck("headshot rate", out.includes(`>${pct(r.headshot_rate)}<`));
+  ck("damage per round", out.includes(`>${Math.round(r.adr)}<`));
+  ck("win rate", out.includes(`>${pct(r.win_rate)}<`));
+  ck("this map, named", out.includes(`On ${state.map}`));
+  ck("their most played agent here, with games",
+     out.includes(`${m.agents[0].agent} ×${m.agents[0].games}`));
+  ck("their record here", out.includes(`${m.wins}–${m.losses}`));
+  ck("last game result and score",
+     out.includes(`${f.won ? "W" : "L"} ${f.rounds_won}–${f.rounds_lost}`));
+  ck("last game K/D/A", out.includes(`${f.kills}/${f.deaths}/${f.assists}`));
+  ck("last game headshots", out.includes(`HS ${pct(f.headshot_rate)}`));
+  ck("last game, how long ago", out.includes(f.ago));
+  ck("labelled as competitive", /Last comp/.test(out));
+}
+
+// --- players not locked in yet --------------------------------------------
+{
+  const picking = ours.filter(p => !p.agent).length;
+  ck("players still picking say so", count(out, />selecting</g) === picking);
+}
+
+// --- still being looked up, versus nothing to find ------------------------
+ck("a pending player is shown as looking up",
+   /Looking up their last 20/.test(out) && !/No competitive history/.test(out));
+render({ status: "match", top1_rate: 0.296,
+         state: { ...state, lookup: { pending: [], remaining: 0 } } });
+out = els.stage.innerHTML;
+ck("once the lookup is done, the same player has no history",
+   /No competitive history/.test(out) && !/Looking up their last 20/.test(out));
+ck("and the team bar says everyone is looked up", /all looked up/.test(out));
+
+// --- the full breakdown is still one click away ---------------------------
+for (const fn of handlers.click || [])
+  fn({ target: { closest: s => s.includes("button.pcard")
+        ? { dataset: { puuid: first.puuid } } : null } });
+out = els.stage.innerHTML;
+ck("clicking a card opens the panel",
+   /class="panel"/.test(out) && /record &amp; form/.test(out));
+ck("and marks the card selected", /class="pcard known sel"/.test(out));
+
+console.log(bad ? `\n${bad} FAILED` : "\nall passed");
+process.exit(bad ? 1 : 0);

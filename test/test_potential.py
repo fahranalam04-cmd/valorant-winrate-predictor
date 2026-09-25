@@ -484,3 +484,24 @@ def test_too_few_clearers_falls_back_rather_than_fitting_noise():
               for _ in range(P.MIN_SCALE_SAMPLE - 1)])
     _, stds = P.fit_scales(pop)
     assert stds["map_edge"] < 0.05, "fell back to the full-sample scale"
+
+
+def test_each_recent_game_carries_a_full_scoreline():
+    """The agent-select card prints someone's last game on one line --
+    K/D/A, headshots and the round score -- so the form entries must carry
+    every part of it, and the round score must be from their side."""
+    conn, as_of, norms = _one_player(map_played="Ascent")
+    d = P.detail(conn, "p", as_of, "Ascent", norms, an_index())
+    last = d["form"][0]
+    for key in ("assists", "headshot_rate", "rounds_won", "rounds_lost"):
+        assert key in last, f"form entries lack {key}"
+    row = conn.execute(
+        "SELECT mp.team, m.rounds_red, m.rounds_blue, mp.won FROM match_players mp "
+        "JOIN matches m USING(match_id) WHERE mp.puuid='p' "
+        "ORDER BY mp.started_at DESC LIMIT 1").fetchone()
+    team, red, blue, won = row
+    ours, theirs = (red, blue) if team == "Red" else (blue, red)
+    assert (last["rounds_won"], last["rounds_lost"]) == (ours, theirs)
+    if won is not None and ours != theirs:
+        assert (ours > theirs) == bool(won), "scoreline must match the result"
+    assert last["headshot_rate"] is None or 0 <= last["headshot_rate"] <= 1

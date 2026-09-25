@@ -113,6 +113,16 @@ function build(){
   const blue = BASE.prediction.win_probability;
   s.prediction.win_probability = blue;
   s.prediction.own_probability = view.side === "Blue" ? blue : 1 - blue;
+
+  if (view.phase === "pregame"){
+    // Riot describes only your own team before the match starts, and the
+    // live view predicts nothing until it can see both. Relabelling the phase
+    // alone showed an agent select no real lobby could produce.
+    s.players = s.players.filter(p => p.team === view.side);
+    s.parties = s.parties.filter(g => g.team === view.side);
+    s.coverage = s.players.filter(p => p.score !== null).length;
+    s.prediction = null;
+  }
   return {status: "match", state: s, top1_rate: TOP1, fresh: false};
 }
 

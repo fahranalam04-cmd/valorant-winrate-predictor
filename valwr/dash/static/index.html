@@ -349,6 +349,50 @@ table.pstats td.mute,.pstats .mute{color:var(--ghost)}
   text-transform:uppercase;color:var(--ghost);margin-top:3px}
 .st.form b{color:var(--bone-dim)}
 
+/* ---------- agent select: one card per teammate --------------------------
+   About a minute to lock in, and the enemy is not visible yet, so the screen
+   goes to the people on your side with every number showing at once. */
+.cards{display:grid;gap:8px}
+.pcard{position:relative;display:grid;grid-template-columns:70px minmax(0,1fr);
+  gap:0 14px;align-items:start;width:100%;text-align:left;border:0;
+  padding:13px 16px 13px 0;background:var(--steel-2);color:inherit;font:inherit;
+  cursor:pointer;overflow:hidden;
+  clip-path:polygon(0 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%);
+  transition:background .14s ease}
+.pcard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:var(--ghost);transition:width .14s ease}
+.atkc .pcard.known::before{background:var(--atk)}
+.defc .pcard.known::before{background:var(--def)}
+.pcard:hover{background:#1b2734}
+.pcard:hover::before{width:5px}
+.pcard.sel{background:#1e2b3a}
+.pcard.sel::before{width:7px}
+.pcard:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.pcard.unknown{background:var(--sunk)}
+.pcard.unknown .art{opacity:.13;filter:grayscale(1)}
+.pcard .score{padding-top:6px}
+.atkc .pcard.known .score{color:var(--atk)}
+.defc .pcard.known .score{color:var(--def)}
+.cbody{position:relative;min-width:0}
+.cstats{display:grid;grid-template-columns:1.6fr repeat(4,minmax(0,1fr));
+  gap:8px;margin:10px 0 9px}
+.cstats .st{text-align:left}
+.cline{font-size:12.5px;line-height:1.55;color:var(--bone-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cline .ck{display:inline-block;min-width:84px;font:600 9px/1 var(--display);
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ghost)}
+.cline .w{color:var(--win)}
+.cline .l{color:var(--val)}
+.cline .dim,.cline.dim{color:var(--ghost)}
+.cline.looking{color:var(--gold);margin-top:10px;animation:looking 1.2s ease-in-out infinite}
+@keyframes looking{50%{opacity:.45}}
+@media(prefers-reduced-motion:reduce){.cline.looking{animation:none}}
+@media(max-width:720px){
+  .pcard{grid-template-columns:50px minmax(0,1fr);padding-right:12px}
+  .cstats{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .cline{white-space:normal}
+}
+
 /* ---------- phones ------------------------------------------------------
    The row wants 62px + four 66px stat columns + gaps, about 400px before the
    name gets any space at all, so on a handset it has to fold. Score keeps the
@@ -494,6 +538,8 @@ const n1 = v => v == null ? "—" : Number(v).toFixed(1);
 const n2 = v => v == null ? "—" : Number(v).toFixed(2);
 const pc = v => v == null ? "—" : (Number(v) * 100).toFixed(1) + "%";
 const i0 = v => v == null ? "—" : esc(v);
+const n0 = v => v == null ? "—" : Math.round(Number(v));
+const pc0 = v => v == null ? "—" : Math.round(Number(v) * 100) + "%";
 
 let STATE = null, selected = null, top1 = null, tries = 0;
 /* The result belongs to a match, not to a message: clicking a player or
@@ -620,6 +666,93 @@ function teamHTML(s, team){
         known}/${players.length} known</span>
     </div>
     ${players.map(rowHTML).join("")}
+  </section>`;
+}
+
+/* ---------------- agent select ----------------
+   Every number on the card at once, nothing behind a click: there is about a
+   minute to lock in. The click still opens the full breakdown in the panel.
+   Figures are the last 20 competitive games (fewer when fewer are stored,
+   and the label says how many), per game where a per-game number reads
+   better -- 17.2/13.1/4.8 rather than 344/262/96. */
+function cardHTML(p, pending, mapName){
+  const d = p.detail, r = p.recent, known = p.score !== null;
+  const stat = (label, val) =>
+    `<div class="st"><b class="num">${val}</b><span>${label}</span></div>`;
+  const per = n => r && r.games ? (n / r.games).toFixed(1) : "—";
+  let body;
+  if (!d){
+    /* Two different things look identical here: someone still being looked
+       up, and someone with nothing to find. Saying "no history" about a
+       player whose lookup has not landed yet would be wrong for a few seconds
+       in almost every lobby. */
+    body = pending
+      ? `<div class="cline looking">Looking up their last 20 competitive games</div>`
+      : `<div class="cline dim" style="margin-top:10px">No competitive history
+           found: a new account, or one that has not played ranked.</div>`;
+  } else {
+    const m = d.map || {}, f = (d.form || [])[0];
+    const agents = (m.agents || []).slice(0, 3)
+      .map(a => `${esc(a.agent)} ×${esc(a.games)}`).join(" · ");
+    const mapLine = m.games
+      ? `${agents}<span class="dim"> &nbsp;${esc(m.games)} game${
+          m.games === 1 ? "" : "s"} · ${esc(m.wins)}–${esc(m.losses)}</span>`
+      : `<span class="dim">never played it in competitive</span>`;
+    const result = !f || f.won === null ? "" :
+      `<b class="${f.won ? "w" : "l"}">${f.won ? "W" : "L"}${
+        f.rounds_won != null ? ` ${esc(f.rounds_won)}–${esc(f.rounds_lost)}` : ""}</b> `;
+    const lastLine = f
+      ? `${result}${esc(f.map || "?")} · ${esc(f.agent || "?")} · ${
+          i0(f.kills)}/${i0(f.deaths)}/${i0(f.assists)} · HS ${
+          pc0(f.headshot_rate)}<span class="dim"> · ${esc(f.ago)}</span>`
+      : `<span class="dim">none stored</span>`;
+    body = `<div class="cstats">
+        ${stat(`k/d/a · last ${r ? esc(r.games) : 0}`,
+               r ? `${per(r.kills)}/${per(r.deaths)}/${per(r.assists)}` : "—")}
+        ${stat("k/d", r ? n2(r.kd) : "—")}
+        ${stat("hs%", r ? pc0(r.headshot_rate) : "—")}
+        ${stat("adr", r ? n0(r.adr) : "—")}
+        ${stat("win", r ? pc0(r.win_rate) : "—")}
+      </div>
+      <div class="cline"><span class="ck">On ${esc(m.name || mapName || "this map")
+        }</span>${mapLine}</div>
+      <div class="cline"><span class="ck">Last comp</span>${lastLine}</div>`;
+  }
+  return `<button class="pcard ${known ? "known" : "unknown"}${
+      selected === p.puuid ? " sel" : ""}" data-puuid="${esc(p.puuid)}"
+      aria-pressed="${selected === p.puuid}">
+    ${p.agent_id ? `<img class="art" src="${artURL(p, "row")}" alt=""
+        decoding="async" onerror="this.remove()">` : ""}
+    <div class="score">${known ? esc(p.score) : '<span class="u">—</span>'}</div>
+    <div class="cbody">
+      <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
+        partyTag(p.puuid)}${
+        p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}</div>
+      <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>
+        ${rankTag(p.rank)}${known ? `&nbsp;·&nbsp;${esc(p.reason)}` : ""}</div>
+      ${body}
+    </div>
+  </button>`;
+}
+
+function pregameHTML(s){
+  const team = s.own_team;
+  const players = s.players.filter(p => p.team === team);
+  const pending = new Set((s.lookup && s.lookup.pending) || []);
+  const known = players.filter(p => p.score !== null).length;
+  const left = pending.size ? `looking up ${pending.size}`
+    : s.lookup && s.lookup.remaining ? "filling in last 20s" : "all looked up";
+  const side = s.standard_mode ? (isAtk(team) ? "attacking · first half"
+                                             : "defending · first half") : "";
+  return `<section class="team ${isAtk(team) ? "atkc" : "defc"}">
+    <div class="tbar">
+      <span class="tname">Your team</span>
+      <span class="tside">${esc(side)}</span>
+      <span class="trule"></span>
+      <span class="tcount">${known}/${players.length} known · ${esc(left)}</span>
+    </div>
+    <div class="cards">${players.map(p =>
+      cardHTML(p, pending.has(p.puuid), s.map)).join("")}</div>
   </section>`;
 }
 
@@ -952,8 +1085,11 @@ function render(msg){
   $("map").textContent = s.map || "UNKNOWN MAP";
   setMapArt();
   const phase = s.is_custom ? "Custom" : s.phase === "pregame" ? "Agent select" : "Live";
+  // Agent select describes one team, so "of 10" would count five players
+  // nobody can see yet.
+  const lobby = s.phase === "pregame" ? s.players.length : 10;
   $("sub").innerHTML = `${esc(phase)} <b>·</b> ${esc(modeLabel(s.mode))} <b>·</b> ` +
-    `${esc(s.coverage)}/10 known <b>·</b> ${esc(s.confidence)} confidence`;
+    `${esc(s.coverage)}/${esc(lobby)} known <b>·</b> ${esc(s.confidence)} confidence`;
 
   indexParties(s);
 
@@ -977,7 +1113,9 @@ function render(msg){
           ((1 - atkPct) * 100).toFixed(0)}%</div></div>
       <div class="verdict"><b>${verdict(own)}</b> — you are on ${esc(s.own_team)}.
         Model: ${esc(s.model)}.</div></div>`;
-  } else {
+  } else if (s.phase !== "pregame") {
+    // In agent select the enemy is hidden, which the warnings already say;
+    // "not enough known" would blame the lookup for something Riot withholds.
     head += `<div class="warn">Not enough of the roster known to predict yet.</div>`;
   }
 
@@ -1007,8 +1145,10 @@ function render(msg){
 
   const keep = $("pbody"), sc = keep ? keep.scrollTop : 0;
   head += resultHTML(review);
+  const rosters = s.phase === "pregame" ? pregameHTML(s)
+    : `<div class="rosters">${teamHTML(s, "Red")}${teamHTML(s, "Blue")}</div>`;
   $("stage").innerHTML = head + `<div class="grid">
-      <div><div class="rosters">${teamHTML(s, "Red")}${teamHTML(s, "Blue")}</div>${fx}${compareHTML(review)}</div>
+      <div>${rosters}${fx}${compareHTML(review)}</div>
       ${panelHTML(s)}</div>`;
   const now = $("pbody"); if (now) now.scrollTop = sc;
 
@@ -1036,7 +1176,7 @@ function render(msg){
 }
 
 document.addEventListener("click", e => {
-  const b = e.target.closest("button.row");
+  const b = e.target.closest("button.row, button.pcard");
   if (!b || !STATE) return;
   selected = b.dataset.puuid === selected ? null : b.dataset.puuid;
   render({status: "match", state: STATE, top1_rate: top1});
