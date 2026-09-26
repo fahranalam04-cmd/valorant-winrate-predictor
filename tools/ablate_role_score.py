@@ -64,11 +64,29 @@ def rescale(table: dict[str, float], drop: tuple[str, ...] = (),
     return {k: (v if k in fixed else v * room / rest) for k, v in out.items()}
 
 
+# The tables that shipped before patch 13.06, frozen here. The older
+# candidates below are variations on them, and deriving those from whatever
+# currently ships would quietly change what each one means the moment the
+# tables moved -- and this run could no longer reproduce the comparison that
+# moved them. "shipped" is always the live table.
+PRE_1306: dict[str, dict[str, float]] = {
+    "Duelist":    {"acs": 23, "kd": 21, "adr": 16, "kast": 14,
+                   "abilities": 11, "fb": 9, "hs": 6},
+    "Controller": {"kd": 21, "kast": 20, "abilities": 18, "assists": 14,
+                   "acs": 11, "adr": 10, "hs": 6},
+    "Initiator":  {"kda": 24, "kast": 23, "abilities": 20, "acs": 14,
+                   "adr": 13, "hs": 6},
+    "Sentinel":   {"kda": 23, "kast": 20, "abilities": 19, "acs": 15,
+                   "adr": 11, "hs": 6, "fd": -6},
+}
+
+
 def variants() -> dict[str, dict[str, dict[str, float]]]:
     """Each variant is a full set of role tables, in percentage points."""
-    base = roles.ROLE_WEIGHTS
+    base = PRE_1306
     out: dict[str, dict[str, dict[str, float]]] = {}
-    out["shipped"] = {r: dict(w) for r, w in base.items()}
+    out["shipped"] = {r: dict(w) for r, w in roles.ROLE_WEIGHTS.items()}
+    out["before 13.06"] = {r: dict(w) for r, w in base.items()}
     out["no abilities"] = {r: rescale(w, drop=("abilities",))
                            for r, w in base.items()}
     out["abilities at 5"] = {r: rescale(w, set_to={"abilities": 5.0})
@@ -134,12 +152,13 @@ def variants() -> dict[str, dict[str, dict[str, float]]]:
     out["ps-shaped, no spike"] = {
         r: rescale(w, drop=("plants", "defuses")) for r, w in ps.items()}
 
-    # Only the Duelist table changes; the support roles keep what ships. The
-    # ablation says the aggregate loss is concentrated in Duelists, so this
-    # asks whether the support gains can be kept while giving that back.
+    # Only the Duelist table changes; the support roles keep the pre-13.06
+    # tables. The ablation says the aggregate loss is concentrated in
+    # Duelists, so this asks whether the support gains can be kept while
+    # giving that back.
     duelist_fix = {r: dict(w) for r, w in base.items()}
     duelist_fix["Duelist"] = rescale(evidence["Duelist"])
-    out["shipped, Duelist by evidence"] = duelist_fix
+    out["before 13.06, Duelist by evidence"] = duelist_fix
     return out
 
 

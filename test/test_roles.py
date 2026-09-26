@@ -47,14 +47,14 @@ def test_only_sentinels_are_penalised_for_dying_first():
         assert "fd" not in roles.ROLE_WEIGHTS[role]
 
 
-def test_duelists_are_the_most_damage_led_and_controllers_the_least():
-    """ACS and ADR correlate 0.98, so they act as one dial. How far that dial
-    is turned up is the clearest statement each table makes about its role."""
-    damage = {r: roles.ROLE_WEIGHTS[r].get("acs", 0) + roles.ROLE_WEIGHTS[r].get("adr", 0)
-              for r in ROLES}
+def test_duelists_are_the_most_damage_led_and_sentinels_the_least():
+    """How far the damage dial is turned up is the clearest statement each
+    table makes about its role. Before patch 13.06 the Controller sat lowest;
+    the table that replaced combat score, chosen by measurement, gives the
+    Sentinel's share to defusing and puts them lowest instead."""
+    damage = {r: roles.ROLE_WEIGHTS[r].get("adr", 0) for r in ROLES}
     assert damage["Duelist"] == max(damage.values())
-    assert damage["Controller"] == min(damage.values())
-    assert damage["Duelist"] >= damage["Controller"] * 1.5
+    assert damage["Sentinel"] == min(damage.values())
 
 
 def test_support_roles_lean_on_kast_and_abilities():
@@ -67,12 +67,15 @@ def test_support_roles_lean_on_kast_and_abilities():
         assert support > damage, role
 
 
-def test_headshots_are_the_smallest_weight_everywhere():
+def test_headshots_never_outweigh_a_core_stat():
     """HS% tracks winning at 0.01-0.06 and is a share of hits, not of shots --
-    it is the noisiest thing in the table and is weighted accordingly."""
+    the noisiest thing in the table, so it may never drive the score. It is no
+    longer the smallest weight: ability casts were cut to what they were
+    measured to be worth, and the spike counts are small by design."""
     for role in ROLES:
         w = roles.ROLE_WEIGHTS[role]
-        assert w["hs"] == min(abs(v) for v in w.values())
+        core = [w[k] for k in ("adr", "kd", "kda", "kast") if k in w]
+        assert w["hs"] < min(core), role
 
 
 def test_chamber_is_scored_between_a_duelist_and_a_sentinel():
@@ -81,7 +84,7 @@ def test_chamber_is_scored_between_a_duelist_and_a_sentinel():
     got = roles.weights_for("Sentinel", agent="Chamber")
     duelist = roles.weights_for("Duelist")
     sentinel = roles.weights_for("Sentinel")
-    for key in ("acs", "kast", "abilities"):
+    for key in ("adr", "kast", "defuses"):
         lo, hi = sorted((duelist.get(key, 0), sentinel.get(key, 0)))
         assert lo < got[key] < hi, key
     assert got["fb"] > 0 and got["fd"] < 0, "he inherits both roles' extremes"
@@ -100,7 +103,7 @@ def test_an_unknown_agent_falls_back_to_a_neutral_set():
         w = roles.weights_for(unknown)
         assert sum(abs(v) for v in w.values()) == pytest.approx(1.0)
         assert w != roles.weights_for("Duelist")
-        assert set(w) >= {"acs", "kast", "abilities", "map_edge"}
+        assert set(w) >= {"adr", "kast", "abilities", "map_edge"}
 
 
 def test_the_neutral_set_carries_every_component_any_role_uses():
@@ -114,3 +117,36 @@ def test_every_component_a_role_names_is_one_the_score_knows_about():
     known = set(roles.components_used())
     for role in ROLES:
         assert set(roles.ROLE_WEIGHTS[role]) <= known, role
+
+
+# --- after patch 13.06 ---------------------------------------------------
+
+def test_no_role_scores_combat_score():
+    """The game took ACS off its scoreboard on 22 September 2026. A score that
+    still leaned on it would be measuring something no player can see."""
+    for role in ROLES:
+        assert "acs" not in roles.ROLE_WEIGHTS[role], role
+    assert "acs" not in roles.NEUTRAL
+    assert "acs" not in roles.weights_for("Sentinel", agent="Chamber")
+
+
+def test_every_role_is_credited_for_what_performance_score_counts():
+    """Performance Score counts trades and the spike. Every role trades and
+    every role can plant or defuse, so none is scored as if it never did."""
+    for role in ROLES:
+        assert {"trades", "plants", "defuses"} <= set(roles.ROLE_WEIGHTS[role]), role
+
+
+def test_sentinels_are_credited_most_for_defusing():
+    """Holding a site and retaking it are the Sentinel's job."""
+    defuses = {r: roles.ROLE_WEIGHTS[r]["defuses"] for r in ROLES}
+    assert defuses["Sentinel"] == max(defuses.values())
+    assert all(defuses["Sentinel"] > v for r, v in defuses.items()
+               if r != "Sentinel")
+
+
+def test_ability_casts_carry_only_what_they_were_measured_to_be_worth():
+    """Casts are a stable trait that predicts how a match goes at roughly
+    zero. They carried 11-20% of every table; they carry 3% now."""
+    for role in ROLES:
+        assert 0 < roles.ROLE_WEIGHTS[role]["abilities"] <= 3, role

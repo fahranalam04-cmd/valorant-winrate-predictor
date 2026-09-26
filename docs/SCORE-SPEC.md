@@ -4,12 +4,17 @@ Status: **shipped.** The live view scores players this way; the previous single
 formula in `valwr/rating/potential.py` still provides the rest of the card
 (career, form, this map, freshness, the above-rank flag).
 
-It ships having **failed the criteria in section 10**: 27.7% against the old
-score's 29.7%, and worse on the three roles it was built for. That was a
-deliberate call -- the score is meant to say what each role is trying to do,
+It first shipped having **failed the criteria in section 10**: 27.7% against
+the old score's 29.7%, and worse on the three roles it was built for. That was
+a deliberate call -- the score is meant to say what each role is trying to do,
 and one match is 84% noise, so the ranking it gives up is small and the thing
 it buys is a number that means the same for a Sage as for a Jett. The
 measurement stays in this document rather than being quietly dropped.
+
+The tables were replaced on **26 September 2026**, after patch 13.06 (below).
+The replacements score **30.0% against the old score's 29.8%** on 3,000 teams,
+which passes criterion 1 for the first time. Criterion 2 still fails: within a
+role, the old single formula still orders players better.
 
 ---
 
@@ -53,6 +58,25 @@ What follows from that:
 - **No invented 0-500 number.** A fabricated Performance Score sitting beside
   the real one in the client would be worse than showing none. Whether the
   local game client exposes the real figure is still open.
+- **The role tables no longer use combat score.** They spent 11-23% on it and
+  11-20% on ability casts. Candidates that spend it on what Performance Score
+  counts instead were written into `tools/ablate_role_score.py` and measured
+  once plants and defuses were backfilled for every stored match. The rule was
+  set before the run: an ACS-free table ships if it is at least as good as the
+  shipped one, within noise. The best of them beat the shipped tables in every
+  sample measured -- top-1, 3,000 teams each, noise +/-0.7:
+
+  | sample | tables with ACS | **without ACS** | tables with *more* ACS |
+  |---|---|---|---|
+  | 1 | 27.9% | **28.3%** | 29.6% |
+  | 2 | 27.4% | **28.4%** | 28.7% |
+  | 3 | 27.6% | **29.2%** | 29.7% |
+  | 42 | 28.5% | **29.4%** | 30.5% |
+
+  The last column is the "evidence-led" candidate, which leans on combat score
+  at 27-30%. It ranks about a point higher again: combat score is still the
+  most predictive stat stored. It is not what the game shows any more, so it
+  is not what this score is built from. Section 4 has the tables that shipped.
 
 ---
 
@@ -93,7 +117,7 @@ coverage, except ability casts (section 7).
 
 | input | definition |
 |---|---|
-| **ACS** | combat score ÷ rounds played |
+| **ACS** | combat score ÷ rounds played -- weighted by no role since 13.06, still measured |
 | **ADR** | damage dealt ÷ rounds played |
 | **K/D** | total kills ÷ total deaths |
 | **(K+A)/D** | (total kills + total assists) ÷ total deaths |
@@ -103,6 +127,9 @@ coverage, except ability casts (section 7).
 | **First deaths** | first deaths of a round ÷ rounds played |
 | **HS%** | headshots ÷ (headshots + bodyshots + legshots) |
 | **Abilities** | ability casts ÷ rounds played, all four slots summed |
+| **Trades** | kills that trade a teammate's death ÷ rounds played |
+| **Plants** | spike plants ÷ rounds played |
+| **Defuses** | spike defuses ÷ rounds played |
 
 Note that HS% is a share of *hits*, not of shots fired. Misses are not in the
 data, so this is not an accuracy measure and never can be.
@@ -140,17 +167,24 @@ otherwise:
 Each role's score is a weighted sum of z-scores. Weights are percentages of the
 total absolute weight, so a negative weight still consumes its share.
 
+No role scores combat score: patch 13.06 took it off the game's scoreboard.
+Each table spends that weight on what Performance Score counts -- trades and
+the spike -- and ability casts sit at 3%, about what they were measured to be
+worth (section 7). How the tables were chosen is at the top of this document.
+
 ### Duelist
 
 | part | weight |
 |---|---|
-| ACS | 23% |
-| K/D | 21% |
-| ADR | 16% |
-| KAST | 14% |
-| Abilities | 11% |
-| First bloods | 9% |
+| ADR | 28% |
+| K/D | 23% |
+| KAST | 15% |
+| Trades | 11% |
+| First bloods | 10% |
 | HS% | 6% |
+| Abilities | 3% |
+| Plants | 3% |
+| Defuses | 1% |
 | *(map edge)* | *see section 6* |
 
 Assists are **not** counted for Duelists.
@@ -159,57 +193,64 @@ Assists are **not** counted for Duelists.
 
 | part | weight |
 |---|---|
-| K/D | 21% |
-| KAST | 20% |
-| Abilities | 18% |
-| Assists | 14% |
-| ACS | 11% |
-| ADR | 10% |
+| K/D | 23% |
+| ADR | 21% |
+| KAST | 21% |
+| Assists | 16% |
+| Trades | 8% |
 | HS% | 6% |
+| Abilities | 3% |
+| Plants | 1% |
+| Defuses | 1% |
 
 ### Initiator
 
 | part | weight |
 |---|---|
-| (K+A)/D | 24% |
-| KAST | 23% |
-| Abilities | 20% |
-| ACS | 14% |
-| ADR | 13% |
-| HS% | 6% |
+| ADR | 26% |
+| (K+A)/D | 26% |
+| KAST | 24% |
+| Trades | 9% |
+| HS% | 7% |
+| Plants | 4% |
+| Abilities | 3% |
+| Defuses | 1% |
 
 ### Sentinel
 
 | part | weight |
 |---|---|
-| (K+A)/D | 23% |
-| KAST | 20% |
-| Abilities | 19% |
-| ACS | 15% |
-| ADR | 11% |
-| HS% | 6% |
-| **First deaths** | **−6%** |
+| (K+A)/D | 25% |
+| KAST | 22% |
+| ADR | 18% |
+| Trades | 9% |
+| Defuses | 8% |
+| HS% | 7% |
+| Plants | 6% |
+| Abilities | 3% |
+| **First deaths** | **−2%** |
 
 First deaths are negative: dying first repeatedly is the opposite of holding a
-site.
+site. Defusing is weighted highest here of any role, for the same reason.
 
 ### Two deliberate choices that look like mistakes
 
-**ACS and ADR are kept together despite correlating 0.98.** They are close to
-the same measurement, so the two of them together are really one dial: moving
-one without the other has about half the effect the number suggests. How much
-of the score sits on that one dial is a deliberate choice per role:
+**Damage is one dial, turned to a different height per role.** Before 13.06
+this dial was ACS and ADR together, which correlate 0.98. It is ADR alone now,
+and how far it is turned up is the clearest statement each table makes:
 
-| role | ACS + ADR |
+| role | ADR |
 |---|---|
-| Duelist | 39% -- damage is meant to lead for this role |
-| Sentinel | 26% |
-| Initiator | 27% |
-| Controller | 21% -- lowest, because these roles are not judged on fragging |
+| Duelist | 28% -- damage is meant to lead for this role |
+| Initiator | 26% |
+| Controller | 21% |
+| Sentinel | 18% -- lowest; its weight went to holding and retaking sites |
 
 The support roles were originally drafted with ACS leading, at 22-24%. That was
 wrong for the same reason the whole spec exists: it scored a Controller on the
-thing a Duelist is for. KAST, assists and abilities take that weight instead.
+thing a Duelist is for. Before 13.06 the Controller sat lowest on this dial;
+the measured replacement puts the Sentinel there instead, with the difference
+spent on defuses.
 
 **Controllers count K/D and assists separately; Initiators and Sentinels fold
 assists into (K+A)/D.** So two players with identical stats on different roles
@@ -306,10 +347,11 @@ Within the same agent, casting more does go with winning (+0.13 to +0.19). But
 once kills and deaths are accounted for, that drops to **+0.02 to +0.04**. So
 most of what abilities measure is *staying alive long enough to use them*.
 
-This is the weakest-evidenced input in the spec, and it carries 17-19% on three
-of the four roles. That is a deliberate choice about what the score should
-reward, not a claim the data supports. It should be revisited once the live
-scorecard has enough matches to measure it.
+This is the weakest-evidenced input in the spec. It carried 17-19% on three of
+the four roles -- a deliberate choice about what the score should reward, not a
+claim the data supported. It was revisited on 26 September 2026 and cut to 3%
+everywhere, which is about what the evidence here supports; the candidate that
+did so was the best-ranking of the tables measured without combat score.
 
 ---
 
@@ -497,6 +539,31 @@ ranking, so the three cannot disagree. Matches recorded before the raw was
 stored fall back to the percentile, which is what they were ordered by at the
 time.
 
+**After patch 13.06, measured on the tables in section 4.** 3,000 test-period
+teams, both scores on the same teams
+(`python tools/compare_role_score.py --teams 3000`):
+
+| | top-1 |
+|---|---|
+| the old score | 29.8% |
+| **the per-role score** | **30.0%** |
+| career ACS alone | 30.7% |
+| shuffled (control) | 20.0% |
+
+| role | rho old | rho new | named old | named new |
+|---|---|---|---|---|
+| Duelist | +0.176 | +0.160 | 35.1% | 29.5% |
+| Sentinel | +0.172 | +0.142 | 26.8% | 29.6% |
+| Controller | +0.151 | +0.122 | 25.4% | 29.0% |
+| Initiator | +0.172 | +0.164 | 25.8% | 27.9% |
+
+**It passes criterion 1 and still fails criterion 2.** Top-1 is level with the
+old score, where the first tables were two points behind it. The best game is
+now recognised about equally often whichever role had it -- 28-30% for every
+role, against 25-35% before -- which is what the per-role score was built to
+do. But within a role, the old single formula still orders players better, so
+the Initiator and Controller correlations criterion 2 asks for are not reached.
+
 **Success criteria, agreed in advance:**
 
 1. Overall top-1 must not drop by more than one standard error (about 1 point
@@ -525,4 +592,6 @@ least. They should use the same definition, and it should be the rating.
   success for Duelists.
 - **The map weight (5%)** was not specified; it is my proposal.
 - **The role-neutral fallback** for agent select was not specified either.
-- **Abilities at 17-19%** rest on the weakest evidence in the spec.
+- **Within-role ordering** (criterion 2) still trails the old single formula
+  for every role. The per-role tables recognise the best game more evenly
+  across roles, but order players inside a role less well.
