@@ -195,12 +195,21 @@ def upsert_players(conn: sqlite3.Connection, rows: list[dict]) -> None:
     )
 
 
+# The two kinds of response that carry whole match objects: a player's
+# matchlist, whose `data` is a list of them, and one match fetched by id -- the
+# settler's -- whose `data` is a single match. Reading only the first left
+# every match that arrived through the second out of any re-parse: a Swiftplay
+# game the settler fetched kept empty spike columns after a backfill had
+# filled every other row in the table.
+MATCH_ENDPOINTS = ("%matches%", "%/match/%")
+
+
 def iter_matches(conn: sqlite3.Connection) -> Iterator[dict]:
-    """Every match object across every stored matchlist response."""
+    """Every match object in every stored response that carries one."""
     from valwr.store import raw
-    for _, doc in raw.iter_responses(conn, "%matches%"):
-        for m in doc.get("data") or []:
-            yield m
+    for _, doc in raw.iter_responses(conn, MATCH_ENDPOINTS):
+        data = doc.get("data")
+        yield from ([data] if isinstance(data, dict) else data or [])
 
 
 # Commit every N matches rather than once at the end. SQLite allows a single

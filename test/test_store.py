@@ -328,3 +328,42 @@ def test_the_reparse_runs_when_there_is_room(conn, monkeypatch):
     monkeypatch.setattr(N, "CHECKPOINT_EVERY", 1)
     stats = N.normalize_all(conn, verbose=False)
     assert stats["matches"] >= 1 and stats["errors"] == 0
+
+
+# --- matches fetched one at a time ---------------------------------------
+
+def test_a_reparse_includes_matches_fetched_one_at_a_time(conn):
+    """The settler fetches a finished match by id, and that response holds one
+    match rather than a list. The re-parse read only matchlists, so a Swiftplay
+    game fetched that way kept empty spike columns after a backfill that filled
+    every other row in the table."""
+    import json as _json
+
+    from valwr.store import normalize as N
+    from valwr.store import raw
+    raw.record(conn, "/valorant/v4/match/na/single", {}, 200,
+               _json.dumps({"data": make_match("single", spike=True)}))
+    stats = N.normalize_all(conn, verbose=False)
+    assert stats["errors"] == 0
+    plants = conn.execute("SELECT plants FROM match_players WHERE "
+                          "match_id='single' AND puuid='p0'").fetchone()
+    assert plants is not None, "a match fetched by id must be re-parsed"
+    assert plants[0] == 2
+
+
+def test_the_newest_copy_of_a_match_wins_whichever_endpoint_it_came_from(conn):
+    """Both kinds are read as one pass in fetch order, as when the rows were
+    first written. Reading them as two passes would let an older matchlist
+    copy -- here one without round data -- overwrite the settler's newer,
+    complete one."""
+    import json as _json
+
+    from valwr.store import normalize as N
+    from valwr.store import raw
+    raw.record(conn, "/valorant/v4/by-puuid/matches/na/pc/x", {}, 200,
+               _json.dumps({"data": [make_match("m1")]}))
+    raw.record(conn, "/valorant/v4/match/na/m1", {}, 200,
+               _json.dumps({"data": make_match("m1", spike=True)}))
+    N.normalize_all(conn, verbose=False)
+    assert conn.execute("SELECT plants FROM match_players WHERE "
+                        "match_id='m1' AND puuid='p0'").fetchone()[0] == 2

@@ -64,17 +64,25 @@ def load(conn: sqlite3.Connection, row_id: int) -> Any:
 
 
 def iter_responses(
-    conn: sqlite3.Connection, endpoint_like: str = "%", status: int = 200
+    conn: sqlite3.Connection, endpoint_like: str | tuple[str, ...] = "%",
+    status: int = 200,
 ) -> Iterator[tuple[int, Any]]:
-    """Stream decoded responses. Phase 2's normaliser reads through this.
+    """Stream decoded responses, oldest first. Phase 2's normaliser reads
+    through this.
 
     Yields one at a time rather than materialising the set -- decompressed
     match blobs are large enough that loading them all at once is a real
-    memory problem.
+    memory problem. Several patterns are read as one pass in fetch order, so
+    a later response of either kind still overwrites an earlier one, exactly
+    as when the rows were first written.
     """
+    likes = ((endpoint_like,) if isinstance(endpoint_like, str)
+             else tuple(endpoint_like))
+    where = " OR ".join("endpoint LIKE ?" for _ in likes)
     cur = conn.execute(
-        "SELECT id, body FROM raw_response WHERE endpoint LIKE ? AND status = ? ORDER BY id",
-        (endpoint_like, status),
+        f"SELECT id, body FROM raw_response WHERE ({where}) AND status = ? "
+        "ORDER BY id",
+        (*likes, status),
     )
     for row in cur:
         yield row["id"], json.loads(decompress(row["body"]))
