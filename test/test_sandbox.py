@@ -16,6 +16,7 @@ takes a representative sample so `pytest` stays fast.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
@@ -30,10 +31,16 @@ SAMPLE = ("fair_match", "single_smurf", "bad_map", "good_map",
           "shrinkage_3_at_100", "edge_wr_one", "dominance_extreme")
 
 
+# These are about the model trained in this checkout, so they look for it
+# here rather than through settings the suite deliberately never reads, and
+# skip on a fresh clone -- as test_model.py does.
+TRAINED = Path(__file__).resolve().parent.parent / "models" / "model.joblib"
+
+
 @pytest.fixture(scope="module")
 def bundle():
     try:
-        return pred.load_bundle()
+        return pred.load_bundle(TRAINED)
     except pred.MissingModel:
         pytest.skip("no trained model bundle present")
 

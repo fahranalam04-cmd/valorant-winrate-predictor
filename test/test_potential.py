@@ -7,6 +7,7 @@ these tests need neither the real database nor a fitted index.
 from __future__ import annotations
 
 import json
+import pathlib
 
 import pytest
 
@@ -155,9 +156,12 @@ def _one_player(map_played: str):
 def _bundle_and_index():
     from valwr.rating import potential as RP
     from valwr.sandbox import predictor as pred
+    # The model and index trained in this checkout, found here rather than
+    # through settings the suite never reads; absent on a fresh clone.
+    models = pathlib.Path(__file__).resolve().parent.parent / "models"
     try:
-        bundle = pred.load_bundle()
-        index = RP.PerfIndex.load()
+        bundle = pred.load_bundle(models / "model.joblib")
+        index = RP.PerfIndex.load(models / "perf_index.json")
     except (pred.MissingModel, FileNotFoundError) as e:
         pytest.skip(str(e))
     return bundle, index

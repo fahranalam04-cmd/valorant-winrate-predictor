@@ -125,13 +125,22 @@ def test_every_map_the_database_has_seen_has_a_background():
     A missing file is not an exception anywhere -- the background simply does
     not paint -- so nothing would report it but this.
     """
-    from valwr import config
-    from valwr.store import schema
+    import sqlite3
 
-    s = config.load(require_key=False)
-    if not s.database_path.exists():
+    from dotenv import dotenv_values
+
+    from valwr import config
+
+    # About this machine's data, so it asks for the database that is really
+    # configured -- the suite otherwise never reads .env -- and opens it
+    # read-only: no test may write to real data.
+    where = dotenv_values(config.REPO_ROOT / ".env").get("DATABASE_PATH")
+    path = Path(where or "data/valwr.db")
+    if not path.is_absolute():
+        path = config.REPO_ROOT / path
+    if not path.exists():
         pytest.skip("no database")
-    conn = schema.connect(s.database_path)
+    conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
     played = [r[0] for r in conn.execute(
         "SELECT DISTINCT map FROM matches WHERE map IS NOT NULL")]
     conn.close()

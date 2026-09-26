@@ -35,6 +35,40 @@ def _ingest(conn, *matches):
     _leakage().ingest(conn, *matches)
 
 
+@pytest.fixture(autouse=True, scope="module")
+def _a_trained_population(tmp_path_factory):
+    """Averages to judge "played best" against, without a trained model.
+
+    Settling ranks a finished match by `match_impact`, which z-scores each
+    player against the norms the live model was trained with. These tests
+    passed only on a machine that had trained one: on a fresh clone there are
+    no norms, nobody can be rated, and every verdict comes back empty. So a
+    small population is written across the sandbox's skill ladder and saved
+    the way a trained bundle is, then found through the same models setting
+    the real one is.
+    """
+    import joblib
+
+    from valwr.rating import normalize
+    from valwr.sandbox import profiles, world
+    as_of = 1_800_000_000
+    pop = world.new_connection()
+    for name in ("weak", "below_average", "average", "above_average",
+                 "strong", "elite"):
+        for map_name in ("Ascent", "Bind"):
+            world.write_player(pop, f"{name}-{map_name}", profiles.get(name),
+                               as_of, map_name, "Jett")
+    models = tmp_path_factory.mktemp("models")
+    joblib.dump({"norms": normalize.build_norms(pop, 2_000_000_000)},
+                models / "model.joblib")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("MODELS_PATH", str(models))
+        # Cleared so the norms are loaded from here, and restored on exit so
+        # they never leak into another module's tests.
+        mp.setattr(normalize, "_SHIPPED", None)
+        yield
+
+
 @pytest.fixture
 def conn(tmp_path):
     c = schema.connect(tmp_path / "t.db")
