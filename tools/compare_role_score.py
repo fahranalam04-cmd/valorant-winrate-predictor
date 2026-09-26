@@ -62,7 +62,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="compare_role_score")
     ap.add_argument("--teams", type=int, default=1500)
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--index", default=str(roleindex.INDEX_PATH),
+    ap.add_argument("--index", default=str(roleindex.index_path()),
                     help="which role index to measure (default: the shipped one)")
     ap.add_argument("--write-index", action="store_true",
                     help="record the measured top-1 rate into the index, so "

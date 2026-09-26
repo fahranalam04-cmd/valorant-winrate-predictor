@@ -147,7 +147,14 @@ DEFAULT_FLAG_CUT = 2.0      # used only if the index predates calibration
 # actually looks like is topping the lobby far more often than one in five --
 # and that is visible in the match history rather than on the profile.
 
-INDEX_PATH = Path("models") / "perf_index.json"
+def index_path() -> Path:
+    """Where the fitted index lives: the configured models directory."""
+    # From config, never the working directory. This was Path("models"),
+    # found only when the program happened to start in the repo:
+    # dashboard.bat changes into it first, so the dashboard worked, and run
+    # from anywhere else the scores quietly vanished from the card.
+    from valwr import config
+    return config.load(require_key=False).models_path / "perf_index.json"
 
 
 @dataclass(frozen=True)
@@ -346,7 +353,7 @@ class PerfIndex:
 
     @classmethod
     def load(cls, path: Path | None = None) -> "PerfIndex":
-        path = path or INDEX_PATH
+        path = path or index_path()
         if not path.exists():
             raise FileNotFoundError(
                 f"no performance index at {path}; run "

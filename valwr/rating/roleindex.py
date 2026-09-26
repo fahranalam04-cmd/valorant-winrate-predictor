@@ -38,7 +38,14 @@ from valwr.rating import roles
 from valwr.rating.normalize import Moments
 from valwr.rating.role_score import COMPONENTS, MIN_MAP_GAMES, shrink_values
 
-INDEX_PATH = Path("models") / "role_index.json"
+def index_path() -> Path:
+    """Where the fitted index lives: the configured models directory."""
+    # From config, never the working directory. This was Path("models"),
+    # found only when the program happened to start in the repo:
+    # dashboard.bat changes into it first, so the dashboard worked, and run
+    # from anywhere else the scores quietly vanished from the card.
+    from valwr import config
+    return config.load(require_key=False).models_path / "role_index.json"
 
 # How hard a thin band is pulled toward the global figure is owned by
 # rating/normalize.py -- `Moments.shrunk_toward` applies its PRIOR_WEIGHT, and
@@ -168,7 +175,7 @@ class RoleIndex:
 
     @classmethod
     def load(cls, path: Path | None = None) -> "RoleIndex":
-        raw = json.loads((path or INDEX_PATH).read_text(encoding="utf-8"))
+        raw = json.loads((path or index_path()).read_text(encoding="utf-8"))
 
         def un(v) -> Moments:
             return Moments(n=v[0], total=v[1], total_sq=v[2])

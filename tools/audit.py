@@ -62,7 +62,9 @@ class Report:
 
 def check_artefacts(rep: Report) -> None:
     """Anything refitted leaves copies behind. This has bitten twice."""
-    model = ROOT / "models" / "model.joblib"
+    from valwr import config
+    models = config.load(require_key=False).models_path
+    model = models / "model.joblib"
     if not model.exists():
         rep.note("models/model.joblib", "absent; skipping artefact checks")
         return
@@ -70,7 +72,7 @@ def check_artefacts(rep: Report) -> None:
     bundle = joblib.load(model)
     norms_as_of = bundle.get("norms_as_of")
 
-    idx = ROOT / "models" / "perf_index.json"
+    idx = models / "perf_index.json"
     if idx.exists():
         d = json.loads(idx.read_text(encoding="utf-8"))
         if norms_as_of and d.get("as_of", 0) < norms_as_of:

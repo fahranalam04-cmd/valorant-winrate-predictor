@@ -263,7 +263,7 @@ def main(argv=None) -> int:
 
     s = config.load(require_key=False)
     conn = schema.connect(s.database_path)
-    bundle = joblib.load(ROOT / "models" / "model.joblib")
+    bundle = joblib.load(s.models_path / "model.joblib")
     results = json.loads(RESULTS.read_text(encoding="utf-8"))
     tr, va, te = load_slices(conn)
     y = te["target"].to_numpy(int)

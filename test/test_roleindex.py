@@ -250,3 +250,42 @@ def test_role_averages_still_come_from_raw_values():
     raw = [c.values["acs"] for c in samples if c.role == "Duelist"]
     assert index.role_means["Duelist"]["acs"] == pytest.approx(
         sum(raw) / len(raw), abs=1.0)
+
+
+# --- where the models live ------------------------------------------------
+
+def test_the_indexes_are_found_from_any_working_directory(tmp_path, monkeypatch):
+    """Both indexes were read from Path("models"), relative to wherever the
+    program was started. dashboard.bat changes into the repo first, so the
+    dashboard worked; started anywhere else, every score vanished from the
+    card with nothing to say why."""
+    from valwr import config
+    from valwr.rating import potential, roleindex
+    models = config.load(require_key=False).models_path
+    monkeypatch.chdir(tmp_path)
+    assert roleindex.index_path() == models / "role_index.json"
+    assert potential.index_path() == models / "perf_index.json"
+    assert roleindex.index_path().is_absolute()
+
+
+def test_the_indexes_follow_the_models_setting(tmp_path, monkeypatch):
+    from valwr.rating import potential, roleindex
+    monkeypatch.setenv("MODELS_PATH", str(tmp_path))
+    assert roleindex.index_path() == tmp_path / "role_index.json"
+    assert potential.index_path() == tmp_path / "perf_index.json"
+
+
+def test_nothing_works_out_the_models_directory_for_itself():
+    """One answer to "where are the models", and it is config's. Every copy of
+    the guess -- two relative to the working directory, four more anchored to
+    the repo -- ignored MODELS_PATH, and the relative ones broke outright."""
+    import pathlib
+    import re
+    root = pathlib.Path(__file__).resolve().parent.parent
+    guess = re.compile(r"""["']models["']\s*/|/\s*["']models["']|Path\(\s*["']models""")
+    found = []
+    for path in [*root.glob("valwr/**/*.py"), *root.glob("tools/*.py")]:
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.lstrip().startswith("#") and guess.search(line):
+                found.append(f"{path.relative_to(root)}:{n}")
+    assert not found, f"models path built outside config: {found}"

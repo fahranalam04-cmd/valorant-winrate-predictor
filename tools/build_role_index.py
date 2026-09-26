@@ -37,7 +37,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="build_role_index")
     ap.add_argument("--sample", type=int, default=40000)
     ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--out", default=str(roleindex.INDEX_PATH))
+    ap.add_argument("--out", default=str(roleindex.index_path()))
     args = ap.parse_args(argv)
 
     s = config.load(require_key=False)

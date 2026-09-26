@@ -383,9 +383,9 @@ def main(argv=None) -> int:
         # travels with the index that produced it.
         import dataclasses
         updated = dataclasses.replace(index, top1_rate=round(acc, 4))
-        P.INDEX_PATH.write_text(updated.to_json(), encoding="utf-8")
+        P.index_path().write_text(updated.to_json(), encoding="utf-8")
         print()
-        print(f"  wrote top1_rate={acc:.4f} to {P.INDEX_PATH}")
+        print(f"  wrote top1_rate={acc:.4f} to {P.index_path()}")
 
     rho = spearman([p["raw"] for p in flat], [p["actual"] for p in flat])
     rho_r = spearman([p["c"].rating for p in flat], [p["actual"] for p in flat])

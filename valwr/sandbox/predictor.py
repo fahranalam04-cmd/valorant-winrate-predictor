@@ -21,9 +21,6 @@ import math
 from pathlib import Path
 from typing import Protocol
 
-REPO = Path(__file__).resolve().parent.parent.parent
-BUNDLE = REPO / "models" / "model.joblib"
-
 
 class MissingModel(RuntimeError):
     pass
@@ -81,7 +78,9 @@ class MarginPredictor:
 
 def load_bundle(path: Path | None = None) -> dict:
     import joblib
-    path = path or BUNDLE
+    if path is None:
+        from valwr import config
+        path = config.load(require_key=False).models_path / "model.joblib"
     if not path.exists():
         raise MissingModel(
             f"no model at {path}. Run `python -m valwr.model.train` first; "

@@ -112,9 +112,10 @@ def main(argv=None) -> int:
           f"{fires:,}/{len(collected):,} ({fires / len(collected) * 100:.1f}%)"
           f"  -- {len(eligible):,} players dominated enough to qualify")
 
-    P.INDEX_PATH.parent.mkdir(exist_ok=True)
-    P.INDEX_PATH.write_text(index.to_json(), encoding="utf-8")
-    print(f"\nwrote {P.INDEX_PATH}  ({len(collected):,} samples, "
+    out = P.index_path()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(index.to_json(), encoding="utf-8")
+    print(f"\nwrote {out}  ({len(collected):,} samples, "
           f"{time.time() - started:.0f}s)")
     for name in P.WEIGHTS:
         print(f"  {name:<10} mean {means[name]:+8.3f}   sd {stds[name]:8.3f}")

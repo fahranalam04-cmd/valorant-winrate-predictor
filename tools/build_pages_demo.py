@@ -30,12 +30,12 @@ from pathlib import Path
 sys.path.insert(0, ".")
 
 from valwr.dash.demo import demo_state
+from valwr.rating import roleindex
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGE = ROOT / "valwr" / "dash" / "static" / "index.html"
 AGENTS = ROOT / "valwr" / "dash" / "static" / "agents"
 MAPS = ROOT / "valwr" / "dash" / "static" / "maps"
-INDEX = ROOT / "models" / "role_index.json"
 REPO_URL = "https://github.com/fahranalam04-cmd/valorant-winrate-predictor"
 
 # Written into every build, and required before an existing directory is
@@ -289,8 +289,9 @@ def build(out: Path, conn=None) -> dict:
     if state["map"] not in maps:
         maps.insert(0, state["map"])
     top1 = None
-    if INDEX.exists():
-        top1 = json.loads(INDEX.read_text(encoding="utf-8")).get("top1_rate")
+    index = roleindex.index_path()
+    if index.exists():
+        top1 = json.loads(index.read_text(encoding="utf-8")).get("top1_rate")
 
     written = []
     for p in state["players"]:
