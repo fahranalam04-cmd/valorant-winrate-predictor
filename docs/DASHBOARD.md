@@ -106,6 +106,8 @@ it, and together they make up the prediction.
 
 ### Agent select
 
+![Agent select: your team as cards](images/dashboard-agent-select.jpg)
+
 About a minute to lock in, and Riot has not shown you the enemy yet, so the
 page gives the whole screen to your own team: one card per player, with
 everything showing at once rather than behind a click.

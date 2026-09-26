@@ -159,8 +159,10 @@ with a prediction before the first round — including the degraded path.
 to over its websocket; it is simpler and just as fast at this cadence. The
 shard comes from `/riotclient/region-locale`, not the process command line. A
 player whose newest stored match is over two hours old is refetched, your own
-account always is, and two matchlist pages are fetched so a "last 20" really
-is the last twenty.
+account is refreshed once per match, and two matchlist pages are fetched so a
+"last 20" really is the last twenty. A lookup that has answered is not
+repeated within the match, and in agent select your teammates are looked up
+before you. Everyone already stored is painted before the first request.
 
 ## Phase 7 — Dashboard
 

@@ -239,6 +239,11 @@ cp .env.example .env                                 # then fill in HENRIK_API_K
 python -m valwr.check                                # smoke test: key, network, schema
 ```
 
+Two optional settings in `.env` move the heavy parts elsewhere.
+`DATABASE_PATH` puts the database anywhere -- a second drive, say; it reached
+10 GB by 78,000 matches. `MODELS_PATH` does the same for the trained models,
+which default to `models/`. Both may be absolute or relative to the repository.
+
 ### Collect a dataset
 
 Nothing works without match history, and there is no shipped database — it
@@ -265,8 +270,9 @@ after three days unless you tell it not to.
 python -m valwr.model.train --rebuild        # build features, fit, select, save
 python -m valwr.model.analyze                # equal-rank subset, and both README charts
 python tools/build_perf_index.py             # population reference, old single score
+python tools/validate_potential.py --write-index   # ...and its measured hit rate
 python tools/build_role_index.py             # per-role reference for the 0-100 score
-python tools/validate_potential.py --write-index   # measure and record its hit rate
+python tools/compare_role_score.py --write-index   # ...and the hit rate the dashboard quotes
 python tools/model_metrics.py                # every model, every metric, into docs/MODEL-CHOICE.md
 python tools/improve.py                      # what your own recorded matches say, and what to fix
 ```
@@ -283,6 +289,7 @@ python tools/fetch_agent_art.py    # agent portraits and map splashes, once (~11
 dashboard.bat                      # live view, localhost only
 phone.bat                          # same, readable from a phone on your wifi
 python -m valwr.dash --demo        # invented match, to see the page without playing
+python -m valwr.dash --demo pregame  # the same, in agent select
 python -m valwr.dash --match <id>  # replay a finished game as it would have looked
 ```
 
@@ -309,6 +316,15 @@ against others on the same role, damage per round, K/D,
 last-20 K/D and headshot rate, competitive games only; and a card per player
 with their record, form and history on this map.
 
+In agent select the page gives the screen to your own team instead, one card
+per player with everything showing at once: the 0-100 rating, last-20 K/D/A
+per game, K/D, headshot rate, damage per round and win rate, the agents they
+play on this map, and their last competitive game. Anyone already in the
+database appears the moment agent select is detected; the rest fill in as
+their lookups land, teammates first.
+
+![Agent select: your team as cards](docs/images/dashboard-agent-select.jpg)
+
 The interactive demo is rebuilt with `python tools/build_pages_demo.py`, and
 these images with `python tools/capture_dashboard.py`
 (`pip install -e ".[images]"`).
@@ -316,7 +332,7 @@ these images with `python tools/capture_dashboard.py`
 ### Tests
 
 ```bash
-pytest -q                          # 370 tests
+pytest -q                          # 537 tests; needs no .env, model or database
 python tools/audit.py              # re-derives documented claims, reports drift
 ```
 
