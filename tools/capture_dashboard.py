@@ -10,6 +10,8 @@ Writes docs/images/:
     dashboard-walkthrough.webp an animated tour: select, switch map and side,
                                a thin lobby, closing the card
     dashboard-phone.jpg        the phone layout, list and card side by side
+    dashboard-agent-select.jpg agent select: your team as cards, some still
+                               picking, one still being looked up
 
 Everything is captured from the demo -- the real page fed invented players --
 so no real gamertag can end up in a committed image.
@@ -67,9 +69,13 @@ def serve(directory: Path):
 CSP = {"bypass_csp": True}
 
 
-def settle(page) -> None:
-    """Wait for the render, every image, and the background to paint."""
-    page.wait_for_selector("button.row")
+def settle(page, rendered: str = "button.row") -> None:
+    """Wait for the render, every image, and the background to paint.
+
+    `rendered` is what the page draws once it has a match: scoreboard rows,
+    or in agent select the team's cards.
+    """
+    page.wait_for_selector(rendered)
     page.wait_for_function(
         "[...document.images].every(i => i.complete)", timeout=15000)
     page.wait_for_timeout(700)
@@ -198,6 +204,14 @@ def main(argv=None) -> int:
         page.wait_for_timeout(500)
         page.screenshot(path=str(OUT / "dashboard-result.jpg"), type="jpeg",
                         quality=86)
+        page.close()
+
+        # --- agent select: your team as cards ------------------------------
+        page = browser.new_page(viewport={"width": 1600, "height": 1000}, **CSP)
+        page.goto(url + "?clean&phase=pregame")
+        settle(page, "button.pcard")
+        page.screenshot(path=str(OUT / "dashboard-agent-select.jpg"),
+                        type="jpeg", quality=86)
         page.close()
 
         # --- the walkthrough ------------------------------------------------

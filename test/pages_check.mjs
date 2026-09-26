@@ -70,6 +70,10 @@ ck("agent select shows your team as cards", cards() === 5);
 ck("and nothing of the hidden enemy team", rows() === 0);
 ck("without claiming a prediction it cannot make",
    !/class="odds"/.test(els.stage.innerHTML));
+ck("with players still picking", />selecting</.test(els.stage.innerHTML));
+ck("and strangers still being looked up, not written off",
+   /Looking up their last 20/.test(els.stage.innerHTML)
+   && !/No competitive history/.test(els.stage.innerHTML));
 window.__demo.set("phase", "coregame");
 ck("leaving it restores the full lobby", rows() === 10 && cards() === 0);
 
@@ -86,6 +90,23 @@ ck("and the scoreboard beside the prediction", /class="compare"/.test(els.stage.
   ck("and saying how they played against their own average",
      /their usual/.test(q));
 }
+
+{
+  const q = els.stage.innerHTML;
+  // Patch 13.06 took combat score off the game's scoreboard. The demo's
+  // invented result still read it, so the published page and the README
+  // image showed a comparison the real one stopped making.
+  ck("the comparison is in damage per round, not combat score",
+     /Damage \/ round/.test(q) && !/Combat score/.test(q));
+  ck("and placing is named for match impact",
+     /on match\s+impact/.test(q) && !/on combat\s+score/.test(q));
+}
+// Agent select has no prediction to score. A finished match was played, so
+// its result must not depend on where the phase switch was left.
+window.__demo.set("phase", "pregame");
+ck("a result renders whichever phase the switch was left on",
+   /class="result (won|lost)"/.test(els.stage.innerHTML));
+window.__demo.set("phase", "coregame");
 
 window.__demo.set("status", "lobby");
 ck("the menus show standby", els.map.textContent === "STANDBY");

@@ -36,7 +36,7 @@ ROLES = {"Jett": "Duelist", "Reyna": "Duelist", "Neon": "Duelist",
 # the most common covers 8.6% of them.
 REASONS = [
     "consistently strong",
-    "high combat score",
+    "damages every round",
     None,
     "middle of the pack",
     "below par lately, but only 4 games",
@@ -45,6 +45,28 @@ REASONS = [
     None,
     "middle of the pack",
     "loses duels",
+]
+
+# Each player's most recent competitive game: kills, deaths, assists, headshot
+# rate, won, rounds for and against, how long ago, the map, and how that game's
+# damage compares with their average. The agent-select card prints this on
+# every row, and one shared template made five different players look as if
+# they had all played the same game -- the problem the reasons above had.
+AGO_SECONDS = {"40 minutes ago": 2400, "1 hour ago": 3600, "2 hours ago": 7200,
+               "3 hours ago": 10800, "5 hours ago": 18000,
+               "yesterday": 86400, "2 days ago": 172800}
+
+LAST_GAMES = [
+    (21, 14, 3, 0.27, True, 13, 9, "2 hours ago", "Ascent", 1.15),
+    (24, 17, 5, 0.25, True, 13, 11, "40 minutes ago", "Bind", 1.22),
+    None,
+    (16, 16, 8, 0.22, True, 14, 12, "3 hours ago", "Haven", 1.00),
+    (9, 15, 11, 0.19, False, 7, 13, "yesterday", "Lotus", 0.78),
+    (29, 12, 4, 0.33, True, 13, 5, "1 hour ago", "Split", 1.35),
+    (11, 14, 6, 0.18, False, 10, 13, "5 hours ago", "Sunset", 0.85),
+    None,
+    (17, 15, 9, 0.24, False, 11, 13, "yesterday", "Icebox", 1.02),
+    (13, 16, 4, 0.21, False, 12, 14, "2 days ago", "Pearl", 0.90),
 ]
 
 # score, career games, acs, k, d, a, kd, hs, winrate, map games
@@ -186,6 +208,7 @@ def demo_state(conn=None, phase: str = "coregame") -> dict:
             "reason": REASONS[i] or "no history",
         }
         if known:
+            last = LAST_GAMES[i]
             # The flagged one: dominates lobbies far above their rank.
             if i == 5:
                 entry["flag"] = {"note": "Finishes top-2 in 71% of their "
@@ -212,14 +235,16 @@ def demo_state(conn=None, phase: str = "coregame") -> dict:
                                    round((wr or 0.5) * 0.98, 4)),
                             name=MAP, counts_toward_score=counts, gate=GATE,
                             agents=[{"agent": agent, "games": max(mg - 2, 1)},
-                                    {"agent": "Omen", "games": 2}]),
+                                    {"agent": "Omen" if agent != "Omen"
+                                     else "Astra", "games": 2}]),
                 "form": [
-                    {"map": MAP, "agent": agent, "acs": round(acs * 1.15, 1),
-                     "adr": round(acs * 1.15 * 0.662, 1),
-                     "kills": 21, "deaths": 14, "assists": 3,
-                     "headshot_rate": 0.27, "rounds_won": 13,
-                     "rounds_lost": 9, "won": True,
-                     "ago": "2 hours ago"},
+                    {"map": last[8], "agent": agent,
+                     "acs": round(acs * last[9], 1),
+                     "adr": round(acs * last[9] * 0.662, 1),
+                     "kills": last[0], "deaths": last[1], "assists": last[2],
+                     "headshot_rate": last[3], "rounds_won": last[5],
+                     "rounds_lost": last[6], "won": last[4],
+                     "ago": last[7]},
                     {"map": "Lotus", "agent": "Omen", "acs": round(acs * 0.82, 1),
                      "adr": round(acs * 0.82 * 0.662, 1),
                      "kills": 12, "deaths": 18, "assists": 9,
@@ -232,8 +257,10 @@ def demo_state(conn=None, phase: str = "coregame") -> dict:
                      "headshot_rate": 0.24, "rounds_won": 13,
                      "rounds_lost": 11, "won": True, "ago": "2 days ago"},
                 ],
-                "freshness": {"games_known": games, "seconds_old": 7200,
-                              "label": "last match 2 hours ago", "stale": False},
+                "freshness": {"games_known": games,
+                              "seconds_old": AGO_SECONDS[last[7]],
+                              "label": f"last match {last[7]}",
+                              "stale": AGO_SECONDS[last[7]] > 86400},
             }
         else:
             entry["detail"] = None

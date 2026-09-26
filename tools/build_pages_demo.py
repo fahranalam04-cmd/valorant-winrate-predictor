@@ -114,7 +114,9 @@ function build(){
   s.prediction.win_probability = blue;
   s.prediction.own_probability = view.side === "Blue" ? blue : 1 - blue;
 
-  if (view.phase === "pregame"){
+  // A finished match was played, whatever the phase switch says: its result
+  // is read against the in-game lobby and the prediction made for it.
+  if (view.phase === "pregame" && view.status !== "finished"){
     // Riot describes only your own team before the match starts, and the
     // live view predicts nothing until it can see both. Relabelling the phase
     // alone showed an agent select no real lobby could produce.
@@ -122,6 +124,13 @@ function build(){
     s.parties = s.parties.filter(g => g.team === view.side);
     s.coverage = s.players.filter(p => p.score !== null).length;
     s.prediction = null;
+    // The first seconds of a real one: the last two on the list have not
+    // picked yet, and anyone with no stored history is still being looked
+    // up rather than shown as having none.
+    for (const p of s.players.slice(-2))
+      Object.assign(p, {agent: null, agent_id: null, role: null});
+    const pending = s.players.filter(p => p.score === null).map(p => p.puuid);
+    s.lookup = {pending, remaining: 2 * pending.length};
   }
   return {status: "match", state: s, top1_rate: TOP1, fresh: false};
 }
@@ -132,10 +141,13 @@ function build(){
 function finished(){
   const payload = build();
   const s = payload.state;
-  const acs = {"demo-00": 241.0, "demo-01": 268.4, "demo-02": 176.1,
-               "demo-03": 205.3, "demo-04": 198.7, "demo-05": 289.6,
-               "demo-06": 214.2, "demo-07": 168.9, "demo-08": 226.8,
-               "demo-09": 181.5};
+  // Damage per round in this match. The real page ranks the finished lobby
+  // by match impact; invented players have no rounds to rate, so damage
+  // stands in for it here.
+  const adr = {"demo-00": 159.1, "demo-01": 177.1, "demo-02": 116.2,
+               "demo-03": 135.5, "demo-04": 131.1, "demo-05": 191.1,
+               "demo-06": 141.4, "demo-07": 111.5, "demo-08": 149.7,
+               "demo-09": 119.8};
   const kills = {"demo-00": 18, "demo-01": 22, "demo-02": 11, "demo-03": 15,
                  "demo-04": 14, "demo-05": 25, "demo-06": 16, "demo-07": 10,
                  "demo-08": 17, "demo-09": 12};
@@ -144,8 +156,8 @@ function finished(){
     .sort((a, b) => (b.raw != null ? b.raw : b.score)
                   - (a.raw != null ? a.raw : a.score))
     .map(p => p.puuid);
-  const byAcs = s.players.slice()
-    .sort((a, b) => acs[b.puuid] - acs[a.puuid])
+  const byImpact = s.players.slice()
+    .sort((a, b) => adr[b.puuid] - adr[a.puuid])
     .map(p => p.puuid);
 
   const players = s.players.map(p => {
@@ -158,28 +170,28 @@ function finished(){
       predicted_score: p.score,
       predicted_rank: ranked.indexOf(p.puuid) < 0 ? null
                       : ranked.indexOf(p.puuid) + 1,
-      acs: acs[p.puuid],
+      adr: adr[p.puuid],
       kills: kills[p.puuid],
       deaths: deaths,
       assists: Math.round(kills[p.puuid] * 0.4),
       kd: kd,
       headshot_rate: hs,
-      actual_rank: byAcs.indexOf(p.puuid) + 1,
+      actual_rank: byImpact.indexOf(p.puuid) + 1,
       // Their own career line, which is the baseline each block reads the
       // match against. Invented like everything else here.
-      career_acs: c ? c.acs : null,
+      career_adr: c ? c.adr : null,
       career_kd: c ? c.kd : null,
       career_hs: c ? c.headshot_rate : null,
       career_games: c ? c.games : null,
       recent_kd: p.recent ? p.recent.kd : null,
-      acs_delta: c ? Math.round((acs[p.puuid] - c.acs) * 10) / 10 : null,
+      adr_delta: c ? Math.round((adr[p.puuid] - c.adr) * 10) / 10 : null,
       kd_delta: c ? Math.round((kd - c.kd) * 100) / 100 : null,
       hs_delta: c ? Math.round((hs - c.headshot_rate) * 10000) / 10000 : null,
       versus_usual: !c ? null
-        : acs[p.puuid] / c.acs >= 1.15 ? "well above their usual"
-        : acs[p.puuid] / c.acs >= 1.05 ? "above their usual"
-        : acs[p.puuid] / c.acs <= 0.85 ? "well below their usual"
-        : acs[p.puuid] / c.acs <= 0.95 ? "below their usual"
+        : adr[p.puuid] / c.adr >= 1.15 ? "well above their usual"
+        : adr[p.puuid] / c.adr >= 1.05 ? "above their usual"
+        : adr[p.puuid] / c.adr <= 0.85 ? "well below their usual"
+        : adr[p.puuid] / c.adr <= 0.95 ? "below their usual"
         : "about their usual",
     });
   });
