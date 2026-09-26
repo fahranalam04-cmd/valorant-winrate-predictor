@@ -947,11 +947,11 @@ function playerBlock(p, rv, rated, placed){
     <div class="pline">${p.predicted_rank
       ? `Ranked <b>#${i0(p.predicted_rank)}</b> of the ${i0(rated)} players the
          page could score, and finished <b>#${p.actual_rank
-           ? i0(p.actual_rank) : "—"}</b> of ${i0(placed)} on combat
-         score${move === null ? "" : ` — ${placing}`}.`
+           ? i0(p.actual_rank) : "—"}</b> of ${i0(placed)} on match
+         impact${move === null ? "" : ` — ${placing}`}.`
       : `There was no history to score them on before the match${p.actual_rank
-         ? `; they finished #${i0(p.actual_rank)} of ${i0(placed)} on combat
-            score` : ""}.`}
+         ? `; they finished #${i0(p.actual_rank)} of ${i0(placed)} on match
+            impact` : ""}.`}
       ${p.versus_usual ? ` They played <b>${esc(p.versus_usual)}</b>.` : ""}</div>
     ${p.reason ? `<div class="pwhy">“${esc(p.reason)}”</div>` : ""}
     <table class="pstats"><thead><tr><th></th>
@@ -995,7 +995,8 @@ function compareHTML(rv){
     ${group("Your team", side(rv.own_team))}
     ${group("Enemy team", side(other))}
     <div class="cmp" style="border:0;padding-top:12px"><span class="k">Placing
-      is by combat score in that match. “Before” is the player's own career
+      is by match impact in that match -- the same measure the accuracy figures
+      use. “Before” is the player's own career
       average up to the moment the match started, never including the match
       itself — so the change column is how they played against how they usually
       play, not against the rest of the lobby.</span></div></div>`;

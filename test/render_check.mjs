@@ -410,7 +410,11 @@ ck("the opening message says what it is doing",
   // Both rankings run across the lobby. "#6 of five" was the bug.
   ck("a rank says what it is out of",
      /Ranked <b>#1<\/b> of the 8 players/.test(q)
-     && /of 10 on combat\s+score/.test(q));
+     && /of 10 on match\s+impact/.test(q));
+  // The order has been by match impact since patch 13.06 took combat score
+  // off the game's scoreboard; the sentences kept naming the old measure.
+  ck("placing is named for what it is measured by",
+     !/on combat\s+score/.test(q) && /Placing\s+is by match impact/.test(q));
   ck("and how they played against their own average is stated",
      /above their usual/.test(q));
   ck("a player with no history still renders, saying nothing",
