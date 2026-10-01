@@ -127,6 +127,12 @@ as it does; teammates are looked up before your own account. A player whose
 lookup has finished with nothing to find says *No competitive history*,
 which is a different thing and is never shown early.
 
+Each card is two rows -- who they are beside their numbers, then this map
+beside their last game -- so all five fit a maximised 1080p browser without
+scrolling, and the numbers sit in the same columns on every card. A test lays
+the page out in a real browser and fails if the fifth player ever drops below
+a 1920x800 or 2560x1300 window again.
+
 Clicking a card still opens the full breakdown in the side panel.
 
 ### The two teams

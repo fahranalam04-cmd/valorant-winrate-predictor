@@ -351,11 +351,26 @@ table.pstats td.mute,.pstats .mute{color:var(--ghost)}
 
 /* ---------- agent select: one card per teammate --------------------------
    About a minute to lock in, and the enemy is not visible yet, so the screen
-   goes to the people on your side with every number showing at once. */
-.cards{display:grid;gap:8px}
-.pcard{position:relative;display:grid;grid-template-columns:70px minmax(0,1fr);
-  gap:0 14px;align-items:start;width:100%;text-align:left;border:0;
-  padding:13px 16px 13px 0;background:var(--steel-2);color:inherit;font:inherit;
+   goes to the people on your side with every number showing at once -- all
+   five of them, without scrolling. A card is two rows: who they are beside
+   their last-20 numbers, then this map beside their last game. The numbers
+   sit in the same place on every card, so a column reads straight down.
+
+   The first version stacked everything and ran 152px a card, which put the
+   fifth player below the fold of a maximised 1080p browser.
+   tools/capture_dashboard.py now refuses to capture if all five stop fitting
+   a 1920x800 or 2560x1300 window, or if anything on a card is clipped. */
+.cards{display:grid;gap:6px}
+/* The status line over the art, where the scoreboard's grey label vanished
+   into the brightest part of the map. "Looking up" is what a reader is waiting
+   on in agent select, so it takes the colour of the card still loading. */
+.pregame .tcount{color:var(--bone-dim);text-shadow:0 1px 4px rgba(0,0,0,.9)}
+.pregame .tcount .pend{color:var(--gold);font-weight:700}
+.pcard{position:relative;display:grid;
+  grid-template-columns:62px minmax(0,1fr) auto;
+  grid-template-areas:"score who stats" "score info info";
+  align-items:center;gap:4px 16px;width:100%;text-align:left;border:0;
+  padding:9px 18px 9px 0;background:var(--steel-2);color:inherit;font:inherit;
   cursor:pointer;overflow:hidden;
   clip-path:polygon(0 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%);
   transition:background .14s ease}
@@ -370,26 +385,42 @@ table.pstats td.mute,.pstats .mute{color:var(--ghost)}
 .pcard:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .pcard.unknown{background:var(--sunk)}
 .pcard.unknown .art{opacity:.13;filter:grayscale(1)}
-.pcard .score{padding-top:6px}
+.pcard .score{grid-area:score;padding-left:12px}
 .atkc .pcard.known .score{color:var(--atk)}
 .defc .pcard.known .score{color:var(--def)}
-.cbody{position:relative;min-width:0}
-.cstats{display:grid;grid-template-columns:1.6fr repeat(4,minmax(0,1fr));
-  gap:8px;margin:10px 0 9px}
+.cwho{grid-area:who;position:relative;min-width:0}
+/* Fixed columns, so K/D on one card sits directly above K/D on the next. */
+.cstats{grid-area:stats;position:relative;display:grid;
+  grid-template-columns:124px repeat(4,54px);gap:10px}
 .cstats .st{text-align:left}
-.cline{font-size:12.5px;line-height:1.55;color:var(--bone-dim);
+.cinfo{grid-area:info;position:relative;min-width:0;display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:18px}
+/* In place of the numbers, at the numbers' width, so the column holds. */
+.cmsg{grid-area:stats;position:relative;width:380px;white-space:normal}
+.cline{font-size:12.5px;line-height:1.5;color:var(--bone-dim);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cline .ck{display:inline-block;min-width:84px;font:600 9px/1 var(--display);
+.cline .ck{display:inline-block;min-width:70px;font:600 9px/1 var(--display);
   letter-spacing:.16em;text-transform:uppercase;color:var(--ghost)}
 .cline .w{color:var(--win)}
 .cline .l{color:var(--val)}
 .cline .dim,.cline.dim{color:var(--ghost)}
-.cline.looking{color:var(--gold);margin-top:10px;animation:looking 1.2s ease-in-out infinite}
+.cline.looking{color:var(--gold);animation:looking 1.2s ease-in-out infinite}
 @keyframes looking{50%{opacity:.45}}
 @media(prefers-reduced-motion:reduce){.cline.looking{animation:none}}
-@media(max-width:720px){
-  .pcard{grid-template-columns:50px minmax(0,1fr);padding-right:12px}
-  .cstats{grid-template-columns:repeat(3,minmax(0,1fr))}
+/* Below a desktop width the row cannot hold both columns: fold it, the same
+   way the scoreboard row folds, rather than squeezing every name to nothing. */
+@media(max-width:900px){
+  .pcard{grid-template-columns:50px minmax(0,1fr);
+    grid-template-areas:"score who" "stats stats" "info info";
+    gap:7px 12px;padding-right:12px}
+  .pcard .score{padding-left:6px}
+  .cstats{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px;
+    padding-left:12px}
+  /* The scoreboard's phone rule pins every .st to its row's second line;
+     on a card that collapsed five stats into one row with two 20px columns. */
+  .cstats .st{grid-row:auto}
+  .cinfo{grid-template-columns:minmax(0,1fr);gap:2px;padding-left:12px}
+  .cmsg{width:auto;padding-left:12px}
   .cline{white-space:normal}
 }
 
@@ -687,9 +718,10 @@ function cardHTML(p, pending, mapName){
        player whose lookup has not landed yet would be wrong for a few seconds
        in almost every lobby. */
     body = pending
-      ? `<div class="cline looking">Looking up their last 20 competitive games</div>`
-      : `<div class="cline dim" style="margin-top:10px">No competitive history
-           found: a new account, or one that has not played ranked.</div>`;
+      ? `<div class="cline looking cmsg">Looking up their last 20 competitive
+           games</div>`
+      : `<div class="cline dim cmsg">No competitive history found: a new
+           account, or one that has not played ranked.</div>`;
   } else {
     const m = d.map || {}, f = (d.form || [])[0];
     const agents = (m.agents || []).slice(0, 3)
@@ -714,9 +746,11 @@ function cardHTML(p, pending, mapName){
         ${stat("adr", r ? n0(r.adr) : "—")}
         ${stat("win", r ? pc0(r.win_rate) : "—")}
       </div>
-      <div class="cline"><span class="ck">On ${esc(m.name || mapName || "this map")
-        }</span>${mapLine}</div>
-      <div class="cline"><span class="ck">Last comp</span>${lastLine}</div>`;
+      <div class="cinfo">
+        <div class="cline"><span class="ck">On ${esc(m.name || mapName || "this map")
+          }</span>${mapLine}</div>
+        <div class="cline"><span class="ck">Last comp</span>${lastLine}</div>
+      </div>`;
   }
   return `<button class="pcard ${known ? "known" : "unknown"}${
       selected === p.puuid ? " sel" : ""}" data-puuid="${esc(p.puuid)}"
@@ -724,14 +758,14 @@ function cardHTML(p, pending, mapName){
     ${p.agent_id ? `<img class="art" src="${artURL(p, "row")}" alt=""
         decoding="async" onerror="this.remove()">` : ""}
     <div class="score">${known ? esc(p.score) : '<span class="u">—</span>'}</div>
-    <div class="cbody">
+    <div class="cwho">
       <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
         partyTag(p.puuid)}${
         p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}</div>
       <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>
         ${rankTag(p.rank)}${known ? `&nbsp;·&nbsp;${esc(p.reason)}` : ""}</div>
-      ${body}
     </div>
+    ${body}
   </button>`;
 }
 
@@ -740,16 +774,16 @@ function pregameHTML(s){
   const players = s.players.filter(p => p.team === team);
   const pending = new Set((s.lookup && s.lookup.pending) || []);
   const known = players.filter(p => p.score !== null).length;
-  const left = pending.size ? `looking up ${pending.size}`
-    : s.lookup && s.lookup.remaining ? "filling in last 20s" : "all looked up";
+  const left = pending.size ? `<b class="pend">looking up ${pending.size}</b>`
+    : esc(s.lookup && s.lookup.remaining ? "filling in last 20s" : "all looked up");
   const side = s.standard_mode ? (isAtk(team) ? "attacking · first half"
                                              : "defending · first half") : "";
-  return `<section class="team ${isAtk(team) ? "atkc" : "defc"}">
+  return `<section class="team pregame ${isAtk(team) ? "atkc" : "defc"}">
     <div class="tbar">
       <span class="tname">Your team</span>
       <span class="tside">${esc(side)}</span>
       <span class="trule"></span>
-      <span class="tcount">${known}/${players.length} known · ${esc(left)}</span>
+      <span class="tcount">${known}/${players.length} known · ${left}</span>
     </div>
     <div class="cards">${players.map(p =>
       cardHTML(p, pending.has(p.puuid), s.map)).join("")}</div>

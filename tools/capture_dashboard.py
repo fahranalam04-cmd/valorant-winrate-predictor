@@ -124,6 +124,50 @@ def check_layout(browser, url: str) -> list[str]:
     return problems
 
 
+# Agent select allows about a minute to lock in, which is no time to scroll
+# for the fifth player. A maximised browser on a 1920x1080 monitor has about
+# 950px of height; 800 leaves room for a bookmarks bar, a window that is not
+# quite maximised, or a little zoom.
+FIT_VIEWPORTS = ((1920, 800), (2560, 1300))
+
+
+def check_agent_select(browser, url: str) -> list[str]:
+    """All five teammates inside the window, and nothing on a card clipped.
+
+    The first agent-select layout stacked every line of a card and ran 152px
+    each, which put the fifth player 56px below a maximised 1080p window.
+    """
+    problems = []
+    for width, height in FIT_VIEWPORTS:
+        page = browser.new_page(viewport={"width": width, "height": height},
+                                **CSP)
+        page.goto(url + "?clean&phase=pregame")
+        settle(page, "button.pcard")
+        got = page.evaluate("""() => {
+          const cards = [...document.querySelectorAll('button.pcard')];
+          return {n: cards.length, bottom: Math.max(
+            ...cards.map(e => e.getBoundingClientRect().bottom))};
+        }""")
+        if got["n"] != 5:
+            problems.append(f"{width}x{height}: {got['n']} agent-select cards, "
+                            f"expected the whole team of 5")
+        elif got["bottom"] > height:
+            problems.append(f"{width}x{height}: agent select runs "
+                            f"{got['bottom'] - height:.0f}px past the window")
+        page.close()
+    for width in CHECK_WIDTHS:
+        page = browser.new_page(viewport={"width": width, "height": 950}, **CSP)
+        page.goto(url + "?clean&phase=pregame")
+        settle(page, "button.pcard")
+        clipped = page.evaluate("""() => [...document.querySelectorAll(
+            '.pcard .nm, .pcard .rs, .pcard .cline, .pcard .st b, .pcard .st span'
+          )].filter(e => e.scrollWidth > e.clientWidth + 1).length""")
+        if clipped:
+            problems.append(f"{width}px: {clipped} agent-select line(s) clipped")
+        page.close()
+    return problems
+
+
 def launch(p):
     for channel in ("chrome", "msedge"):
         try:
@@ -169,13 +213,15 @@ def main(argv=None) -> int:
 
     with sync_playwright() as p:
         browser = launch(p)
-        problems = check_layout(browser, url)
+        problems = check_layout(browser, url) + check_agent_select(browser, url)
         if problems:
-            print("refusing to capture; names do not fit:")
+            print("refusing to capture:")
             print("\n".join(f"  {m}" for m in problems))
             browser.close()
             httpd.shutdown()
             return 1
+        print("agent select: all five fit "
+              + " and ".join(f"{w}x{h}" for w, h in FIT_VIEWPORTS))
         print(f"layout: nothing clipped, and every name has at least "
               f"{MIN_NAME_PX}px, at "
               f"{', '.join(map(str, CHECK_WIDTHS))}px")

@@ -316,8 +316,8 @@ against others on the same role, damage per round, K/D,
 last-20 K/D and headshot rate, competitive games only; and a card per player
 with their record, form and history on this map.
 
-In agent select the page gives the screen to your own team instead, one card
-per player with everything showing at once: the 0-100 rating, last-20 K/D/A
+In agent select the page gives the screen to your own team instead, all five
+on screen at once without scrolling: the 0-100 rating, last-20 K/D/A
 per game, K/D, headshot rate, damage per round and win rate, the agents they
 play on this map, and their last competitive game. Anyone already in the
 database appears the moment agent select is detected; the rest fill in as
@@ -332,7 +332,7 @@ these images with `python tools/capture_dashboard.py`
 ### Tests
 
 ```bash
-pytest -q                          # 537 tests; needs no .env, model or database
+pytest -q                          # 538 tests; needs no .env, model or database
 python tools/audit.py              # re-derives documented claims, reports drift
 ```
 
