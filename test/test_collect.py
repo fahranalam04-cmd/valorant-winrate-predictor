@@ -383,3 +383,101 @@ def test_crawler_normalises_inline_so_there_is_one_writer(conn):
 # --- adaptive pacing --------------------------------------------------
 
 
+
+
+# --- standing aside while VALORANT runs ------------------------------------
+# The key's quota is one fixed window a minute shared by every process, and
+# the crawler spends each window down. A lobby looked up just after it had
+# done so waited up to a minute for quota, inside a minute-long agent select.
+
+def test_the_crawler_fetches_nothing_while_valorant_runs(conn, tmp_path, monkeypatch):
+    from valwr.collect import crawl
+    monkeypatch.setattr(crawl, "PAUSE_POLL_SECONDS", 0.001)
+    frontier.enqueue_many(conn, [("seed", 13)])
+    marker = tmp_path / "crawl-paused"
+    running = iter([True, True, True])          # then the game closes
+    seen = {"during_pause": 0, "marker_while_paused": False}
+
+    def game_running():
+        is_up = next(running, False)
+        if is_up and marker.exists():
+            seen["marker_while_paused"] = True
+        return is_up
+
+    class Recording(FakeClient):
+        def matches(self, *a, **kw):
+            if marker.exists():
+                seen["during_pause"] += 1
+            return super().matches(*a, **kw)
+
+    client = Recording()
+    c = Crawler(conn, client, TokenBucket(6000), "na", "pc",
+                game_running=game_running, pause_marker=marker)
+    c.run(minutes=0.02, verbose=False)
+    assert seen["during_pause"] == 0, "fetched while the game was running"
+    assert seen["marker_while_paused"], "the watchdog was never told"
+    assert client.calls >= 1, "never resumed once the game closed"
+    assert not marker.exists(), "the marker outlived the pause"
+
+
+def test_a_pause_that_outlasts_the_run_keeps_its_marker(conn, tmp_path, monkeypatch):
+    """The supervisor starts the next run at once, and it pauses again. A
+    watchdog that looked in between and found no marker would kill it."""
+    from valwr.collect import crawl
+    monkeypatch.setattr(crawl, "PAUSE_POLL_SECONDS", 0.001)
+    frontier.enqueue_many(conn, [("seed", 13)])
+    marker = tmp_path / "crawl-paused"
+    client = FakeClient()
+    c = Crawler(conn, client, TokenBucket(6000), "na", "pc",
+                game_running=lambda: True, pause_marker=marker)
+    c.run(minutes=0.005, verbose=False)
+    assert client.calls == 0
+    assert marker.exists()
+
+
+def test_both_ways_of_starting_a_crawl_stand_aside_for_the_game():
+    """The check is passed in rather than defaulted, so it has to be passed."""
+    import inspect
+
+    from valwr.collect import __main__ as cli
+    from valwr.collect import supervise
+    for module in (cli, supervise):
+        src = inspect.getsource(module)
+        assert "game_running=lockfile.game_is_running" in src, module.__name__
+        assert "pause_marker=pause_marker_path()" in src, module.__name__
+
+
+def _watchdog(monkeypatch, tmp_path, marker_age):
+    from valwr.collect import crawl, watchdog
+    marker = tmp_path / "crawl-paused"
+    if marker_age is not None:
+        marker.write_text("x", encoding="utf-8")
+        import os
+        import time as _t
+        os.utime(marker, (_t.time() - marker_age, _t.time() - marker_age))
+    monkeypatch.setattr(crawl, "pause_marker_path", lambda: marker)
+    monkeypatch.setattr(watchdog, "seconds_since_last_fetch",
+                        lambda: watchdog.HUNG_SECONDS + 600)
+    monkeypatch.setattr(watchdog, "crawler_pids", lambda: [4242])
+    monkeypatch.setattr(watchdog, "log", lambda msg: None)
+    acted = []
+    monkeypatch.setattr(watchdog, "kill", lambda pid: acted.append(("kill", pid)))
+    monkeypatch.setattr(watchdog, "start_crawler", lambda h: acted.append(("start", h)))
+    monkeypatch.setattr(watchdog.time, "sleep", lambda s: None)
+    watchdog.main([])
+    return acted
+
+
+def test_the_watchdog_leaves_a_crawler_paused_for_the_game_alone(monkeypatch, tmp_path):
+    """A whole gaming session without a fetch is idle on purpose. Read as a
+    hang, it was killed and restarted every twenty minutes."""
+    assert _watchdog(monkeypatch, tmp_path, marker_age=10) == []
+
+
+def test_the_watchdog_still_kills_a_crawler_that_has_really_hung(monkeypatch, tmp_path):
+    for age in (None, 10_000):                  # no marker, or a stale one
+        where = tmp_path / f"marker-{age}"
+        where.mkdir()
+        acted = _watchdog(monkeypatch, where, marker_age=age)
+        assert ("kill", 4242) in acted, age
+        assert any(a[0] == "start" for a in acted), age

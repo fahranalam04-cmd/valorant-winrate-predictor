@@ -13,8 +13,9 @@ from valwr import config
 from valwr.collect import frontier, seed
 from valwr.collect.client import HenrikClient
 from valwr.collect.keepawake import KeepAwake
-from valwr.collect.crawl import Crawler
+from valwr.collect.crawl import Crawler, pause_marker_path
 from valwr.collect.limiter import TokenBucket
+from valwr.live import lockfile
 from valwr.store import raw, schema
 
 BAND_NAMES = {
@@ -99,7 +100,9 @@ def main(argv=None) -> int:
             n = seed.seed_leaderboard(conn, client, s.region, s.platform)
             print(f"seeded leaderboard: {n} new puuids")
 
-        crawler = Crawler(conn, client, limiter, s.region, s.platform, size=args.size)
+        crawler = Crawler(conn, client, limiter, s.region, s.platform,
+                          size=args.size, game_running=lockfile.game_is_running,
+                          pause_marker=pause_marker_path())
         print(f"crawling for {args.minutes} min ... (ctrl-c to stop; progress is saved)\n")
         try:
             crawler.run(args.minutes)

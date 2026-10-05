@@ -62,6 +62,20 @@ def log(msg: str) -> None:
         pass
 
 
+# A paused crawler refreshes its marker every few seconds while VALORANT runs.
+# Without this the watchdog read a whole gaming session of deliberate idling as
+# a hang, and killed and restarted the crawler every twenty minutes.
+PAUSED_FRESH_SECONDS = 120
+
+
+def paused_for_the_game() -> bool:
+    from valwr.collect.crawl import pause_marker_path
+    try:
+        return time.time() - pause_marker_path().stat().st_mtime < PAUSED_FRESH_SECONDS
+    except OSError:
+        return False
+
+
 def seconds_since_last_fetch() -> float | None:
     s = config.load(require_key=False)
     if not s.database_path.exists():
@@ -125,6 +139,9 @@ def main(argv=None) -> int:
 
     if age < STALE_SECONDS:
         return 0                      # healthy: stay quiet, this runs on a timer
+
+    if pids and paused_for_the_game():
+        return 0                      # idle on purpose while VALORANT runs
 
     if pids and age < HUNG_SECONDS:
         log(f"stale {age:.0f}s but {len(pids)} process(es) alive -- likely a "

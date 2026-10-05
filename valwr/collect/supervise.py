@@ -23,9 +23,10 @@ from datetime import datetime
 from valwr import config
 from valwr.collect import frontier
 from valwr.collect.client import HenrikClient
-from valwr.collect.crawl import Crawler
+from valwr.collect.crawl import Crawler, pause_marker_path
 from valwr.collect.keepawake import KeepAwake
 from valwr.collect.limiter import TokenBucket
+from valwr.live import lockfile
 from valwr.store import schema
 
 RESTART_DELAY = 30.0
@@ -67,7 +68,9 @@ def main(argv=None) -> int:
                 limiter = TokenBucket(s.requests_per_minute)
                 with HenrikClient(s.henrik_api_key, conn=conn, limiter=limiter) as client:
                     crawler = Crawler(conn, client, limiter, s.region, s.platform,
-                                      size=args.size)
+                                      size=args.size,
+                                      game_running=lockfile.game_is_running,
+                                      pause_marker=pause_marker_path())
                     log(logfile, f"run #{attempt} starting ({remaining_min:.0f} min left)")
                     stats = crawler.run(remaining_min, verbose=True)
                     log(logfile,

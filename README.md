@@ -258,7 +258,9 @@ The crawler snowballs outward from your seed: it fetches a player's recent
 matches, stores all ten players from each, and queues the ones it has not seen.
 It self-limits to the API's 30 requests a minute and collects roughly 1,400
 matches an hour. **A few hours gets you a usable model; overnight gets a good
-one.** Progress is logged to `data/crawl.log`.
+one.** Progress is logged to `data/crawl.log`. It pauses itself while
+VALORANT is running, so the dashboard has the whole API quota for your lobbies,
+and picks up again when you close the game.
 
 On Windows, register `watchdog.bat` with Task Scheduler if you want it to
 survive closing the window. One default matters: Task Scheduler stops a task

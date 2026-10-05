@@ -13,6 +13,8 @@ from __future__ import annotations
 import sqlite3
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
 
 import sqlite3 as _sqlite3
 
@@ -65,6 +67,21 @@ def harvest(doc: dict) -> list[tuple[str, list[tuple[str, int | None]]]]:
     return out
 
 
+# While VALORANT is running the crawler stands aside. The API key's quota is
+# one fixed window a minute shared by every process using it, and the crawler
+# is built to spend each window down -- so a lobby looked up just after it had
+# done so waited up to a minute for quota, inside a minute-long agent select.
+# Looking up one lobby can cost two thirds of a window on its own.
+PAUSE_POLL_SECONDS = 5.0
+
+
+def pause_marker_path() -> Path:
+    """Refreshed while the crawler is paused, so the watchdog can tell a
+    crawler idling on purpose from one that has hung."""
+    from valwr import config
+    return config.load(require_key=False).database_path.parent / "crawl-paused"
+
+
 class Crawler:
     def __init__(
         self,
@@ -74,6 +91,8 @@ class Crawler:
         region: str,
         platform: str,
         size: int = 10,
+        game_running: Callable[[], bool] | None = None,
+        pause_marker: Path | None = None,
     ):
         self.conn = conn
         self.client = client
@@ -83,6 +102,11 @@ class Crawler:
         self.size = size
         self.stats = CrawlStats()
         self._transient_streak = 0
+        # Passed in by whoever starts a real crawl rather than defaulted here,
+        # so a test never pauses because VALORANT happens to be open on the
+        # machine running it.
+        self.game_running = game_running
+        self.pause_marker = pause_marker
 
     def _normalise(self, doc: dict) -> int:
         """Normalise this response inline, in the crawler process.
@@ -183,6 +207,9 @@ class Crawler:
         deadline = time.monotonic() + minutes * 60
         last_reported = 0
         while time.monotonic() < deadline:
+            # Checked before claiming, so a pause never holds a player's claim.
+            if not self._stand_aside_for_the_game(deadline):
+                break
             row = frontier.claim(self.conn)
             if row is None:
                 print("  frontier empty -- nothing left to crawl")
@@ -206,6 +233,41 @@ class Crawler:
                 last_reported = done
 
         return self.stats
+
+    def _stand_aside_for_the_game(self, deadline: float) -> bool:
+        """Wait while VALORANT is running. False if the run's time ran out."""
+        if self.game_running is None or not self.game_running():
+            return True
+        print("  VALORANT is running -- paused so the dashboard has the whole "
+              "quota; crawling resumes when the game closes", flush=True)
+        while time.monotonic() < deadline:
+            self._mark_paused()
+            time.sleep(PAUSE_POLL_SECONDS)
+            if not self.game_running():
+                break
+        else:
+            # Out of time with the game still open. The marker stays: the next
+            # run pauses again at once, and a watchdog looking in between must
+            # not read the gap as a hang.
+            return False
+        self._clear_paused()
+        print("  VALORANT closed -- crawling again", flush=True)
+        return True
+
+    def _mark_paused(self) -> None:
+        if self.pause_marker is None:
+            return
+        try:
+            self.pause_marker.write_text(str(int(time.time())), encoding="utf-8")
+        except OSError:
+            pass                     # the pause matters; the marker is a courtesy
+
+    def _clear_paused(self) -> None:
+        if self.pause_marker is not None:
+            try:
+                self.pause_marker.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _progress(self) -> None:
         s = self.stats
