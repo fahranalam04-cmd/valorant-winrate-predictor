@@ -321,7 +321,8 @@ with their record, form and history on this map.
 In agent select the page gives the screen to your own team instead, all five
 on screen at once without scrolling: the 0-100 rating, last-20 K/D/A
 per game, K/D, headshot rate, damage per round and win rate, the agents they
-play on this map, and their last competitive game. Anyone already in the
+play on this map, and their last competitive game -- with your own best
+agents, by how well you play them, in the side panel. Anyone already in the
 database appears the moment agent select is detected; the rest fill in as
 their lookups land, teammates first.
 
@@ -354,7 +355,7 @@ responses, which are only needed to re-parse old matches.
 ### Tests
 
 ```bash
-pytest -q                          # 553 tests; needs no .env, model or database
+pytest -q                          # 562 tests; needs no .env, model or database
 python tools/audit.py              # re-derives documented claims, reports drift
 ```
 

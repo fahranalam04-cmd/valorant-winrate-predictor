@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, ".")
 
-from valwr.dash.demo import demo_state
+from valwr.dash.demo import demo_picks, demo_state
 from valwr.rating import roleindex
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -78,6 +78,7 @@ body.demo-clean .demo-bar,body.demo-clean .demo-room{display:none}
 const BASE = __STATE__;
 const MAPS = __MAPS__;
 const TOP1 = __TOP1__;
+const PICKS = __PICKS__;
 const qs = new URLSearchParams(location.search);
 const view = {map: MAPS.includes(qs.get("map")) ? qs.get("map") : BASE.map,
               side: qs.get("side") === "Red" ? "Red" : "Blue",
@@ -131,6 +132,7 @@ function build(){
       Object.assign(p, {agent: null, agent_id: null, role: null});
     const pending = s.players.filter(p => p.score === null).map(p => p.puuid);
     s.lookup = {pending, remaining: 2 * pending.length};
+    s.your_picks = Object.assign({}, PICKS, {map: view.map});
   }
   return {status: "match", state: s, top1_rate: TOP1, fresh: false};
 }
@@ -322,6 +324,7 @@ def build(out: Path, conn=None) -> dict:
     shim = (SHIM.replace("__STATE__", _json_for_script(state))
                 .replace("__MAPS__", _json_for_script(maps))
                 .replace("__TOP1__", _json_for_script(top1))
+                .replace("__PICKS__", _json_for_script(demo_picks()))
                 .replace("__REPO__", REPO_URL))
     at = page.index("<script>")
     html = page[:at] + shim + page[at:]

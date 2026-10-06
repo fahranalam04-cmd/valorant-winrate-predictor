@@ -1576,3 +1576,18 @@ def test_the_poll_is_quick_enough_for_agent_select_and_no_quicker():
     from valwr.live import __main__ as LV
     assert 2.0 <= DS.POLL_SECONDS <= 3.0
     assert LV.POLL_SECONDS == DS.POLL_SECONDS
+
+
+def test_your_picks_are_offered_in_agent_select_and_not_in_game(tmp_path, monkeypatch):
+    """Agent select is where you pick; in game the question is settled."""
+    import dataclasses
+
+    from valwr.live import state as st
+    match = _pregame("known")
+    ctx, _ = _agent_select_ctx(tmp_path, monkeypatch, match)
+    sentinel = {"map": "Ascent", "games": 9, "agents": []}
+    monkeypatch.setattr(st.picks, "your_picks", lambda *a, **k: sentinel)
+    assert st.poll_once(ctx)["your_picks"] == sentinel
+    monkeypatch.setattr(st, "current_match", lambda c: dataclasses.replace(
+        match, phase="coregame"))
+    assert st.poll_once(ctx)["your_picks"] is None

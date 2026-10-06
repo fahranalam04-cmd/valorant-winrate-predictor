@@ -285,6 +285,7 @@ def demo_state(conn=None, phase: str = "coregame") -> dict:
                      "game client or network was touched to build this."],
         "players": players,
         "lookup": {"pending": [], "remaining": 0},
+        "your_picks": None,
         "prediction": {"own_probability": 0.5731, "win_probability": 0.5731,
                        "factors": [{"name": "d_rank", "value": 0.182},
                                    {"name": "d_acs", "value": -0.061},
@@ -319,5 +320,43 @@ def _pregame(players: list[dict]) -> dict:
                      "once the match starts."],
         "players": ours,
         "lookup": {"pending": pending, "remaining": 2 * len(pending)},
+        "your_picks": demo_picks(),
         "prediction": None,
     }
+
+
+def demo_picks() -> dict:
+    """Your best agents, in the shape picks.your_picks returns. Invented: an
+    account with a clear main, a few steady agents, one it plays badly, and a
+    handful tried once or twice -- with the thin per-map records every real
+    account has. Sized like a real account, so the layout is tested full."""
+    from valwr.live.picks import label
+
+    def entry(a, r, g, w, l, v, here):
+        hg, hw, hl = here
+        return {"agent": a, "role": r, "games": g, "wins": w, "losses": l,
+                "vs_usual": v, "label": label(v),
+                "here": {"games": hg, "wins": hw, "losses": hl}}
+    # Both sections full, as on a real account with a few months of games:
+    # the layout check measures the panel at its largest.
+    established = [
+        ("Jett", "Duelist", 32, 18, 14, 0.52, (2, 1, 1)),
+        ("Killjoy", "Sentinel", 9, 5, 4, 0.21, (1, 1, 0)),
+        ("Reyna", "Duelist", 4, 3, 1, 0.16, (0, 0, 0)),
+        ("Omen", "Controller", 14, 7, 7, 0.04, (3, 2, 1)),
+        ("Cypher", "Sentinel", 5, 2, 3, 0.01, (1, 0, 1)),
+        ("Fade", "Initiator", 3, 1, 2, -0.09, (0, 0, 0)),
+        ("Brimstone", "Controller", 3, 1, 2, -0.19, (1, 1, 0)),
+        ("Sova", "Initiator", 6, 2, 4, -0.38, (1, 0, 1)),
+    ]
+    few = [
+        ("Neon", "Duelist", 2, 2, 0, 0.71, (0, 0, 0)),
+        ("Viper", "Controller", 1, 1, 0, 0.42, (0, 0, 0)),
+        ("Sage", "Sentinel", 1, 1, 0, 0.18, (1, 1, 0)),
+        ("Raze", "Duelist", 2, 1, 1, -0.07, (0, 0, 0)),
+        ("Skye", "Initiator", 1, 0, 1, -0.31, (0, 0, 0)),
+        ("Breach", "Initiator", 2, 0, 2, -0.44, (0, 0, 0)),
+    ]
+    return {"map": MAP, "games": 74,
+            "agents": [entry(*e) for e in established],
+            "few": [entry(*f) for f in few]}

@@ -133,7 +133,17 @@ scrolling, and the numbers sit in the same columns on every card. A test lays
 the page out in a real browser and fails if the fifth player ever drops below
 a 1920x800 or 2560x1300 window again.
 
-Clicking a card still opens the full breakdown in the side panel.
+**Your picks** fill the side panel: the agents you play best, measured by
+match impact against your own average rather than by win rate, which is half
+your teammates' and mostly noise at these sample sizes. Agents with three or
+more games are ranked, each pulled toward your average in proportion to how
+few games it rests on. Under them sit the agents you have played once or
+twice, with what those games showed and how many there were -- shown, not
+dropped. Your record on this map is beside each as context only: one to three
+games an agent per map is all anyone has.
+
+Clicking a card opens that teammate's full breakdown in the side panel in
+place of your picks, and ESC brings them back.
 
 ### The two teams
 

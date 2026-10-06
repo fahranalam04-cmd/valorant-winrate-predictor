@@ -24,7 +24,7 @@ from typing import Any
 from valwr import config
 from valwr.collect.client import HenrikClient
 from valwr.collect.limiter import TokenBucket
-from valwr.live import lockfile, predict as P, resolve as R, roster
+from valwr.live import lockfile, picks, predict as P, resolve as R, roster
 from valwr.live import session as S
 from valwr.rating import potential as pot
 from valwr.rating import role_score as rs
@@ -395,6 +395,11 @@ def _assemble(ctx: LiveContext, match, resolution, as_of: int) -> dict:
         # to know which before it tells you something about them.
         "lookup": {"pending": sorted(resolution.pending),
                    "remaining": len(resolution.remaining)},
+        # Agent select is where you pick, so it is the only phase that asks.
+        "your_picks": (picks.your_picks(
+            ctx.conn, ctx.session.puuid, as_of, match.map_name,
+            ctx.bundle.get("norms"), ctx.bundle.get("roles") or {})
+            if match.phase == "pregame" else None),
         "prediction": None,
     }
     if prediction is not None:

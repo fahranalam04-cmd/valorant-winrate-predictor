@@ -129,6 +129,9 @@ def check_layout(browser, url: str) -> list[str]:
 # 950px of height; 800 leaves room for a bookmarks bar, a window that is not
 # quite maximised, or a little zoom.
 FIT_VIEWPORTS = ((1920, 800), (2560, 1300))
+# Your picks share the screen, at their largest -- eight established agents
+# and six played once or twice -- inside a maximised browser.
+PANEL_VIEWPORTS = ((1920, 950), (2560, 1300))
 
 
 def check_agent_select(browser, url: str) -> list[str]:
@@ -155,12 +158,29 @@ def check_agent_select(browser, url: str) -> list[str]:
             problems.append(f"{width}x{height}: agent select runs "
                             f"{got['bottom'] - height:.0f}px past the window")
         page.close()
+    for width, height in PANEL_VIEWPORTS:
+        page = browser.new_page(viewport={"width": width, "height": height},
+                                **CSP)
+        page.goto(url + "?clean&phase=pregame")
+        settle(page, "button.pcard")
+        got = page.evaluate("""() => {
+          const panel = document.querySelector('aside.panel.picks');
+          return panel ? {rows: panel.querySelectorAll('tbody tr').length,
+                          bottom: panel.getBoundingClientRect().bottom} : null;
+        }""")
+        if got is None:
+            problems.append(f"{width}x{height}: your picks are not on screen")
+        elif got["bottom"] > height:
+            problems.append(f"{width}x{height}: your picks ({got['rows']} rows) "
+                            f"run {got['bottom'] - height:.0f}px past the window")
+        page.close()
     for width in CHECK_WIDTHS:
         page = browser.new_page(viewport={"width": width, "height": 950}, **CSP)
         page.goto(url + "?clean&phase=pregame")
         settle(page, "button.pcard")
         clipped = page.evaluate("""() => [...document.querySelectorAll(
-            '.pcard .nm, .pcard .rs, .pcard .cline, .pcard .st b, .pcard .st span'
+            '.pcard .nm, .pcard .rs, .pcard .cline, .pcard .st b, .pcard .st span,'
+            + ' .picks td, .picks .pnote'
           )].filter(e => e.scrollWidth > e.clientWidth + 1).length""")
         if clipped:
             problems.append(f"{width}px: {clipped} agent-select line(s) clipped")

@@ -97,6 +97,24 @@ ck("once the lookup is done, the same player has no history",
    /No competitive history/.test(out) && !/Looking up their last 20/.test(out));
 ck("and the team bar says everyone is looked up", /all looked up/.test(out));
 
+// --- your picks, in the panel until a teammate is clicked -----------------
+{
+  render({ status: "match", state, top1_rate: 0.296 });
+  const o = els.stage.innerHTML, yp = state.your_picks;
+  ck("your picks fill the panel", /class="panel picks"/.test(o) && /Your picks/.test(o));
+  ck("every pick named, best first",
+     yp.agents.every(a => o.includes(`<b>${a.agent}</b>`))
+     && o.indexOf(`<b>${yp.agents[0].agent}</b>`) < o.indexOf(`<b>${yp.agents[1].agent}</b>`));
+  ck("how well you play it, in words", /▲▲ well above/.test(o) && /≈ your usual/.test(o));
+  ck("this map's record beside it", o.includes(`on ${yp.map}`));
+  ck("agents played once or twice sit under their own divider",
+     /Played once or twice/.test(o)
+     && (o.match(/<tr class="few">/g) || []).length === yp.few.length
+     && o.indexOf("Played once or twice") > o.indexOf(`<b>${yp.agents.at(-1).agent}</b>`));
+  ck("and say how many games they rest on",
+     yp.few.every(a => o.includes(`in ${a.games} game${a.games === 1 ? "" : "s"}`)));
+}
+
 // --- the full breakdown is still one click away ---------------------------
 for (const fn of handlers.click || [])
   fn({ target: { closest: s => s.includes("button.pcard")
@@ -105,6 +123,9 @@ out = els.stage.innerHTML;
 ck("clicking a card opens the panel",
    /class="panel"/.test(out) && /record &amp; form/.test(out));
 ck("and marks the card selected", /class="pcard known sel"/.test(out));
+ck("a teammate's card replaces your picks", !/class="panel picks"/.test(out));
+for (const fn of handlers.keydown || []) fn({ key: "Escape", target: {} });
+ck("and ESC brings them back", /class="panel picks"/.test(els.stage.innerHTML));
 
 console.log(bad ? `\n${bad} FAILED` : "\nall passed");
 process.exit(bad ? 1 : 0);

@@ -366,6 +366,23 @@ table.pstats td.mute,.pstats .mute{color:var(--ghost)}
    on in agent select, so it takes the colour of the card still loading. */
 .pregame .tcount{color:var(--bone-dim);text-shadow:0 1px 4px rgba(0,0,0,.9)}
 .pregame .tcount .pend{color:var(--gold);font-weight:700}
+/* Your picks: the empty panel in agent select, put to the question it is
+   there for. Agents played once or twice sit under a divider, readable --
+   fewer games is a reason to read with care, not to hide them. */
+.picks .ptitle{font:700 19px/1 var(--display);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--gold);padding:18px 20px 0}
+.picks .ptitle span{color:var(--slate);font-size:11px;letter-spacing:.18em}
+.picks .pnote{color:var(--slate);font-size:12px;line-height:1.5;padding:8px 20px 4px}
+.picks table.pstats{width:calc(100% - 40px);margin:6px 20px 0}
+.picks td b{font-weight:600;color:var(--bone)}
+.picks td .role{font-size:10.5px;color:var(--ghost);margin-left:6px}
+.picks td.up{color:var(--win)}
+.picks td.dn{color:var(--val)}
+.picks td.mute{color:var(--bone-dim)}
+.picks tr.split td{font:600 9px/1 var(--display);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ghost);padding:12px 0 4px;border-top:0}
+.picks td .n{color:var(--ghost);font-size:11px}
+.picks .hint{padding:14px 20px 18px;text-align:left;font-size:11.5px}
 .pcard{position:relative;display:grid;
   grid-template-columns:62px minmax(0,1fr) auto;
   grid-template-areas:"score who stats" "score info info";
@@ -817,8 +834,52 @@ function twoUp(career, recent, win){
       same games.</span></div>` : ""}`;
 }
 
+/* In agent select the panel answers what to pick: the agents you play best,
+   against your own average. A teammate's card replaces it on click, and ESC
+   brings it back. */
+const PICK_TONE = {
+  "well above your usual": ["up", "▲▲ well above"],
+  "above your usual": ["up", "▲ above"],
+  "your usual": ["mute", "≈ your usual"],
+  "below your usual": ["dn", "▼ below"],
+  "well below your usual": ["dn", "▼▼ well below"],
+};
+
+function picksHTML(s){
+  const yp = s.your_picks, few = yp.few || [];
+  const row = (a, played) => {
+    const [tone, text] = PICK_TONE[a.label] || ["mute", a.label];
+    const h = a.here || {};
+    return `<tr class="${played ? "few" : ""}">
+      <td><b>${esc(a.agent)}</b><span class="role">${esc(a.role || "")}</span></td>
+      <td class="${tone}">${esc(text)}${played ? ` <span class="n">in ${
+        i0(a.games)} game${a.games === 1 ? "" : "s"}</span>` : ""}</td>
+      <td>${i0(a.games)}</td>
+      <td>${i0(a.wins)}–${i0(a.losses)}</td>
+      <td>${h.games ? `${i0(h.wins)}–${i0(h.losses)}` : "—"}</td></tr>`;
+  };
+  const rows = yp.agents.map(a => row(a, false)).join("") + (few.length
+    ? `<tr class="split"><td colspan="5">Played once or twice</td></tr>`
+      + few.map(a => row(a, true)).join("") : "");
+  return `<aside class="panel picks">
+    <div class="ptitle">Your picks <span>· ${esc(yp.map || s.map || "")}</span></div>
+    <div class="pnote">How well you play each agent, against your own average
+      over ${i0(yp.games)} competitive games. Agents with three or more are
+      ranked, pulled toward your average when games are few; under them, the
+      ones you have played once or twice, with what those games showed. The
+      map record is context: one to three games an agent is all anyone has.</div>
+    <table class="pstats"><thead><tr><th>agent</th><th>you on it</th>
+      <th>games</th><th>w–l</th><th>on ${esc(yp.map || s.map || "map")}</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    <div class="hint">Click a teammate for their full card;
+      <span class="kbd">ESC</span> comes back here.</div>
+  </aside>`;
+}
+
 function panelHTML(s){
   const p = s.players.find(x => x.puuid === selected);
+  if (!p && s.phase === "pregame" && s.your_picks && s.your_picks.agents.length)
+    return picksHTML(s);
   if (!p) return `<aside class="panel"><div class="hint">
       Select any player for their agent, career record,<br>
       recent form and how they play ${esc(s.map || "this map")}.
