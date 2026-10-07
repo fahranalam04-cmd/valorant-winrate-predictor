@@ -1591,3 +1591,64 @@ def test_your_picks_are_offered_in_agent_select_and_not_in_game(tmp_path, monkey
     monkeypatch.setattr(st, "current_match", lambda c: dataclasses.replace(
         match, phase="coregame"))
     assert st.poll_once(ctx)["your_picks"] is None
+
+
+# --- the team's roles in agent select --------------------------------------
+
+def _pregame_payload(*players):
+    return {"MatchID": "m1", "MapID": "/Game/Maps/Ascent/Ascent",
+            "ModeID": "/Game/GameModes/Bomb/BombGameMode",
+            "AllyTeam": {"TeamID": "Blue", "Players": list(players)}}
+
+
+def _fetch_pregame(monkeypatch, body):
+    monkeypatch.setattr(roster, "_get", lambda session, url: body)
+    return roster.fetch(_StubSession(), "m1", "pregame")
+
+
+def test_agent_select_tells_a_hovered_agent_from_a_locked_one(monkeypatch):
+    """A hover can still change; the team's roles are read from both, and the
+    page must not show one as the other."""
+    m = _fetch_pregame(monkeypatch, _pregame_payload(
+        {"Subject": "a", "CharacterID": "x", "CharacterSelectionState": "locked"},
+        {"Subject": "b", "CharacterID": "y", "CharacterSelectionState": "selected"},
+        {"Subject": "c", "CharacterID": "", "CharacterSelectionState": ""},
+        {"Subject": "d", "CharacterID": "z"}))
+    got = {p.puuid: (p.agent_id, p.selection) for p in m.players}
+    assert got == {"a": ("x", "locked"), "b": ("y", "selected"),
+                   "c": (None, None), "d": ("z", None)}
+
+
+def test_naming_the_agents_keeps_everything_else_about_the_match():
+    """resolve_agents rebuilt the match from five named fields and dropped the
+    rest, so every live poll lost `flow` and `coaches`: a custom game read as
+    a queued one and its warnings never showed."""
+    m = LiveMatch("m", "pregame", "Ascent", "BombGameMode",
+                  [LivePlayer("a", "Blue", "x", selection="selected")],
+                  flow="CustomGame", coaches=1)
+    r = roster.resolve_agents(m, {"x": "Jett"})
+    assert r.is_custom and r.coaches == 1
+    assert r.players[0].agent == "Jett" and r.players[0].selection == "selected"
+
+
+def test_a_likely_role_is_read_from_the_last_twenty_games(tmp_path):
+    from valwr.live import comp
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [(f"m{i}", "p", now - 100 - i) for i in range(25)])
+    # _tiny_db plays every game on Jett; recast the five oldest as Omen, so
+    # they fall outside the twenty that count.
+    conn.execute("UPDATE match_players SET agent='Omen' WHERE match_id IN "
+                 "('m20','m21','m22','m23','m24')")
+    roles = {"Jett": "Duelist", "Omen": "Controller"}
+    assert comp.likely_role(conn, "p", now, roles) == {
+        "role": "Duelist", "games": 20, "of": 20}
+    assert comp.likely_role(conn, "nobody", now, roles) is None
+
+
+def test_a_tied_likely_role_goes_to_the_one_played_most_recently(tmp_path):
+    from valwr.live import comp
+    now = 2_000_000_000
+    conn = _tiny_db(tmp_path, [(f"m{i}", "p", now - 100 - i) for i in range(4)])
+    conn.execute("UPDATE match_players SET agent='Omen' WHERE match_id IN ('m0','m1')")
+    roles = {"Jett": "Duelist", "Omen": "Controller"}
+    assert comp.likely_role(conn, "p", now, roles)["role"] == "Controller"

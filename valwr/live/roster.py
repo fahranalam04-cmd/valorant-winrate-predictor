@@ -13,6 +13,7 @@ where bans actually happen. See docs/ETHICS-AND-TOS.md.
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 import httpx
@@ -31,6 +32,9 @@ class LivePlayer:
     team: str                       # "Blue" | "Red"
     agent_id: str | None            # None while still picking
     agent: str = UNKNOWN_AGENT      # resolved name, filled by resolve_agents
+    # Agent select only: "locked", "selected" (hovering, may still change), or
+    # None. A client that omits it leaves an agent that is merely "picked".
+    selection: str | None = None
 
 
 # The model is trained on standard 5v5 bomb-defusal matches. Every other mode
@@ -179,8 +183,10 @@ def fetch(session: Session, match_id: str, phase: str) -> LiveMatch | None:
         if p.get("IsCoach"):
             coaches += 1
             continue
-        players.append(LivePlayer(puuid=p["Subject"], team=ally_side,
-                                  agent_id=p.get("CharacterID") or None))
+        players.append(LivePlayer(
+            puuid=p["Subject"], team=ally_side,
+            agent_id=p.get("CharacterID") or None,
+            selection=(p.get("CharacterSelectionState") or "").lower() or None))
     return LiveMatch(match_id=match_id, phase=phase,
                      map_name=_map_name(data.get("MapID")),
                      mode=_map_name(data.get("ModeID")), players=players,
@@ -188,17 +194,18 @@ def fetch(session: Session, match_id: str, phase: str) -> LiveMatch | None:
 
 
 def resolve_agents(match: LiveMatch, agents_by_id: dict[str, str]) -> LiveMatch:
-    """Turn agent UUIDs into names using the ref_agents table."""
-    return LiveMatch(
-        match_id=match.match_id, phase=match.phase, map_name=match.map_name,
-        mode=match.mode,
-        players=[
-            LivePlayer(puuid=p.puuid, team=p.team, agent_id=p.agent_id,
-                       agent=agents_by_id.get((p.agent_id or "").lower(),
-                                              UNKNOWN_AGENT))
-            for p in match.players
-        ],
-    )
+    """Turn agent UUIDs into names using the ref_agents table.
+
+    Copies the match rather than rebuilding it field by field. The rebuild
+    named five fields and dropped the rest, so every live poll lost `flow` and
+    `coaches`: a custom game read as a queued one, and its warnings never
+    showed.
+    """
+    return dataclasses.replace(match, players=[
+        dataclasses.replace(p, agent=agents_by_id.get((p.agent_id or "").lower(),
+                                                      UNKNOWN_AGENT))
+        for p in match.players
+    ])
 
 
 def current(session: Session, agents_by_id: dict[str, str] | None = None

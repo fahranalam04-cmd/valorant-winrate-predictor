@@ -69,6 +69,21 @@ LAST_GAMES = [
     (13, 16, 4, 0.21, False, 12, 14, "2 days ago", "Pearl", 0.90),
 ]
 
+# The role each invented player's last twenty games point to, for agent
+# select: a 16-of-20 main, flex players at 9 or 10, and two with no history.
+LIKELY = {
+    "demo-00": ("Duelist", 16), "demo-01": ("Controller", 15),
+    "demo-03": ("Duelist", 12), "demo-04": ("Duelist", 9),
+    "demo-05": ("Duelist", 18), "demo-06": ("Initiator", 11),
+    "demo-08": ("Controller", 14), "demo-09": ("Duelist", 10),
+}
+
+
+def likely(puuid: str) -> dict | None:
+    got = LIKELY.get(puuid)
+    return {"role": got[0], "games": got[1], "of": 20} if got else None
+
+
 # score, career games, acs, k, d, a, kd, hs, winrate, map games
 PROFILES = [
     (82, 412, 251.4, 6103, 4980, 1844, 1.23, 0.281, 0.55, 34),
@@ -202,6 +217,7 @@ def demo_state(conn=None, phase: str = "coregame") -> dict:
             "puuid": f"demo-{i:02d}", "name": f"{name}#{tag}",
             "known_name": True, "agent": agent, "agent_id": ids.get(agent),
             "role": ROLES.get(agent), "team": team, "is_you": i == 0,
+            "selection": None, "likely": None,
             "score": score, "flag": None, "career": career,
             "rank": RANKS[i],
             "recent": recent,
@@ -305,6 +321,14 @@ def _pregame(players: list[dict]) -> dict:
     for p in ours:
         if p["puuid"] in ("demo-03", "demo-04"):
             p.update(agent=None, agent_id=None, role=None)
+        # Locked, except one still hovering -- as in most lobbies -- and the
+        # undecided carry the role their history points to. Initiator ends up
+        # open, which is the case the strip and the picks exist for.
+        p["selection"] = (None if p["agent"] is None else
+                          "selected" if p["puuid"] == "demo-01" else "locked")
+        p["likely"] = (likely(p["puuid"])
+                       if p["agent"] is None or p["selection"] == "selected"
+                       else None)
     pending = [p["puuid"] for p in ours if p["score"] is None]
     return {
         "match_id": "demo-pregame", "phase": "pregame", "is_custom": False,

@@ -24,7 +24,7 @@ from typing import Any
 from valwr import config
 from valwr.collect.client import HenrikClient
 from valwr.collect.limiter import TokenBucket
-from valwr.live import lockfile, picks, predict as P, resolve as R, roster
+from valwr.live import comp, lockfile, picks, predict as P, resolve as R, roster
 from valwr.live import session as S
 from valwr.rating import potential as pot
 from valwr.rating import role_score as rs
@@ -242,6 +242,13 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
             "role": roles.get(p.agent),
             "team": p.team,
             "is_you": p.puuid == ctx.session.puuid,
+            # Agent select: locked, hovering, or neither -- and for anyone who
+            # has not locked, the role their last twenty games point to.
+            "selection": p.selection,
+            "likely": (comp.likely_role(ctx.conn, p.puuid, as_of, roles)
+                       if match.phase == "pregame"
+                       and (not p.agent_id or p.selection == "selected")
+                       else None),
             "score": None, "reason": "no history", "flag": None,
             # Rank as of their most recent stored match. It can lag a climb,
             # which is why the card prints it beside the data's freshness.

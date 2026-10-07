@@ -83,8 +83,16 @@ ck("says how many are still being looked up",
 
 // --- players not locked in yet --------------------------------------------
 {
-  const picking = ours.filter(p => !p.agent).length;
-  ck("players still picking say so", count(out, />selecting</g) === picking);
+  const picking = ours.filter(p => !p.agent);
+  const guessed = picking.filter(p => p.likely && !p.is_you);
+  ck("players still picking say so",
+     count(out, />selecting</g) === picking.length - guessed.length);
+  ck("or say what they are likely to play, from their last 20",
+     guessed.every(p => out.includes(
+       `likely ${p.likely.role} ${p.likely.games}/${p.likely.of}`)));
+  const hovering = ours.filter(p => p.agent && p.selection === "selected");
+  ck("a hovered agent is not shown as a locked one",
+     count(out, /class="hov">hovering</g) === hovering.length && hovering.length > 0);
 }
 
 // --- still being looked up, versus nothing to find ------------------------
@@ -96,6 +104,21 @@ out = els.stage.innerHTML;
 ck("once the lookup is done, the same player has no history",
    /No competitive history/.test(out) && !/Looking up their last 20/.test(out));
 ck("and the team bar says everyone is looked up", /all looked up/.test(out));
+
+// --- the team's roles so far ---------------------------------------------
+{
+  render({ status: "match", state, top1_rate: 0.296 });
+  const o = els.stage.innerHTML, yp = state.your_picks;
+  ck("a slot for each of the four roles", count(o, /class="slot( open)?"/g) === 4);
+  ck("a role nobody has is called open",
+     /class="slot open"><b>Initiator<\/b><span>open<\/span>/.test(o));
+  ck("a hovered agent is marked as hovering in the strip", /\(hovering\)/.test(o));
+  ck("an undecided teammate counts toward their likely role",
+     /likely, 12\/20/.test(o) && /likely, 9\/20/.test(o));
+  ck("your picks that would fill the open role are marked",
+     count(o, /class="fill">open role/g)
+     === [...yp.agents, ...yp.few].filter(a => a.role === "Initiator").length);
+}
 
 // --- your picks, in the panel until a teammate is clicked -----------------
 {

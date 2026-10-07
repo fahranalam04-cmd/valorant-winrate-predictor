@@ -366,6 +366,24 @@ table.pstats td.mute,.pstats .mute{color:var(--ghost)}
    on in agent select, so it takes the colour of the card still loading. */
 .pregame .tcount{color:var(--bone-dim);text-shadow:0 1px 4px rgba(0,0,0,.9)}
 .pregame .tcount .pend{color:var(--gold);font-weight:700}
+/* The team's roles so far: who has locked, who is hovering, and what the
+   undecided are likely to play. An empty role is what agent select is for. */
+.comp{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;
+  margin:0 0 7px}
+.comp .slot{background:var(--sunk);padding:6px 10px 7px;min-width:0;
+  border-top:2px solid var(--line-soft)}
+.comp .slot b{display:block;font:700 9px/1 var(--display);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--slate);margin-bottom:4px}
+.comp .slot span{display:block;font-size:12px;line-height:1.35;color:var(--bone-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.comp .slot .lik{color:var(--slate);font-style:italic}
+.comp .slot.open{border-top-color:var(--gold)}
+.comp .slot.open b,.comp .slot.open span{color:var(--gold)}
+.rs .hov{color:var(--gold);font-size:10.5px;margin-left:4px}
+.rs .lik{color:var(--slate);font-style:italic}
+.picks .fill{display:inline-block;margin-left:6px;padding:0 5px;
+  font:700 8.5px/15px var(--display);letter-spacing:.12em;text-transform:uppercase;
+  color:var(--void);background:var(--gold)}
 /* Your picks: the empty panel in agent select, put to the question it is
    there for. Agents played once or twice sit under a divider, readable --
    fewer games is a reason to read with care, not to hide them. */
@@ -408,12 +426,12 @@ table.pstats td.mute,.pstats .mute{color:var(--ghost)}
 .cwho{grid-area:who;position:relative;min-width:0}
 /* Fixed columns, so K/D on one card sits directly above K/D on the next. */
 .cstats{grid-area:stats;position:relative;display:grid;
-  grid-template-columns:124px repeat(4,54px);gap:10px}
+  grid-template-columns:124px repeat(4,50px);gap:8px}
 .cstats .st{text-align:left}
 .cinfo{grid-area:info;position:relative;min-width:0;display:grid;
   grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:18px}
 /* In place of the numbers, at the numbers' width, so the column holds. */
-.cmsg{grid-area:stats;position:relative;width:380px;white-space:normal}
+.cmsg{grid-area:stats;position:relative;width:356px;white-space:normal}
 .cline{font-size:12.5px;line-height:1.5;color:var(--bone-dim);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cline .ck{display:inline-block;min-width:70px;font:600 9px/1 var(--display);
@@ -779,7 +797,11 @@ function cardHTML(p, pending, mapName){
       <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
         partyTag(p.puuid)}${
         p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}</div>
-      <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>
+      <div class="rs">${p.agent ? `<span class="ag">${esc(p.agent)}</span>${
+          p.selection === "selected" ? '<span class="hov">hovering</span>' : ""}`
+        : p.likely && !p.is_you ? `<span class="ag lik">likely ${esc(p.likely.role)} ${
+          i0(p.likely.games)}/${i0(p.likely.of)}</span>`
+        : '<span class="ag">selecting</span>'}
         ${rankTag(p.rank)}${known ? `&nbsp;·&nbsp;${esc(p.reason)}` : ""}</div>
     </div>
     ${body}
@@ -802,6 +824,7 @@ function pregameHTML(s){
       <span class="trule"></span>
       <span class="tcount">${known}/${players.length} known · ${left}</span>
     </div>
+    ${compHTML(s)}
     <div class="cards">${players.map(p =>
       cardHTML(p, pending.has(p.puuid), s.map)).join("")}</div>
   </section>`;
@@ -834,6 +857,36 @@ function twoUp(career, recent, win){
       same games.</span></div>` : ""}`;
 }
 
+/* Who covers which role on your team so far. Locked and hovered agents say;
+   for anyone undecided, the role their last twenty games point to. You are
+   left out while you are still choosing -- that is the decision this is for. */
+const ROLES = ["Duelist", "Controller", "Initiator", "Sentinel"];
+const short = name => String(name || "").split("#")[0];
+
+function teamRoles(s){
+  const by = Object.fromEntries(ROLES.map(r => [r, []]));
+  for (const p of s.players.filter(x => x.team === s.own_team)){
+    if (p.agent && p.role && by[p.role])
+      by[p.role].push({p, how: p.selection === "selected" ? "hovering"
+                               : p.selection === "locked" ? "locked" : "picked"});
+    else if (!p.is_you && p.likely && by[p.likely.role])
+      by[p.likely.role].push({p, how: "likely"});
+  }
+  return {by, open: ROLES.filter(r => !by[r].length)};
+}
+
+function compHTML(s){
+  const {by} = teamRoles(s);
+  const who = e => e.how === "likely"
+    ? `<span class="lik">${esc(short(e.p.name))} likely, ${i0(e.p.likely.games)}/${
+        i0(e.p.likely.of)}</span>`
+    : `<span>${esc(short(e.p.name))} · ${esc(e.p.agent)}${
+        e.how === "hovering" ? " (hovering)" : ""}</span>`;
+  return `<div class="comp">${ROLES.map(r => by[r].length
+    ? `<div class="slot"><b>${r}</b>${by[r].map(who).join("")}</div>`
+    : `<div class="slot open"><b>${r}</b><span>open</span></div>`).join("")}</div>`;
+}
+
 /* In agent select the panel answers what to pick: the agents you play best,
    against your own average. A teammate's card replaces it on click, and ESC
    brings it back. */
@@ -847,11 +900,13 @@ const PICK_TONE = {
 
 function picksHTML(s){
   const yp = s.your_picks, few = yp.few || [];
+  const open = new Set(teamRoles(s).open);
   const row = (a, played) => {
     const [tone, text] = PICK_TONE[a.label] || ["mute", a.label];
     const h = a.here || {};
     return `<tr class="${played ? "few" : ""}">
-      <td><b>${esc(a.agent)}</b><span class="role">${esc(a.role || "")}</span></td>
+      <td><b>${esc(a.agent)}</b><span class="role">${esc(a.role || "")}</span>${
+        open.has(a.role) ? '<span class="fill">open role</span>' : ""}</td>
       <td class="${tone}">${esc(text)}${played ? ` <span class="n">in ${
         i0(a.games)} game${a.games === 1 ? "" : "s"}</span>` : ""}</td>
       <td>${i0(a.games)}</td>

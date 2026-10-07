@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, ".")
 
-from valwr.dash.demo import demo_picks, demo_state
+from valwr.dash.demo import demo_picks, demo_state, likely
 from valwr.rating import roleindex
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -79,6 +79,7 @@ const BASE = __STATE__;
 const MAPS = __MAPS__;
 const TOP1 = __TOP1__;
 const PICKS = __PICKS__;
+const LIKELY = __LIKELY__;
 const qs = new URLSearchParams(location.search);
 const view = {map: MAPS.includes(qs.get("map")) ? qs.get("map") : BASE.map,
               side: qs.get("side") === "Red" ? "Red" : "Blue",
@@ -130,6 +131,14 @@ function build(){
     // up rather than shown as having none.
     for (const p of s.players.slice(-2))
       Object.assign(p, {agent: null, agent_id: null, role: null});
+    // Locked unless still choosing, with one teammate hovering as most
+    // lobbies have; the undecided carry the role their history points to.
+    for (const p of s.players)
+      Object.assign(p, {selection: p.agent ? "locked" : null,
+                        likely: p.agent ? null : LIKELY[p.puuid] || null});
+    const hover = s.players.find(p => p.agent && !p.is_you);
+    if (hover) Object.assign(hover, {selection: "selected",
+                                     likely: LIKELY[hover.puuid] || null});
     const pending = s.players.filter(p => p.score === null).map(p => p.puuid);
     s.lookup = {pending, remaining: 2 * pending.length};
     s.your_picks = Object.assign({}, PICKS, {map: view.map});
@@ -325,6 +334,8 @@ def build(out: Path, conn=None) -> dict:
                 .replace("__MAPS__", _json_for_script(maps))
                 .replace("__TOP1__", _json_for_script(top1))
                 .replace("__PICKS__", _json_for_script(demo_picks()))
+                .replace("__LIKELY__", _json_for_script(
+                    {p["puuid"]: likely(p["puuid"]) for p in state["players"]}))
                 .replace("__REPO__", REPO_URL))
     at = page.index("<script>")
     html = page[:at] + shim + page[at:]

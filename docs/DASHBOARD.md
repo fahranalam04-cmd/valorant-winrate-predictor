@@ -133,6 +133,15 @@ scrolling, and the numbers sit in the same columns on every card. A test lays
 the page out in a real browser and fails if the fifth player ever drops below
 a 1920x800 or 2560x1300 window again.
 
+**The team's roles so far** sit in a strip above the cards, one slot per role:
+who has locked an agent, who is still hovering one (a hover can change, and is
+marked as one), and, for anyone undecided, the role their last twenty
+competitive games point to, with its share -- a 16-of-20 main reads
+differently from a 9-of-20 flex player. A role nobody covers is marked open,
+and the undecided teammate's card says the same thing ("likely Sentinel
+9/20"). You are left out while you are still choosing; that is the decision
+this is for.
+
 **Your picks** fill the side panel: the agents you play best, measured by
 match impact against your own average rather than by win rate, which is half
 your teammates' and mostly noise at these sample sizes. Agents with three or
@@ -140,7 +149,8 @@ more games are ranked, each pulled toward your average in proportion to how
 few games it rests on. Under them sit the agents you have played once or
 twice, with what those games showed and how many there were -- shown, not
 dropped. Your record on this map is beside each as context only: one to three
-games an agent per map is all anyone has.
+games an agent per map is all anyone has. An agent whose role nobody on your
+team covers yet is marked "open role".
 
 Clicking a card opens that teammate's full breakdown in the side panel in
 place of your picks, and ESC brings them back.
