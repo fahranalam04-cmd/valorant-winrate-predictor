@@ -22,7 +22,7 @@ import json
 import math
 import sqlite3
 
-from valwr.rating import rating, role_score
+from valwr.rating import role_score
 
 # Buckets for the calibration table. Predictions cluster hard around the
 # middle, so the edges are wide and the centre is not.
@@ -169,11 +169,18 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
              if role_score.standing(p) is not None),
             key=role_score.standing, reverse=True))
     }
-    # Where each player actually finished. By match impact, which is how the
-    # rest of the project measures "played best" -- combat score ranked this
-    # table until patch 13.06 removed it from the game, and it disagreed with
-    # the accuracy figures the scorecard reports.
-    actual_adr, actual_acs, impact = {}, {}, {}
+    # Where each player actually finished, by the one definition of "played
+    # best" the verdict and the scorecard also use: the game's own Performance
+    # Score where the client gave it, match impact otherwise.
+    from valwr.live import client_scores
+    from valwr.live.outcomes import played_best_values
+    values, best_by = played_best_values(conn, match_id)
+    actual_rank = {
+        puuid: i + 1
+        for i, puuid in enumerate(sorted(values, key=values.get, reverse=True))
+    }
+    performance = client_scores.scores_for(conn, match_id)
+    actual_adr, actual_acs = {}, {}
     for puuid, r in played.items():
         rounds = r["rounds_played"] or 0
         if not rounds:
@@ -182,13 +189,6 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
         # Still carried for matches recorded before 13.06, whose stored state
         # has a career ACS to compare against and no career ADR.
         actual_acs[puuid] = (r["score"] or 0) / rounds
-        got = rating.match_impact(dict(r))
-        if got is not None:
-            impact[puuid] = got
-    actual_rank = {
-        puuid: i + 1
-        for i, puuid in enumerate(sorted(impact, key=impact.get, reverse=True))
-    }
 
     players = []
     for p in state.get("players", []):
@@ -242,6 +242,7 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
                    if r and r["deaths"] else None),
             "headshot_rate": round(shots, 4) if shots is not None else None,
             "actual_rank": actual_rank.get(p["puuid"]),
+            "performance_score": client_scores.shown(performance.get(p["puuid"])),
         })
 
     out = {
@@ -257,6 +258,7 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
             "verdict": verdict(row["own_probability"]),
         },
         "settled": row["settled_at"] is not None,
+        "best_by": best_by,
         "players": players,
         "state": state,
     }

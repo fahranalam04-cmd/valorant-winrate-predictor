@@ -633,3 +633,67 @@ def test_rescoring_replaces_a_verdict_recorded_under_the_old_rule(conn):
     assert got == 0, "the pick did not have the best match after all"
     # Idempotent: a second pass changes nothing, so it can run every launch.
     assert outcomes.rescore(conn) == 0
+
+
+# --- the game's own Performance Score -----------------------------------
+# Read from the client after a match (live/client_scores.py). Where it exists
+# for everyone who played, it is "played best"; otherwise match impact is.
+
+def _performance(conn, scores):
+    from valwr.live import client_scores
+    client_scores.store(conn, "m1", [(p, v, {}) for p, v in scores.items()], now=1)
+
+
+def _everyone(conn):
+    return [r[0] for r in conn.execute(
+        "SELECT puuid FROM match_players WHERE match_id='m1' AND rounds_played > 0")]
+
+
+def test_the_games_own_score_decides_who_played_best(conn):
+    """b3 had the bigger combat score; the game scored b1 highest."""
+    outcomes.record(conn, state(), now=1000)
+    outcomes.settle(conn, FakeAPI(finished(best="b3")), "na", "m1", now=2000)
+    _performance(conn, {p: (480.0 if p == "b1" else 200.0) for p in _everyone(conn)})
+    values, by = outcomes.played_best_values(conn, "m1")
+    assert by == outcomes.PERFORMANCE_SCORE
+    assert outcomes.actual_best(conn, "m1", "Blue") == "b1"
+
+
+def test_a_partial_set_of_scores_is_never_mixed_with_match_impact(conn):
+    """Half a lobby on one measure and half on another is not a ranking."""
+    outcomes.record(conn, state(), now=1000)
+    outcomes.settle(conn, FakeAPI(finished(best="b3")), "na", "m1", now=2000)
+    _performance(conn, {p: 480.0 for p in _everyone(conn)[:-1]})
+    _, by = outcomes.played_best_values(conn, "m1")
+    assert by == outcomes.MATCH_IMPACT
+    assert outcomes.actual_best(conn, "m1", "Blue") == "b3"
+
+
+def test_scores_that_arrive_after_settling_re_judge_the_verdict(conn, monkeypatch):
+    """The result usually lands before the client is asked. The verdict the
+    scorecard counts must follow the score the page shows, not the earlier
+    stand-in."""
+    from valwr.live import client_scores
+    outcomes.record(conn, state(scores=(90, 70, 50, 30, 10)), now=1000)
+    outcomes.settle(conn, FakeAPI(finished(best="b3")), "na", "m1", now=2000)
+    hit = lambda: conn.execute(  # noqa: E731
+        "SELECT top_pick_hit FROM live_predictions").fetchone()[0]
+    assert hit() == 0, "b0 was the pick; by match impact b3 played best"
+    players = _everyone(conn)
+    monkeypatch.setattr(client_scores, "fetch", lambda s, mid: {"players": [
+        {"subject": p, "scores": {client_scores.PS_FIELD: 450.0 if p == "b0" else 210.0}}
+        for p in players]})
+    client_scores._NO_ANSWER.clear()
+    assert client_scores.collect(conn, object())["stored"] == 1
+    assert hit() == 1, "by the game's own score b0 played best"
+
+
+def test_the_after_game_page_says_which_measure_ranked_the_lobby(conn):
+    outcomes.record(conn, state(), now=1000)
+    outcomes.settle(conn, FakeAPI(finished(best="b3")), "na", "m1", now=2000)
+    assert review.compare(conn, "m1")["best_by"] == outcomes.MATCH_IMPACT
+    _performance(conn, {p: (480.4 if p == "b1" else 200.6) for p in _everyone(conn)})
+    got = review.compare(conn, "m1")
+    assert got["best_by"] == outcomes.PERFORMANCE_SCORE
+    b1 = next(p for p in got["players"] if p["puuid"] == "b1")
+    assert b1["actual_rank"] == 1 and b1["performance_score"] == 480, "shown rounded"

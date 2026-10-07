@@ -355,7 +355,7 @@ responses, which are only needed to re-parse old matches.
 ### Tests
 
 ```bash
-pytest -q                          # 566 tests; needs no .env, model or database
+pytest -q                          # 584 tests; needs no .env, model or database
 python tools/audit.py              # re-derives documented claims, reports drift
 ```
 

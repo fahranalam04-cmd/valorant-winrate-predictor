@@ -457,7 +457,19 @@ def settle_tick(no_fetch: bool = False) -> dict[str, int]:
                                       limiter=TokenBucket(full.requests_per_minute))
             except Exception:                        # noqa: BLE001
                 client = None        # no key: the crawler's own matches still settle
-        return outcomes.settle_pending(conn, client, s.region)
+        got = outcomes.settle_pending(conn, client, s.region)
+        # The game's own Performance Score, while the game is open to ask --
+        # its session is the only way to reach it.
+        from valwr.live import client_scores
+        if client_scores.missing(conn, 1):
+            from valwr.live import lockfile
+            from valwr.live import session as S
+            try:
+                if lockfile.game_is_running():
+                    got.update(client_scores.collect(conn, S.build()))
+            except (lockfile.ClientNotRunning, S.SessionExpired):
+                pass                 # closed or restarted; the next pass asks
+        return got
     finally:
         if client is not None:
             client.close()

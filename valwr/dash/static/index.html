@@ -1062,6 +1062,7 @@ function playerBlock(p, rv, rated, placed){
   const move = (p.predicted_rank && p.actual_rank)
     ? p.predicted_rank - p.actual_rank : null;
   const places = n => `${n} place${n === 1 ? "" : "s"}`;
+  const by = rv.best_by === "performance score" ? "Performance Score" : "match impact";
   const placing = move === 0 ? `exactly where the score put them`
     : `${places(Math.abs(move))} ${move > 0 ? "better" : "worse"} than the
        score expected`;
@@ -1077,6 +1078,8 @@ function playerBlock(p, rv, rated, placed){
       // damage figure. Shown as it was rather than left blank.
       : ["Combat score", n1(p.career_acs), n1(p.acs),
          deltaCell(p.acs_delta, v => Math.abs(v).toFixed(0), 1)],
+    ...(p.performance_score != null
+      ? [["Performance Score", "—", i0(p.performance_score), "—"]] : []),
     ["K / D", p.career_kd == null ? "—" : Number(p.career_kd).toFixed(2),
      p.kd == null ? "—" : Number(p.kd).toFixed(2),
      deltaCell(p.kd_delta, v => Math.abs(v).toFixed(2), 1)],
@@ -1097,11 +1100,11 @@ function playerBlock(p, rv, rated, placed){
     <div class="pline">${p.predicted_rank
       ? `Ranked <b>#${i0(p.predicted_rank)}</b> of the ${i0(rated)} players the
          page could score, and finished <b>#${p.actual_rank
-           ? i0(p.actual_rank) : "—"}</b> of ${i0(placed)} on match
-         impact${move === null ? "" : ` — ${placing}`}.`
+           ? i0(p.actual_rank) : "—"}</b> of ${i0(placed)} on ${by}${
+         move === null ? "" : ` — ${placing}`}.`
       : `There was no history to score them on before the match${p.actual_rank
-         ? `; they finished #${i0(p.actual_rank)} of ${i0(placed)} on match
-            impact` : ""}.`}
+         ? `; they finished #${i0(p.actual_rank)} of ${i0(placed)} on ${by}`
+         : ""}.`}
       ${p.versus_usual ? ` They played <b>${esc(p.versus_usual)}</b>.` : ""}</div>
     ${p.reason ? `<div class="pwhy">“${esc(p.reason)}”</div>` : ""}
     <table class="pstats"><thead><tr><th></th>
@@ -1145,8 +1148,9 @@ function compareHTML(rv){
     ${group("Your team", side(rv.own_team))}
     ${group("Enemy team", side(other))}
     <div class="cmp" style="border:0;padding-top:12px"><span class="k">Placing
-      is by match impact in that match -- the same measure the accuracy figures
-      use. “Before” is the player's own career
+      is by ${rv.best_by === "performance score"
+        ? "the game's own Performance Score" : "match impact"} in that match --
+      the same measure the accuracy figures use. “Before” is the player's own career
       average up to the moment the match started, never including the match
       itself — so the change column is how they played against how they usually
       play, not against the rest of the lobby.</span></div></div>`;

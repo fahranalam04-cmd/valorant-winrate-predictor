@@ -1652,3 +1652,34 @@ def test_a_tied_likely_role_goes_to_the_one_played_most_recently(tmp_path):
     conn.execute("UPDATE match_players SET agent='Omen' WHERE match_id IN ('m0','m1')")
     roles = {"Jett": "Duelist", "Omen": "Controller"}
     assert comp.likely_role(conn, "p", now, roles)["role"] == "Controller"
+
+
+def _settle_tick(tmp_path, monkeypatch, missing, running=True):
+    from valwr.dash import server as DS
+    from valwr.live import client_scores, lockfile
+    from valwr.live import session as S
+    from valwr.store import schema
+    db = tmp_path / "valwr.db"
+    schema.create_all(schema.connect(db))
+    monkeypatch.setenv("DATABASE_PATH", str(db))
+    monkeypatch.setattr(client_scores, "missing", lambda conn, limit=None: missing)
+    monkeypatch.setattr(lockfile, "game_is_running", lambda: running)
+    monkeypatch.setattr(S, "build", lambda: "session")
+    asked = []
+    monkeypatch.setattr(client_scores, "collect",
+                        lambda conn, sess: asked.append(sess) or {"stored": 1})
+    got = DS.settle_tick(no_fetch=True)
+    return asked, got
+
+
+def test_the_result_pass_collects_performance_scores_while_the_game_is_open(
+        tmp_path, monkeypatch):
+    """The game's session is the only way to reach them, so they are asked for
+    on the same once-a-minute pass that collects results."""
+    asked, got = _settle_tick(tmp_path, monkeypatch, missing=["m1"])
+    assert asked == ["session"] and got["stored"] == 1
+
+
+def test_the_result_pass_leaves_the_client_alone_otherwise(tmp_path, monkeypatch):
+    assert _settle_tick(tmp_path, monkeypatch, missing=[])[0] == []
+    assert _settle_tick(tmp_path, monkeypatch, missing=["m1"], running=False)[0] == []

@@ -51,13 +51,21 @@ What follows from that:
 - **The card shows damage per round** where it showed combat score, and the map
   term is a damage delta rather than a combat-score one. The two correlate
   0.98, so the term means what it always did.
-- **"Played best" is the ten-part match rating**, in the comparison table and in
-  the recorded pick alike. This also settles a contradiction this document
-  already carried: section "One inconsistency to fix" flagged that
-  `live/review.py` judged it by ACS while the validation harness did not.
-- **No invented 0-500 number.** A fabricated Performance Score sitting beside
-  the real one in the client would be worse than showing none. Whether the
-  local game client exposes the real figure is still open.
+- **"Played best" is the game's own Performance Score where the client has
+  given it, and the ten-part match rating otherwise** -- one definition, in the
+  comparison table, the recorded pick and the scorecard alike
+  (`outcomes.played_best_values`), and never a mix of the two within one
+  lobby. This also settles a contradiction this document already carried:
+  section "One inconsistency to fix" flagged that `live/review.py` judged it
+  by ACS while the validation harness did not.
+- **The real Performance Score is read, never invented.** The local client
+  exposes it: `pd/match-details` carries it for every player under a scrambled
+  field name, `scores.TempValueF`, with decimals (215.10 for a screen that says
+  215). Which field it is was settled against the End of Game screen rather
+  than guessed -- the guess, the one that topped out at exactly 500, was
+  wrong. It is collected after each match you play while the game is open, so
+  it covers your lobbies only; the 0-100 is built from history the API holds
+  and stays a separate thing. See `valwr/live/client_scores.py`.
 - **The role tables no longer use combat score.** They spent 11-23% on it and
   11-20% on ability casts. Candidates that spend it on what Performance Score
   counts instead were written into `tools/ablate_role_score.py` and measured

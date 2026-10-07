@@ -350,8 +350,11 @@ of agent select. This cannot be solved by fetching faster. Solve it by:
 1. **Cache first.** Measured against real lobbies, about 7 of 10 players are
    already in the local database, because the crawl was seeded from the same
    account and collects the people it queues against.
-2. **Priority order.** Your own account always, then your own team, then
-   enemies — partial output beats no output.
+2. **Priority order.** In agent select, your teammates first and your own
+   account after them -- you know how you play; in game, your own account
+   first, then your team, then the enemy. A lookup that has answered is not
+   repeated within the match, and the crawler pauses while VALORANT runs, so
+   the dashboard has the whole quota. Partial output beats no output.
 3. **Refresh what is stale.** A player whose newest stored match is more than
    two hours old, or who has fewer than five, is refetched within the budget —
    two matchlist pages, so the dashboard's "last 20" really is twenty games.
@@ -360,6 +363,35 @@ of agent select. This cannot be solved by fetching faster. Solve it by:
 
 Pre-warming between matches was planned and not needed: cache coverage made
 it redundant.
+
+---
+
+### Performance Score — the client's match-details
+
+Patch 13.06's Performance Score (0-500) is in no public API, but the End of
+Game screen is built from the client's
+
+```
+GET  {pd}/match-details/v1/matches/{matchid}       # with the session's headers
+```
+
+which carries a `scores` object per player under scrambled names. Measured on
+one match, against the screen:
+
+| field | is | evidence |
+|---|---|---|
+| `scores.TempValueF` | **Performance Score**, with decimals | 215.10 where the screen said 215 |
+| `scores.TempValueA` | damage per round | equals ADR to the decimal |
+| `scores.TempValueG` | a combat-style score | tracks combat score at 0.96 |
+| `scores.TempValueH` | unknown, capped at 500 | barely tracks performance; *not* the score |
+| `scores.TempValueL.TempValueP` / `.TempValueQ` | the screen's arrows | damage, killImpact, deathImpact, trades / assists, plants, defuses, utilityUsage -> "up", "double_up", ... |
+| `scores.TempValueT.TempValueS` | grade cut-offs | distinction 420, merit 330 -- the same for everyone |
+
+Team Deathmatch carries none of them. `pd` is Riot's own server with a real
+certificate, so the request is TLS-verified, unlike the local API. Read-only,
+for matches the account played, and only while the game is running -- the
+session is the only way in. Scrambled names are the kind of thing a patch
+moves, so every value is checked to be a number in 0-500 before it is stored.
 
 ---
 

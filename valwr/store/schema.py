@@ -163,6 +163,18 @@ CREATE TABLE IF NOT EXISTS live_predictions (
   last_error      TEXT
 );
 
+-- The game's own Performance Score (0-500), read from the local client's
+-- match-details after a match you played. No public API carries it; see
+-- valwr/live/client_scores.py. One row per player per match.
+CREATE TABLE IF NOT EXISTS client_scores (
+  match_id          TEXT NOT NULL,
+  puuid             TEXT NOT NULL,
+  performance_score REAL NOT NULL,   -- kept exact; the game shows it rounded
+  breakdown         TEXT,             -- JSON: damage, killImpact, ... -> up/down
+  fetched_at        INTEGER NOT NULL,
+  PRIMARY KEY (match_id, puuid)
+);
+
 CREATE TABLE IF NOT EXISTS ref_maps (
   uuid          TEXT PRIMARY KEY,
   name          TEXT NOT NULL

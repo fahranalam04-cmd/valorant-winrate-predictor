@@ -436,6 +436,19 @@ ck("the opening message says what it is doing",
      !/class="compare"/.test(els.stage.innerHTML));
   render({ status: "match", state, review: rv, top1_rate: 0.296 });
 
+  // With the game's own Performance Score, the lobby is ranked by it and
+  // says so, and each block shows the number the end-of-game screen did.
+  rv.best_by = "performance score";
+  rv.players.forEach((q, i) => { q.performance_score = 300 - i * 10; });
+  render({ status: "match", state, review: rv, top1_rate: 0.296 });
+  const ps = els.stage.innerHTML;
+  ck("ranked on Performance Score when the game gave one",
+     /of 10 on Performance\s+Score/.test(ps) && !/on match\s+impact/.test(ps));
+  ck("each block shows its Performance Score", /<td>Performance Score<\/td><td>—<\/td><td>300<\/td>/.test(ps));
+  ck("and the note names the measure", /the game's own Performance Score/.test(ps));
+  delete rv.best_by;
+  rv.players.forEach(q => { delete q.performance_score; });
+
   rv.settled = false;
   render({ status: "match", state, review: rv, top1_rate: 0.296 });
   ck("before the result lands it says it is waiting",

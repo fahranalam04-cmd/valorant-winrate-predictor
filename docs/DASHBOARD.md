@@ -216,8 +216,11 @@ dashboard spends one API call on it and the tab shows:
 - won or lost, the final score, and whether the prediction was right
 - **a block per player, not a summary row**: every player who played gets
   their 0-100 score, the reason the score gave, and where it ranked them,
-  against where they actually finished -- ranked by match impact, the same
-  measure the accuracy figures use -- then their own career damage per round,
+  against where they actually finished -- ranked by the game's own
+  Performance Score, read from your client after the match while the game is
+  open, or by match impact where it has not been, never a mix; the page says
+  which, and the scorecard counts the same measure -- then their own career
+  damage per round,
   K/D and headshot rate from before the match set against what they did in
   it, with the change signed in each row.
 

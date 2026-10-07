@@ -79,7 +79,10 @@ def main(argv=None) -> int:
     import httpx
     url = f"{sess.pd}/match-details/v1/matches/{match_id}"
     try:
-        r = httpx.get(url, headers=sess.headers, timeout=20, verify=False)
+        # Riot's own server, with a real certificate: verified, unlike the
+        # game's local API. Turning it off sent the session token to a host
+        # nobody had checked.
+        r = httpx.get(url, headers=sess.headers, timeout=20)
     except httpx.HTTPError as e:
         print(f"  the request failed: {type(e).__name__}: {e}")
         return 1

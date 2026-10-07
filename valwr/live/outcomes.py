@@ -118,25 +118,49 @@ def pending(conn: sqlite3.Connection, now: int | None = None) -> list[str]:
     return out
 
 
+PERFORMANCE_SCORE = "performance score"
+MATCH_IMPACT = "match impact"
+
+
+def played_best_values(conn: sqlite3.Connection, match_id: str
+                       ) -> tuple[dict[str, float], str]:
+    """How well each player played one match, and by which measure.
+
+    The single definition of "played best" -- for the stored verdict, the
+    scorecard and the after-game page alike, so no two of them can disagree
+    about one match. The game's own Performance Score wherever the client has
+    given it for everyone who played (see live/client_scores.py); otherwise
+    `rating.match_impact`, which stood in for it since patch 13.06 took combat
+    score off the scoreboard. Never a mix: a lobby ranked half on one measure
+    and half on the other would not be a ranking.
+    """
+    from valwr.live import client_scores
+    from valwr.rating.rating import match_impact
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM match_players WHERE match_id = ? AND rounds_played > 0",
+        (match_id,))]
+    ps = client_scores.scores_for(conn, match_id)
+    if rows and all(r["puuid"] in ps for r in rows):
+        return {r["puuid"]: float(ps[r["puuid"]]) for r in rows}, PERFORMANCE_SCORE
+    impact = {}
+    for r in rows:
+        value = match_impact(r)
+        if value is not None:
+            impact[r["puuid"]] = value
+    return impact, MATCH_IMPACT
+
+
 def actual_best(conn: sqlite3.Connection, match_id: str,
                 team: str | None) -> str | None:
-    """Who actually played best on that team.
-
-    Measured by `rating.match_impact`, not by combat score. The game stopped
-    showing combat score in patch 13.06, and ranking by it disagreed with the
-    way this project has always measured the same question elsewhere.
-    """
+    """Who actually played best on that team, by `played_best_values`."""
     if not team:
         return None
-    from valwr.rating.rating import match_impact
-    best, best_value = None, None
-    for r in conn.execute(
-            "SELECT * FROM match_players WHERE match_id = ? AND team = ? "
-            "AND rounds_played > 0", (match_id, team)):
-        value = match_impact(dict(r))
-        if value is not None and (best_value is None or value > best_value):
-            best, best_value = r["puuid"], value
-    return best
+    on_team = {r[0] for r in conn.execute(
+        "SELECT puuid FROM match_players WHERE match_id = ? AND team = ?",
+        (match_id, team))}
+    values, _ = played_best_values(conn, match_id)
+    mine = {p: v for p, v in values.items() if p in on_team}
+    return max(mine, key=mine.get) if mine else None
 
 
 def top_pick(state: dict, team: str | None) -> str | None:
