@@ -155,8 +155,9 @@ Detect a real match and resolve its ten players.
 **Done when:** load into a real or custom match and the ten players resolve,
 with a prediction before the first round — including the degraded path.
 
-**As built.** The client is polled every three seconds rather than subscribed
-to over its websocket; it is simpler and just as fast at this cadence. The
+**As built.** The client is polled every three seconds, and its websocket
+announcements of agent select and the match starting bring the next poll
+forward; the poll alone still works if that channel is down. The
 shard comes from `/riotclient/region-locale`, not the process command line. A
 player whose newest stored match is over two hours old is refetched, your own
 account is refreshed once per match, and two matchlist pages are fetched so a

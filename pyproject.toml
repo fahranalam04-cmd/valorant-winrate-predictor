@@ -33,6 +33,10 @@ dependencies = [
     "fastapi>=0.110",
     # [standard] brings the websocket implementation the dashboard's /ws needs.
     "uvicorn[standard]>=0.29",
+    # The game client's own event channel (valwr/live/events.py). uvicorn's
+    # [standard] already installs it; named here because this code imports it
+    # directly, and its sync client arrived in 12.
+    "websockets>=12",
     "Pillow>=10.0",
 ]
 

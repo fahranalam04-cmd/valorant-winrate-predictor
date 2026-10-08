@@ -11,7 +11,7 @@ that could expose a user's API key, their machine, or other players' data.
 | Surface | Exposure | Containment |
 |---|---|---|
 | HenrikDev API key | Sent to `api.henrikdev.xyz` over verified TLS | Read from `.env`, which is gitignored. Never logged or printed; `valwr.check` reports only its length. |
-| Riot local client | Lockfile password, `127.0.0.1` only | Read-only: GET requests, no writes, no agent selection, no memory access. TLS verification is off for this loopback connection alone, because the client's certificate is self-signed. |
+| Riot local client | Lockfile password, `127.0.0.1` only | Read-only: GET requests and one websocket subscription to its event channel -- no writes, no agent selection, no memory access. TLS verification is off for these loopback connections alone, because the client's certificate is self-signed. |
 | Collected match data | Other players' match histories | Stays in `data/`, gitignored. No route or command looks up an arbitrary player. |
 | Recorded matches | The dashboard stores each prediction, and the result once published | Stays in the same local database as everything else. `/m/<id>` serves only matches this dashboard predicted; `/api/scorecard` takes no parameters. Neither can be asked about a player. |
 | Live dashboard | Serves the current match, including other players' gamertags | Binds `127.0.0.1` by default. `LocalOnly` refuses requests addressed to a domain name (DNS rebinding) and websockets opened from any other origin. The page escapes every rendered value and sends a Content-Security-Policy that allows no external script, image, font or connection, and no framing. |

@@ -1100,14 +1100,17 @@ def test_the_scorecard_endpoint_reports_the_record(tmp_path, monkeypatch):
     assert card["insights"], "it always says what the record supports"
 
 
-def test_each_new_match_opens_its_own_tab_once(tmp_path, monkeypatch):
-    """Instead of a tab being replaced by the next match, each match gets one."""
+def test_with_tabs_a_match_page_opens_at_match_start_not_in_agent_select(
+        tmp_path, monkeypatch):
+    """Opened the moment agent select began, the match's own page covered the
+    agent-select cards -- with a page that had nothing on it, because nothing
+    is recorded until the loading screen. Now it waits for the prediction, and
+    each match still opens once."""
     from fastapi.testclient import TestClient
 
     from valwr.dash import server as DS
 
     opened = []
-    seen = []
 
     class Ctx:
         index = None
@@ -1119,10 +1122,18 @@ def test_each_new_match_opens_its_own_tab_once(tmp_path, monkeypatch):
         def close(self):
             pass
 
+    predicted = {"own_probability": 0.55, "win_probability": 0.55,
+                 "factors": []}
+    # Agent select can carry a prediction of its own (outcomes.record keeps
+    # one until the match replaces it), so the phase decides, not its absence.
+    polls = iter([("m1", "pregame", predicted), ("m1", "pregame", predicted),
+                  ("m1", "coregame", predicted), ("m1", "coregame", predicted),
+                  ("m2", "coregame", predicted)])
+
     def poll(ctx, on_progress=None):
-        seen.append(1)
-        return {"match_id": "m1" if len(seen) < 3 else "m2", "players": [],
-                "warnings": [], "prediction": None}
+        match_id, phase, prediction = next(polls)
+        return {"match_id": match_id, "phase": phase, "players": [],
+                "warnings": [], "prediction": prediction}
 
     monkeypatch.setattr(DS.st, "open_context", lambda **kw: Ctx())
     monkeypatch.setattr(DS, "poll_and_record", poll)
@@ -1134,11 +1145,146 @@ def test_each_new_match_opens_its_own_tab_once(tmp_path, monkeypatch):
     app.state.base_url = "http://127.0.0.1:8787/"
     with TestClient(app, base_url="http://127.0.0.1:8787") as client:
         with client.websocket_connect("ws://127.0.0.1:8787/ws") as ws:
-            for _ in range(4):
+            ws.receive_json()                               # "working"
+            for _ in range(2):
+                assert ws.receive_json()["state"]["phase"] == "pregame"
+            assert opened == [], "a tab popped up during agent select"
+            for _ in range(3):
                 ws.receive_json()
 
     assert opened == ["http://127.0.0.1:8787/m/m1",
                       "http://127.0.0.1:8787/m/m2"], "one tab per match, once each"
+
+
+def _socket_over(monkeypatch, polls, grace=20.0):
+    """A live socket whose polls answer from `polls` -- (match_id, phase) or
+    None -- and the list of matches it declared over."""
+    from valwr.dash import server as DS
+
+    class Ctx:
+        index = role_index = conn = client = None
+        settings = type("S", (), {"region": "na"})()
+
+        def close(self):
+            pass
+
+    answers = iter(polls)
+    ended = []
+
+    def poll(ctx, on_progress=None):
+        got = next(answers, None)
+        if got is None:
+            return None
+        match_id, phase = got
+        return {"match_id": match_id, "phase": phase, "players": [],
+                "warnings": [], "prediction": None}
+
+    monkeypatch.setattr(DS.st, "open_context", lambda **kw: Ctx())
+    monkeypatch.setattr(DS, "poll_and_record", poll)
+    monkeypatch.setattr(DS, "recent_rows", lambda: [])
+    monkeypatch.setattr(DS.outcomes, "match_ended",
+                        lambda conn, client, region, mid: ended.append(mid))
+    monkeypatch.setattr(DS, "POLL_SECONDS", 0.01)
+    monkeypatch.setattr(DS, "MIN_WAKE_GAP_SECONDS", 0.01)
+    monkeypatch.setattr(DS, "LOADING_GRACE_SECONDS", grace)
+    return DS.build_app(no_fetch=True), ended
+
+
+def _statuses(app, n):
+    from fastapi.testclient import TestClient
+    out = []
+    with TestClient(app, base_url="http://127.0.0.1:8787") as client:
+        with client.websocket_connect("ws://127.0.0.1:8787/ws") as ws:
+            ws.receive_json()                               # "working"
+            for _ in range(n):
+                msg = ws.receive_json()
+                out.append((msg["status"], msg.get("state", {}).get("phase"),
+                            msg.get("fresh")))
+    return out
+
+
+def test_agent_select_stays_up_while_the_match_loads(monkeypatch):
+    """Measured on a real match: after agent select Riot answers neither
+    "agent select" nor "in a match" for over a second, and the client
+    announces the match before it can be read. That gap used to read as the
+    menus: STANDBY flashed between the cards and the scoreboard, and the match
+    that had just begun was declared over."""
+    app, ended = _socket_over(monkeypatch, [
+        ("m1", "pregame"), None, None, ("m1", "coregame")])
+    got = _statuses(app, 4)
+    assert got == [("match", "pregame", True), ("loading", None, None),
+                   ("loading", None, None), ("match", "coregame", False)]
+    assert ended == [], "a match that was starting was declared over"
+
+
+def test_a_dodge_still_returns_to_the_menus(monkeypatch):
+    """Agent select that ends with no match -- someone dodged -- is the menus
+    once the grace has run out, exactly as before."""
+    app, ended = _socket_over(monkeypatch, [("m1", "pregame")], grace=0.05)
+    got = _statuses(app, 12)
+    assert ("lobby", None, None) in got, got
+    assert got[1] == ("loading", None, None)
+    first_lobby = got.index(("lobby", None, None))
+    assert all(g[0] == "loading" for g in got[1:first_lobby])
+    assert all(g[0] == "lobby" for g in got[first_lobby:]), (
+        "once in the menus it must stay there, not go back to loading")
+    assert ended == ["m1"]
+
+
+def test_the_end_of_a_match_is_not_mistaken_for_loading(monkeypatch):
+    """Only agent select hands over to something. Leaving a match is the
+    signal that it is over, and is acted on at once."""
+    app, ended = _socket_over(monkeypatch, [("m1", "coregame"), None])
+    got = _statuses(app, 2)
+    assert got == [("match", "coregame", True), ("lobby", None, None)]
+    assert ended == ["m1"]
+
+
+def _launched_app(monkeypatch, tmp_path, argv):
+    """main(argv) against a fake server; the app it built."""
+    import uvicorn
+
+    from valwr import config
+    from valwr.dash import server as S
+    monkeypatch.setattr(S, "port_file", lambda: tmp_path / "dashboard-port")
+    monkeypatch.setattr(S, "port_free", lambda host, port: True)
+    monkeypatch.setattr(S.webbrowser, "open", lambda url: True)
+
+    def no_database(**kw):
+        raise RuntimeError("tests must not open the real database")
+    monkeypatch.setattr(config, "load", no_database)
+    built = []
+    real = S.build_app
+    monkeypatch.setattr(S, "build_app",
+                        lambda **kw: built.append(real(**kw)) or built[-1])
+
+    class _Server:
+        def __init__(self, cfg):
+            self.started = True
+
+        def run(self):
+            pass
+    monkeypatch.setattr(uvicorn, "Server", _Server)
+    assert S.main(argv) == 0
+    return built[0]
+
+
+def test_nothing_pops_up_unless_asked(monkeypatch, tmp_path):
+    """One tab, from agent select into the game. A match's own page is a link
+    on it, and a new tab only with --tabs."""
+    app = _launched_app(monkeypatch, tmp_path, ["--port", "8792"])
+    assert app.state.base_url is None
+
+
+def test_tabs_can_still_be_asked_for(monkeypatch, tmp_path):
+    app = _launched_app(monkeypatch, tmp_path, ["--port", "8793", "--tabs"])
+    assert app.state.base_url == "http://127.0.0.1:8793/"
+
+
+def test_the_old_opt_out_is_still_accepted(monkeypatch, tmp_path):
+    """A shortcut made when tabs were the default still passes --no-tabs."""
+    app = _launched_app(monkeypatch, tmp_path, ["--port", "8794", "--no-tabs"])
+    assert app.state.base_url is None
 
 
 

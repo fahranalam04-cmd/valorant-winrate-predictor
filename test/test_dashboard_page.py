@@ -244,8 +244,14 @@ def test_agent_select_shows_every_number_on_each_card(tmp_path):
             p_["agent_id"] = f"agent-{i:02d}"
     state = tmp_path / "state.json"
     state.write_text(json.dumps(s), encoding="utf-8")
+    # The same match once it loads: Riot keeps one match id from agent select
+    # into the game, and this tab follows it there.
+    loaded = demo_state(phase="coregame")
+    loaded["match_id"] = s["match_id"]
+    match = tmp_path / "match.json"
+    match.write_text(json.dumps(loaded), encoding="utf-8")
     r = subprocess.run([node, str(ROOT / "test" / "pregame_check.mjs"),
-                        str(PAGE), str(state)],
+                        str(PAGE), str(state), str(match)],
                        capture_output=True, text=True, timeout=120)
     sys.stdout.write(r.stdout)
     assert r.returncode == 0, r.stdout + r.stderr

@@ -1197,11 +1197,14 @@ function recentHTML(list){
       <a href="/results">/results</a>.</div></div>`;
 }
 
-/* A match in progress has a page of its own too, and saying so on the live
-   view means it is never only reachable through a pop-up the browser may have
-   refused or the player may have closed. */
-function matchLinkHTML(matchId){
-  if (!matchId || pinnedMatch()) return "";
+/* A match in progress has a page of its own too, and this link is the way to
+   it: nothing pops up. Only once a prediction is recorded, at the loading
+   screen -- in agent select the page does not exist yet, and the cards need
+   the room. */
+function matchLinkHTML(s){
+  const matchId = s.match_id;
+  if (!matchId || pinnedMatch() || !s.prediction || s.phase === "pregame")
+    return "";
   return `<div class="ownpage"><a href="/m/${encodeURIComponent(matchId)}"
     target="_blank" rel="noopener">This match has its own page — it keeps the
     prediction and fills in the comparison when the game ends ↗</a></div>`;
@@ -1224,6 +1227,13 @@ function render(msg){
     $("map").textContent = "STARTING";
     $("sub").textContent = msg.message;
     $("stage").innerHTML = `<div class="idle">${esc(msg.message)}…</div>`;
+    return;
+  }
+  /* Between agent select and the match Riot briefly answers neither. The
+     cards stay up, and the line under the map says why nothing is moving. */
+  if (msg.status === "loading"){
+    $("sub").textContent = "Agent select is over — the match is loading";
+    if (!STATE) $("stage").innerHTML = `<div class="idle">The match is loading…</div>`;
     return;
   }
   if (msg.status === "lobby"){
@@ -1251,7 +1261,7 @@ function render(msg){
   if (msg.review){ REVIEW = msg.review; REVIEW_ID = s.match_id; }
   else if (REVIEW_ID !== s.match_id){ REVIEW = null; REVIEW_ID = null; }
   const review = REVIEW;
-  let head = matchLinkHTML(s.match_id);
+  let head = matchLinkHTML(s);
   for (const w of s.warnings) head += `<div class="warn">${esc(w)}</div>`;
   if ((s.parties || []).some(g => g.source === "inferred"))
     head += `<div class="partynote">Party markers are inferred from who has

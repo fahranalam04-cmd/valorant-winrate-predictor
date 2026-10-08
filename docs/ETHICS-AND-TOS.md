@@ -18,8 +18,10 @@ banned" — which is accurate but unhelpfully vague. Concretely:
 - Read the lockfile to authenticate against `127.0.0.1`
 - Read match state: the current match ID, the ten PUUIDs, locked agents, teams
 - Read your own account identity and region
-- Poll for the current match every few seconds (the client's websocket would
-  be equally acceptable; it is simply not needed)
+- Poll for the current match every few seconds, and listen on the client's
+  local websocket for the announcement that agent select or a match has begun.
+  The only message sent on it is the subscription; it reads, and acts on
+  nothing in the game
 - Display information in a **separate browser window**, or on your own phone
 
 ### Forbidden — what this project must never do

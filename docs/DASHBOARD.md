@@ -2,7 +2,8 @@
 
 A page on your own PC that shows the match you have just loaded into: both
 teams' odds, all ten players, and what is known about each of them. It updates
-by itself every three seconds, from agent select through the match.
+by itself, from agent select through the match: every three seconds, and at
+once when the game announces agent select, a lock-in or the match starting.
 
 ![The dashboard with one player's card open](images/dashboard.jpg)
 
@@ -31,7 +32,7 @@ anything is missing: the model, the database, the artwork, or the game.
 
 **Running it twice is fine.** A second `dashboard.bat` finds the first one, opens that page and exits, rather than failing to claim the port. If something unrelated holds port 8787, it moves to the next free one and says so.
 
-**It comes back to the same port.** Every match opens a tab of its own, and each
+**It comes back to the same port.** Every match has a page of its own, and each
 of those is an address with a port in it. The port last used is remembered
 beside the database, so the next run lands there and yesterday's tabs still
 load. A tab that is already open reconnects by itself within a few seconds of
@@ -120,6 +121,10 @@ everything showing at once rather than behind a click.
 - **Last comp**: result and round score, map, agent, K/D/A, headshot %, and
   how long ago
 
+Agent select is detected as it starts. The game announces it -- and every
+hover and lock after it -- on the client's local event channel, and each
+announcement brings the next poll forward, no closer than a second apart. If
+that channel is unavailable, the three-second poll carries on as before.
 Players already in the database appear the moment agent select is detected --
 about 30 ms for a whole team, measured. Anyone who is not stored shows
 *Looking up their last 20* until their lookup lands, and each card fills in
@@ -202,13 +207,22 @@ the card fills two columns so nothing needs scrolling.
 
 ---
 
-## A tab per match, and the scorecard
+## A page per match, and the scorecard
 
-**Each match opens its own tab.** The tab at `/` stays live and follows you
-from game to game; every new match also opens at `/m/<match id>`, which keeps
-that match exactly as it was predicted. Nothing is overwritten by the next
-game, so two tabs side by side are two lobbies you can compare. `--no-tabs`
-turns that off.
+**One tab, from agent select into the game.** The tab at `/` follows you:
+your team as cards in agent select, and the same tab becomes the scoreboard
+and the odds when the match loads. Between the two, Riot briefly answers
+neither "agent select" nor "in a match" -- measured at over a second, and the
+game announces the match before it can be read -- so for up to 20 seconds the
+cards stay up and the line under the map says the match is loading. If
+nothing loads, someone dodged, and the page goes back to waiting.
+
+**Each match also has a page of its own** at `/m/<match id>`, which keeps
+that match exactly as it was predicted; nothing is overwritten by the next
+game. It is linked from the live view once the match has loaded, and from the
+list of recent matches between games. Nothing pops up. `--tabs` opens each
+match's page in a new tab as it loads, as earlier versions did by default --
+never during agent select, when there is nothing on it yet.
 
 **A pinned tab fills in the result.** A few minutes after the match ends, the
 dashboard spends one API call on it and the tab shows:

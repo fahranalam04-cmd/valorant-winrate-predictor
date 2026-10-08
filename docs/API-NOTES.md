@@ -316,9 +316,10 @@ and the entitlements token (`X-Riot-Entitlements-JWT: …`).
 The region and shard come from `/riotclient/region-locale` — see the
 corrections above. Nothing reads the process command line.
 
-### Match detection — polled
+### Match detection — polled, woken by the client's events
 
-**As built, the client is polled every three seconds** (`valwr/live/roster.py`):
+**As built, the client is polled every three seconds** (`valwr/live/roster.py`),
+and the poll is brought forward when the client announces a match:
 
 ```
 GET  {glz}/core-game/v1/players/{puuid}        # CoreGame_FetchPlayer -> match id
@@ -336,11 +337,30 @@ These give the ten PUUIDs, locked agents, team assignment, map and mode —
 everything the feature builder needs. During agent select only your own team
 is visible.
 
-The client can also push these events over its local websocket
-(`OnJsonApiEvent_riot-messaging-service_v1_message`, URI prefixes
-`ares-pregame/pregame/v1/matches/` and `ares-core-game/core-game/v1/matches/`).
-It is not used: at a three-second cadence polling is just as timely, and it
-survives the client restarting without reconnect logic.
+The client also pushes these as events over its local websocket,
+`wss://127.0.0.1:{port}` with the lockfile's credentials. Subscribing with
+`[5, "OnJsonApiEvent_riot-messaging-service_v1_message"]` brings frames
+`[8, <that name>, {"uri": ..., "eventType": ...}]`, and the ones that matter
+carry the URI prefixes `ares-pregame/pregame/v1/matches/` and
+`ares-core-game/core-game/v1/matches/`. `valwr/live/events.py` listens, and
+each announcement cuts the poll's wait short, no closer than a second apart.
+It does not replace polling: if the channel is refused or drops, the poll
+carries on unchanged and the listener reconnects, re-reading the lockfile for
+the new port. The subscription is the only message it ever sends.
+
+Measured on a ranked match, 8 October 2026:
+
+- **Agent select is announced as it starts, and again at every change** -- 43
+  pregame frames in one agent select, all `eventType` "Create", arriving as
+  players hovered and locked rather than on a timer. The pregame match carries
+  each player's `CharacterSelectionState`: "", "selected" (hovering) or
+  "locked".
+- **The match is announced before it can be read.** For at least 1.5 seconds
+  after the core-game frame, neither `pregame/v1/players` nor
+  `core-game/v1/players` answers. A poll then reads as the menus, which
+  flashed the page to STANDBY between agent select and the scoreboard, so the
+  dashboard holds the agent-select screen as "loading" for up to 20 seconds
+  (`LOADING_GRACE_SECONDS` in `valwr/dash/server.py`).
 
 ### The rate-limit squeeze at match start
 

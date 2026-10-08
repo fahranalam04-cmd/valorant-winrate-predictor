@@ -64,6 +64,36 @@ PORT = 8787
 # is a request made with your session, and docs/ETHICS-AND-TOS.md allows
 # polling "every few seconds". live/__main__.py keeps the same cadence.
 POLL_SECONDS = 3.0
+# The client announces agent select, and every hover and lock in it, as events
+# (live/events.py), and each one cuts the poll's wait short. A lobby locking in
+# sends a burst of them, so a woken poll still starts at least this long after
+# the one before: the page follows agent select as it happens without asking
+# Riot's servers more than about once a second.
+MIN_WAKE_GAP_SECONDS = 1.0
+# Agent select ending is not yet the match starting. For a moment Riot answers
+# neither "in agent select" nor "in a match" -- and the client announces the
+# match before it can be read, so a woken poll lands in that moment every time.
+# Read as "back in the menus", it flashed STANDBY between the two screens. For
+# this long after agent select the page is told the match is loading, and the
+# poll looks again every MIN_WAKE_GAP_SECONDS. Past it, someone dodged.
+LOADING_GRACE_SECONDS = 20.0
+
+
+async def nap(wake: asyncio.Event, seconds: float, since: float) -> None:
+    """The poll's wait: `seconds`, or less if the client announces a match.
+
+    `since` is the event-loop time the last poll began. A wake that arrives
+    while the poll is still busy stays set until this wait takes it, so an
+    announcement is never lost to a slow lookup.
+    """
+    try:
+        await asyncio.wait_for(wake.wait(), timeout=seconds)
+    except asyncio.TimeoutError:
+        return
+    wake.clear()
+    gap = MIN_WAKE_GAP_SECONDS - (asyncio.get_running_loop().time() - since)
+    if gap > 0:
+        await asyncio.sleep(gap)
 
 STATIC = Path(__file__).resolve().parent / "static"
 AGENTS = STATIC / "agents"
@@ -478,9 +508,9 @@ def settle_tick(no_fetch: bool = False) -> dict[str, int]:
 
 def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
               demo: bool | str = False, match: str | None = None,
-              settle: bool = False):
-    """The app. `settle` starts the background collector, and only `main` asks
-    for it.
+              settle: bool = False, listen: bool = False):
+    """The app. `settle` starts the background collector and `listen` the
+    client-event listener; only `main` asks for either.
 
     Off by default because building an app must not have side effects on the
     real database. It did: every test that constructed one started a task that
@@ -507,7 +537,22 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
         task = None
         if settle and not (demo or match):
             task = asyncio.create_task(settling(_app))
+        events = None
+        if listen and not (demo or match):
+            from valwr.live.events import MatchEvents
+            loop = asyncio.get_running_loop()
+
+            def wake_all():
+                for wake in _app.state.wakers:
+                    wake.set()
+            # The listener runs on its own thread; the events belong to this
+            # loop, so the wake is handed across rather than set from there.
+            events = MatchEvents(lambda: loop.call_soon_threadsafe(wake_all))
+            events.start()
+        _app.state.events = events
         yield
+        if events is not None:
+            events.stop()
         if task is not None:
             task.cancel()
         _app.state.pool.shutdown(wait=False, cancel_futures=True)
@@ -518,6 +563,11 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
     app.add_middleware(LocalOnly)
     app.state.ctx = None
     app.state.error = None
+    # One wake per open live tab, set when the client announces a match. Each
+    # tab polls on its own schedule, so each needs its own: a shared one would
+    # be cleared by whichever tab woke first and missed by the rest.
+    app.state.wakers = set()
+    app.state.events = None
     app.state.demo_state = None
     app.state.replay_state = None
     # Matches this process has already opened a tab for, so reconnecting a
@@ -649,7 +699,11 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                 {"status": "working",
                  "message": "reading the match and looking up players"}))
         last: str | None = None
+        last_phase: str | None = None
+        loading_since: float | None = None
         loop = asyncio.get_running_loop()
+        wake = asyncio.Event()
+        app.state.wakers.add(wake)
         # Both of these run on app.state.pool's single thread: `context` opens
         # the SQLite connection, `poll_once` uses it, and they must agree on
         # which thread that is.
@@ -682,6 +736,7 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                     await socket.send_text(json.dumps(app.state.demo_state))
                     await asyncio.sleep(POLL_SECONDS)
                     continue
+                polled_at = loop.time()
                 ctx = await loop.run_in_executor(pool, context)
                 if ctx is None:
                     # No game client, which is the normal state right after a
@@ -743,6 +798,14 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                          "recent": recent}))
                     await asyncio.sleep(POLL_SECONDS)
                     continue
+                if state is None and last_phase == "pregame":
+                    if loading_since is None:
+                        loading_since = loop.time()
+                    if loop.time() - loading_since < LOADING_GRACE_SECONDS:
+                        await socket.send_text(json.dumps({"status": "loading"}))
+                        await nap(wake, MIN_WAKE_GAP_SECONDS, polled_at)
+                        continue
+                loading_since = None
                 if state is None:
                     # The client just left a match: that is the moment it
                     # ended, and the only signal this side has for it. Asking
@@ -760,21 +823,26 @@ def build_app(no_fetch: bool = False, deadline: float = st.DEFAULT_DEADLINE,
                     recent = await loop.run_in_executor(None, recent_rows)
                     await socket.send_text(json.dumps(
                         {"status": "lobby", "recent": recent}))
-                    last = None
+                    last = last_phase = None
                 else:
-                    # Every match gets a tab of its own, opened once. This tab
-                    # keeps following the current match; the new one keeps this
-                    # match to compare against later.
-                    if (app.state.base_url
+                    # This tab follows you from agent select into the match.
+                    # With --tabs, a match also gets a page of its own -- but
+                    # only once its prediction is recorded, at the loading
+                    # screen. Opened in agent select it covered the cards with
+                    # a page that had nothing on it yet.
+                    if (app.state.base_url and state.get("prediction")
+                            and state.get("phase") != "pregame"
                             and state["match_id"] not in app.state.opened):
                         app.state.opened.add(state["match_id"])
                         open_match_tab(app.state.base_url, state["match_id"])
                     payload = _match_payload(ctx, state, last)
-                    last = state["match_id"]
+                    last, last_phase = state["match_id"], state.get("phase")
                     await socket.send_text(json.dumps(payload))
-                await asyncio.sleep(POLL_SECONDS)
+                await nap(wake, POLL_SECONDS, polled_at)
         except WebSocketDisconnect:
             return
+        finally:
+            app.state.wakers.discard(wake)
 
     return app
 
@@ -799,8 +867,13 @@ def main(argv=None) -> int:
                     help="replay a finished match from history, scored only "
                          "on what was knowable before it started")
     ap.add_argument("--deadline", type=float, default=st.DEFAULT_DEADLINE)
-    ap.add_argument("--no-tabs", action="store_true",
-                    help="do not open a tab of its own for each match")
+    ap.add_argument("--tabs", action="store_true",
+                    help="also open each match's own page in a new tab when "
+                         "it starts; off by default, because the live tab "
+                         "already follows you from agent select into the game")
+    # The old opt-out, now the default. Accepted so a shortcut that still
+    # passes it keeps working.
+    ap.add_argument("--no-tabs", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
 
     # Come back to the port the last run used, so the per-match tabs it opened
@@ -885,8 +958,10 @@ def main(argv=None) -> int:
         pass                                         # never block a launch
 
     app = build_app(no_fetch=args.no_fetch, deadline=args.deadline,
-                    demo=args.demo, match=args.match, settle=True)
-    if not (args.no_tabs or args.no_browser or args.demo or args.match):
+                    demo=args.demo, match=args.match, settle=True,
+                    listen=True)
+    if (args.tabs and not (args.no_tabs or args.no_browser or args.demo
+                               or args.match)):
         app.state.base_url = url
     server = uvicorn.Server(uvicorn.Config(
         app, host=args.host, port=args.port, log_level="warning"))

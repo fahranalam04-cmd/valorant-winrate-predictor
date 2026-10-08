@@ -301,8 +301,8 @@ first and tells you in plain language if anything is missing.
 
 ![A walkthrough of the dashboard](docs/images/dashboard-walkthrough.webp)
 
-Every match also opens a tab of its own, which keeps that lobby as it was
-predicted and fills in the result a few minutes after the game ends
+Every match also has a page of its own, linked from the live view -- nothing
+pops up -- which keeps that lobby as it was predicted and fills in the result a few minutes after the game ends
 ([what that looks like](docs/images/dashboard-result.jpg)): won or lost, the
 final score, whether the call was right, and then a block for every player --
 where the 0-100 score ranked them against where they finished, and their career
@@ -323,8 +323,9 @@ on screen at once without scrolling: the 0-100 rating, last-20 K/D/A
 per game, K/D, headshot rate, damage per round and win rate, the agents they
 play on this map, and their last competitive game -- with your own best
 agents, by how well you play them, in the side panel. Anyone already in the
-database appears the moment agent select is detected; the rest fill in as
-their lookups land, teammates first.
+database appears the moment agent select starts -- the game announces it,
+and the page listens -- and the rest fill in as their lookups land, teammates
+first. When the match loads, the same tab becomes the scoreboard.
 
 ![Agent select: your team as cards](docs/images/dashboard-agent-select.jpg)
 

@@ -1,9 +1,10 @@
 // Agent select, rendered by the dashboard page's own JavaScript.
 //
-//     node test/pregame_check.mjs <index.html> <state.json>
+//     node test/pregame_check.mjs <index.html> <state.json> <match.json>
 //
 // The state is `valwr.dash.demo.demo_state(phase="pregame")`: your team only,
-// two players still picking, one still being looked up. Agent select leaves
+// two players still picking, one still being looked up. The second is the same
+// match once it has loaded, for the moment this tab moves on to it. Agent select leaves
 // about a minute to lock in, so the checks are about what can be read at a
 // glance -- every number on the card, and the difference between a player
 // still being looked up and one with nothing to find.
@@ -12,7 +13,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const [, , pagePath, statePath] = process.argv;
+const [, , pagePath, statePath, matchPath] = process.argv;
 const html = readFileSync(pagePath, "utf8");
 const code = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"));
 const state = JSON.parse(readFileSync(statePath, "utf8"));
@@ -55,6 +56,7 @@ ck("no odds bar without an enemy to predict against", !/class="odds"/.test(out))
 ck("no 'not enough known' blaming the lookup", !/Not enough of the roster/.test(out));
 ck("says how many are still being looked up",
    out.includes(`looking up ${pending.length}`));
+ck("no link to a match page that does not exist yet", !/class="ownpage"/.test(out));
 
 // --- a known player: every number, the one they would be read for --------
 {
@@ -149,6 +151,28 @@ ck("and marks the card selected", /class="pcard known sel"/.test(out));
 ck("a teammate's card replaces your picks", !/class="panel picks"/.test(out));
 for (const fn of handlers.keydown || []) fn({ key: "Escape", target: {} });
 ck("and ESC brings them back", /class="panel picks"/.test(els.stage.innerHTML));
+
+// --- the match loads: this same tab moves on to it -------------------------
+{
+  const loaded = JSON.parse(readFileSync(matchPath, "utf8"));
+  render({ status: "match", state, top1_rate: 0.296 });
+  render({ status: "loading" });
+  const held = els.stage.innerHTML;
+  ck("while the match loads the agent-select cards stay up",
+     count(held, /<button class="pcard/g) === ours.length);
+  ck("and the line under the map says why", /match is loading/.test(els.sub.textContent));
+  render({ status: "match", state: loaded, top1_rate: 0.296, fresh: false });
+  const o = els.stage.innerHTML;
+  ck("the match replaces agent select in the same tab",
+     /Live/.test(els.sub.innerHTML) && !/Agent select/.test(els.sub.innerHTML));
+  ck("no agent-select cards are left behind",
+     count(o, /<button class="pcard/g) === 0 && !/class="panel picks"/.test(o)
+     && !/class="slot( open)?"/.test(o));
+  ck("both teams on the scoreboard", count(o, /<button class="row/g) === 10);
+  ck("with the win probability", /class="odds"/.test(o));
+  ck("and the link to the match's own page, now that it has one",
+     o.includes(`href="/m/${loaded.match_id}"`));
+}
 
 console.log(bad ? `\n${bad} FAILED` : "\nall passed");
 process.exit(bad ? 1 : 0);
