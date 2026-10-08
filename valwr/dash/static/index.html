@@ -234,6 +234,12 @@ body{
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rs .ag{color:var(--slate)}
 .alert{color:var(--gold);margin-left:6px}
+/* A run this session. In words, so it does not lean on telling two hues apart,
+   and outlined like the rank tag so it sits in every theme. */
+.run{display:inline-block;margin-left:7px;padding:0 5px;
+  font:700 9.5px/15px var(--display);letter-spacing:.06em;vertical-align:1px;
+  border:1px solid currentColor;white-space:nowrap}
+.run.lost{color:var(--val)} .run.won{color:var(--win)}
 
 /* Rank sits with the agent name, not in its own column -- the row already
    carries four numbers and a fifth would not survive a phone. */
@@ -691,6 +697,17 @@ function rankTag(r){
   return `<span class="rank ${cls}" title="${esc(r.name)}">${esc(r.short)}</span>`;
 }
 
+/* Three or more the same this session, your team only (live/streak.py). The
+   score and the prediction never read it. Beside the name on a card; on a
+   scoreboard row it follows the agent instead, because the two-column board
+   has no room left on the name line for the longest Riot IDs, and a name cut
+   short is worse than a reason that trails off. */
+function runTag(p){
+  const r = p.streak;
+  if (!r || (r.result !== "won" && r.result !== "lost")) return "";
+  return `<span class="run ${r.result}">${r.result} ${i0(r.count)} in a row</span>`;
+}
+
 function rowHTML(p){
   const c = p.career, r = p.recent, known = p.score !== null;
   const stat = (label, val, cls) =>
@@ -705,7 +722,7 @@ function rowHTML(p){
       <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
         partyTag(p.puuid)}${
         p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}</div>
-      <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>
+      <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>${runTag(p)}
         ${rankTag(p.rank)}
         &nbsp;·&nbsp;${esc(p.reason)}</div>
     </div>
@@ -796,7 +813,8 @@ function cardHTML(p, pending, mapName){
     <div class="cwho">
       <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
         partyTag(p.puuid)}${
-        p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}</div>
+        p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}${
+        runTag(p)}</div>
       <div class="rs">${p.agent ? `<span class="ag">${esc(p.agent)}</span>${
           p.selection === "selected" ? '<span class="hov">hovering</span>' : ""}`
         : p.likely && !p.is_you ? `<span class="ag lik">likely ${esc(p.likely.role)} ${

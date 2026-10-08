@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, ".")
 
-from valwr.dash.demo import demo_picks, demo_state, likely
+from valwr.dash.demo import STREAKS, demo_picks, demo_state, likely
 from valwr.rating import roleindex
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -80,6 +80,7 @@ const MAPS = __MAPS__;
 const TOP1 = __TOP1__;
 const PICKS = __PICKS__;
 const LIKELY = __LIKELY__;
+const STREAKS = __STREAKS__;
 const qs = new URLSearchParams(location.search);
 const view = {map: MAPS.includes(qs.get("map")) ? qs.get("map") : BASE.map,
               side: qs.get("side") === "Red" ? "Red" : "Blue",
@@ -110,6 +111,11 @@ function build(){
 
   const you = s.players.find(p => p.team === view.side);
   for (const p of s.players) p.is_you = p === you;
+  // The live page carries a run for your own team only, and only for someone
+  // with stored games to have run in.
+  for (const p of s.players)
+    p.streak = p.team === view.side && p.score !== null
+      ? STREAKS[p.puuid] || null : null;
   s.own_team = view.side;
   s.enemy_team = view.side === "Blue" ? "Red" : "Blue";
   const blue = BASE.prediction.win_probability;
@@ -334,6 +340,7 @@ def build(out: Path, conn=None) -> dict:
                 .replace("__MAPS__", _json_for_script(maps))
                 .replace("__TOP1__", _json_for_script(top1))
                 .replace("__PICKS__", _json_for_script(demo_picks()))
+                .replace("__STREAKS__", _json_for_script(STREAKS))
                 .replace("__LIKELY__", _json_for_script(
                     {p["puuid"]: likely(p["puuid"]) for p in state["players"]}))
                 .replace("__REPO__", REPO_URL))

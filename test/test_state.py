@@ -31,7 +31,7 @@ DOCUMENTED_KEYS = {
     "lookup", "your_picks",
 }
 
-CARD_KEYS = {"puuid", "name", "known_name", "agent", "role", "team", "is_you",
+CARD_KEYS = {"puuid", "name", "known_name", "agent", "role", "team", "is_you", "streak",
              "score", "reason", "flag", "rank"}
 
 

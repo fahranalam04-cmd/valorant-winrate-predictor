@@ -24,7 +24,7 @@ from typing import Any
 from valwr import config
 from valwr.collect.client import HenrikClient
 from valwr.collect.limiter import TokenBucket
-from valwr.live import comp, lockfile, picks, predict as P, resolve as R, roster
+from valwr.live import comp, lockfile, picks, predict as P, resolve as R, roster, streak
 from valwr.live import session as S
 from valwr.rating import potential as pot
 from valwr.rating import role_score as rs
@@ -224,10 +224,15 @@ def parties(conn, match, as_of: int, exact: dict | None = None) -> list[dict]:
     return out
 
 
-def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
-    """Every player in the lobby, scored where we can and honest where we cannot."""
+def _player_rows(ctx: LiveContext, match, as_of: int,
+                 fetched: set = frozenset()) -> list[dict]:
+    """Every player in the lobby, scored where we can and honest where we cannot.
+
+    `fetched` holds the lookups that have answered during this match.
+    """
     names = gamertags(ctx.conn, [p.puuid for p in match.players])
     roles = ctx.bundle.get("roles") or {}
+    own_team = match.team_of(ctx.session.puuid)
     rows = []
     for p in match.players:
         entry = {
@@ -257,6 +262,11 @@ def _player_rows(ctx: LiveContext, match, as_of: int) -> list[dict]:
             # Lifted out of `detail` so the scoreboard row does not have to
             # reach into the breakdown for the numbers it prints on every line.
             "career": None, "recent": None,
+            # Three or more the same this session, for your own team only.
+            # See live/streak.py for why a badge and nothing more.
+            "streak": (streak.current(ctx.conn, p.puuid, as_of,
+                                      fetched=(p.puuid, 0) in fetched)
+                       if own_team and p.team == own_team else None),
         }
         if ctx.index is not None:
             got = pot.detail(ctx.conn, p.puuid, as_of, match.map_name or "?",
@@ -361,13 +371,19 @@ def poll_once(ctx: LiveContext, on_progress=None) -> dict | None:
             # anyway, in the final state built from the same function below.
             pass
 
+    own_team = match.team_of(ctx.session.puuid)
     resolution = R.resolve(ctx.conn, match, ctx.session.puuid, as_of,
                            client=ctx.client, deadline_seconds=ctx.deadline,
                            region=ctx.settings.region,
                            platform=ctx.settings.platform,
                            on_progress=progress if on_progress else None,
                            already=ctx.work_done,
-                           teammates_first=match.phase == "pregame")
+                           teammates_first=match.phase == "pregame",
+                           refresh_last=[
+                               p.puuid for p in match.players
+                               if own_team and p.team == own_team
+                               and streak.may_be_missing_a_game(
+                                   ctx.conn, p.puuid, as_of)])
     ctx.work_done |= resolution.completed
     return _assemble(ctx, match, resolution, as_of)
 
@@ -396,7 +412,8 @@ def _assemble(ctx: LiveContext, match, resolution, as_of: int) -> dict:
         "model": ctx.model_name,
         "warnings": _warnings(match, ctx.session.puuid),
         "parties": parties(ctx.conn, match, as_of),
-        "players": _player_rows(ctx, match, as_of),
+        "players": _player_rows(ctx, match, as_of,
+                                fetched=ctx.work_done | resolution.completed),
         # Who is still being looked up. A player with no card data is either
         # still coming or has no competitive history at all, and the page has
         # to know which before it tells you something about them.

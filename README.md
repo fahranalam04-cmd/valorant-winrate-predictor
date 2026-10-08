@@ -321,7 +321,8 @@ with their record, form and history on this map.
 In agent select the page gives the screen to your own team instead, all five
 on screen at once without scrolling: the 0-100 rating, last-20 K/D/A
 per game, K/D, headshot rate, damage per round and win rate, the agents they
-play on this map, and their last competitive game -- with your own best
+play on this map, their last competitive game, and a badge for anyone on a
+run of three or more this session -- with your own best
 agents, by how well you play them, in the side panel. Anyone already in the
 database appears the moment agent select starts -- the game announces it,
 and the page listens -- and the rest fill in as their lookups land, teammates

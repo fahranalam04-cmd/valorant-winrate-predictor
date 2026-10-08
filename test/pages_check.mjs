@@ -57,11 +57,19 @@ ck("and swaps the background art, under the sub-path it is served from",
    document.body.style._v["--mapart"]
    === 'url("/valorant-winrate-predictor/maps/lotus-splash.jpg")');
 
+const runs = () => (els.stage.innerHTML.match(/class="run (won|lost)"/g) || []).length;
+ck("your team's runs are badged", runs() === 2
+   && /won 4 in a row/.test(els.stage.innerHTML));
+
 window.__demo.set("side", "Red");
 ck("switching side moves 'you' to Red", /you are on Red/.test(els.stage.innerHTML));
+ck("and the runs badged are the new side's", runs() === 2
+   && !/won 4 in a row/.test(els.stage.innerHTML)
+   && /won 3 in a row/.test(els.stage.innerHTML));
 
 window.__demo.set("known", "thin");
 ck("a thin lobby shows four known", /4\/10 known/.test(els.sub.innerHTML));
+ck("and nobody without history is on a run", runs() === 0);
 ck("and low confidence", /low<\/span>|low confidence/.test(els.sub.innerHTML));
 
 window.__demo.set("phase", "pregame");

@@ -79,6 +79,18 @@ LIKELY = {
 }
 
 
+# A run this session, three or more the same (live/streak.py). The live page
+# carries them for your own team only; these cover both sides, so the published
+# demo has some whichever side it is switched to. The longest name on each team
+# carries one, which is where a badge is likeliest to crowd the name out.
+STREAKS = {
+    "demo-01": {"result": "won", "count": 4},
+    "demo-04": {"result": "lost", "count": 3},
+    "demo-06": {"result": "won", "count": 3},
+    "demo-09": {"result": "lost", "count": 3},
+}
+
+
 def likely(puuid: str) -> dict | None:
     got = LIKELY.get(puuid)
     return {"role": got[0], "games": got[1], "of": 20} if got else None
@@ -218,6 +230,7 @@ def demo_state(conn=None, phase: str = "coregame") -> dict:
             "known_name": True, "agent": agent, "agent_id": ids.get(agent),
             "role": ROLES.get(agent), "team": team, "is_you": i == 0,
             "selection": None, "likely": None,
+            "streak": STREAKS.get(f"demo-{i:02d}") if team == "Blue" else None,
             "score": score, "flag": None, "career": career,
             "rank": RANKS[i],
             "recent": recent,

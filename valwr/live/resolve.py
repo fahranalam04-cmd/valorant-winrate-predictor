@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from valwr.collect.client import HenrikError, RateLimited, TransientError
@@ -172,7 +173,8 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
             as_of: int, client=None, deadline_seconds: float = 25.0,
             region: str = "na", platform: str = "pc",
             on_progress=None, already=frozenset(),
-            teammates_first: bool = False) -> Resolution:
+            teammates_first: bool = False,
+            refresh_last: Iterable[str] = ()) -> Resolution:
     """Resolve as many players as the deadline allows.
 
     `client` may be None, in which case this is cache-only -- useful for a
@@ -180,7 +182,9 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
 
     `already` holds lookups answered earlier in this match, which are not
     repeated. `teammates_first` is for agent select: your own refresh waits
-    until the people you are about to play with are known.
+    until the people you are about to play with are known. `refresh_last` are
+    players whose first page is wanted again for the page's sake alone -- the
+    streak badge -- and is fetched after everything else.
     """
     out = Resolution()
     started = time.monotonic()
@@ -210,6 +214,10 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
     #   3. page one for players whose data is merely old
     #   4. page two for anyone still short of the form window, which is what
     #      makes their "last 20" actually their last 20
+    #   5. page one again for a teammate who may have finished a game since
+    #      the newest we hold. Only the streak badge needs it, so it never
+    #      costs a rating its lookup; past the deadline it waits for the next
+    #      poll, and the badge shows late rather than wrong.
     #
     # In agent select that first item moves to the end. The screen exists to
     # size up the four people you are about to play with inside a minute, and
@@ -224,6 +232,7 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
                for page in range(1, HISTORY_PAGES)
                if stored_depth(conn, p, as_of) < FORM_WINDOW]
     work = theirs + own if teammates_first else own + theirs
+    work += [(p, 0) for p in refresh_last if (p, 0) not in work]
     work = [w for w in work if w not in already]
     out.remaining = list(work)
 

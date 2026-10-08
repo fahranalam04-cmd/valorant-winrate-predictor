@@ -120,6 +120,8 @@ everything showing at once rather than behind a click.
 - **On this map**: the agents they have played here most, with their record
 - **Last comp**: result and round score, map, agent, K/D/A, headshot %, and
   how long ago
+- **A run this session** beside the name -- *lost 3 in a row*, *won 4 in a
+  row* -- for three or more results the same; see below
 
 Agent select is detected as it starts. The game announces it -- and every
 hover and lock after it -- on the client's local event channel, and each
@@ -176,6 +178,7 @@ show dashes rather than guesses.
 | **A duo / B trio** | A party, lettered so teammates in the same group match. |
 | ◆ | Playing far above their rank — see *The flag* below. |
 | Agent, **rank** | The rank badge is the short form (D3 = Diamond 3); hover for the full name. |
+| **lost 3 in a row** | Your team only: three or more results the same this session, after the agent -- on this row there is no room beside the longest names. See *A run this session* below. |
 | Reason | The largest thing lifting or lowering the score, in words: *wins duels*, *consistently strong*, *below par lately, but only 4 games*. |
 | **ADR** | Damage per round, career. It replaced combat score on this page when patch 13.06 removed ACS from the game's own scoreboard. |
 | **K/D** | Career kills over career deaths — pooled, the way trackers compute it. |
@@ -184,6 +187,42 @@ show dashes rather than guesses.
 
 **Every statistic counts competitive games only.** Swiftplay, customs and the
 rotating modes are excluded inside the database query, not afterwards.
+
+### A run this session
+
+Your teammates -- in agent select and on your side of the scoreboard -- carry
+a badge when their last three or more competitive games went the same way:
+*lost 3 in a row*, *won 4 in a row*. A session ends at a break of two hours
+between one game finishing and the next starting, so last night's losses are
+not tonight's run, and a draw ends a run too.
+
+**It is shown as what happened, and nothing reads it.** The score and the
+prediction are unchanged by it, because it was measured first and predicts
+nothing about the next game (`python tools/measure_streaks.py`, 787,460
+competitive games):
+
+| Going into the game after | Games | Next game won |
+|---|---|---|
+| 4+ losses in a row | 986 | 48.1% ± 3.1 |
+| 3 losses in a row | 2,958 | 52.2% ± 1.8 |
+| 2 losses in a row | 13,181 | 50.0% ± 0.9 |
+| the first game of a sitting | 601,281 | 49.9% ± 0.1 |
+| 2 wins in a row | 15,778 | 50.7% ± 0.8 |
+| 3 wins in a row | 4,005 | 50.9% ± 1.5 |
+| 4+ wins in a row | 1,568 | 49.7% ± 2.5 |
+
+Every row is 50% within its margin. Damage per round moves a little, the
+other way from tilt -- about +2 after losses and -2 to -5 after wins against
+the player's own average -- which is what matchmaking answering a run with an
+easier or harder lobby would look like.
+
+**A badge is only shown when it is current.** Stored history can be a game
+behind: a teammate whose newest stored game began under 55 minutes ago cannot
+have finished another since, but anyone else might have. Their latest page of
+games is fetched again, as the last thing the lookup does -- after every
+rating and your own account -- and until it answers, the card shows no badge
+rather than one that may be out of date. In a busy agent select it can arrive
+during the loading screen.
 
 ### A player's card
 

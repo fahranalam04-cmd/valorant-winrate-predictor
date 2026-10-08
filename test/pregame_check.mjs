@@ -57,6 +57,12 @@ ck("no 'not enough known' blaming the lookup", !/Not enough of the roster/.test(
 ck("says how many are still being looked up",
    out.includes(`looking up ${pending.length}`));
 ck("no link to a match page that does not exist yet", !/class="ownpage"/.test(out));
+{
+  const runs = ours.filter(p => p.streak);
+  ck("a teammate on a run is badged on their card",
+     runs.length > 0 && (out.match(/class="run (won|lost)"/g) || []).length === runs.length
+     && runs.every(p => out.includes(`${p.streak.result} ${p.streak.count} in a row`)));
+}
 
 // --- a known player: every number, the one they would be read for --------
 {

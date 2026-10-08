@@ -372,8 +372,10 @@ of agent select. This cannot be solved by fetching faster. Solve it by:
    account and collects the people it queues against.
 2. **Priority order.** In agent select, your teammates first and your own
    account after them -- you know how you play; in game, your own account
-   first, then your team, then the enemy. A lookup that has answered is not
-   repeated within the match, and the crawler pauses while VALORANT runs, so
+   first, then your team, then the enemy. Last of all, in either phase, a
+   teammate whose newest stored game is old enough that they may have played
+   one since -- only the streak badge needs it. A lookup that has answered is
+   not repeated within the match, and the crawler pauses while VALORANT runs, so
    the dashboard has the whole quota. Partial output beats no output.
 3. **Refresh what is stale.** A player whose newest stored match is more than
    two hours old, or who has fewer than five, is refetched within the budget —

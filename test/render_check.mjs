@@ -65,6 +65,18 @@ ck("side labels", /attacking · first half/.test(out) && /defending · first hal
 ck("known rows marked", (out.match(/class="row known/g) || []).length === known.length);
 ck("unknown rows marked", (out.match(/class="row unknown/g) || []).length === unknown.length);
 ck("YOU marker", /class="tag">YOU/.test(out));
+{
+  const runs = state.players.filter(p => p.streak);
+  ck("a run is badged on each row that has one, and no other",
+     runs.length > 0 && (out.match(/class="run (won|lost)"/g) || []).length === runs.length
+     && runs.every(p => out.includes(`${p.streak.result} ${p.streak.count} in a row`)));
+  // The two-column board has no room beside the longest Riot IDs.
+  const names = out.match(/<div class="nm">[\s\S]*?<\/div>/g) || [];
+  ck("on the line under the name, never beside it",
+     names.length === state.players.length
+     && names.every(n => !n.includes('class="run'))
+     && (out.match(/<span class="ag">[^<]*<\/span><span class="run/g) || []).length === runs.length);
+}
 // Rank and party, the two things a lobby is read for before the numbers.
 ck("every player shows a rank",
    (out.match(/class="rank /g) || []).length === state.players.length);
