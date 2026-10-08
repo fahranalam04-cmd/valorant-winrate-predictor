@@ -236,16 +236,15 @@ def main(argv=None) -> int:
         print("RETRAINING")
         print("=" * 70)
         started = time.time()
-        from valwr.model import train
-        if train.main(["--rebuild"]) != 0:
-            print("  training failed; the old model is untouched")
+        # Everything, through the one command. This used to retrain and then
+        # refit only the old score's index -- not the per-role one the page
+        # scores with -- so every 0-100 on the page sat against a reference
+        # older than its model.
+        sys.path.insert(0, str(ROOT / "tools"))
+        import rebuild
+        if rebuild.run(s.models_path, s.database_path) != 0:
+            print("  the rebuild failed; the previous models are back in place")
             return 1
-        # The per-player score is a percentile against the training
-        # period, so it is refitted too or every 0-100 on the page
-        # is stale.
-        import subprocess
-        subprocess.run([sys.executable, "tools/build_perf_index.py"],
-                       check=False)
         print(f"\n  retrained in {time.time() - started:.0f}s")
 
         conn = schema.connect(s.database_path)       # the bundle changed

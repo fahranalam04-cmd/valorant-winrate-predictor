@@ -88,6 +88,24 @@ def check_all() -> tuple[list[str], list[str], bool]:
         problems.append("Optional. For the rest of the player card, run:  "
                         ".venv\\Scripts\\python tools\\build_perf_index.py")
 
+    # The files on disk against the ones the repository says shipped. A
+    # warning, not a stop: a model rebuilt by hand still runs, it just is not
+    # the one the documented numbers describe.
+    from valwr.model import manifest
+    described = manifest.load()
+    if described and model.exists():
+        off = manifest.mismatches(s.models_path, described)
+        if off:
+            lines.append(f"{NO}model manifest        {', '.join(off)} not the "
+                         f"described build")
+            problems.append(
+                "Optional. The models on disk are not the ones "
+                "reports/model_manifest.json describes, so the documented "
+                "figures may not be theirs. Rebuild everything with:  "
+                ".venv\\Scripts\\python tools\\rebuild.py")
+        else:
+            lines.append(f"{OK}model manifest        matches the described build")
+
     try:
         if config.load().henrik_api_key:
             lines.append(f"{OK}API key               present")

@@ -269,19 +269,28 @@ after three days unless you tell it not to.
 ### Train
 
 ```bash
-python -m valwr.model.train --rebuild        # build features, fit, select, save
-python -m valwr.model.analyze                # equal-rank subset, and both README charts
-python tools/build_perf_index.py             # population reference, old single score
-python tools/validate_potential.py --write-index   # ...and its measured hit rate
-python tools/build_role_index.py             # per-role reference for the 0-100 score
-python tools/compare_role_score.py --write-index   # ...and the hit rate the dashboard quotes
-python tools/model_metrics.py                # every model, every metric, into docs/MODEL-CHOICE.md
+python tools/rebuild.py                      # everything below, in order, or none of it
 python tools/improve.py                      # what your own recorded matches say, and what to fix
 ```
+
+`rebuild.py` runs the ten steps that depend on one another -- train, the
+README charts, both player-score indexes and their measured hit rates (the
+dashboard's at the 3,000 teams `docs/SCORE-SPEC.md` quotes), the sandbox
+exports, and the metrics tables -- stopping at the first that fails. The
+models are backed up first and put back on a failure, so the dashboard never
+runs a new model against an old index. It ends by writing
+`reports/model_manifest.json` and running the audit.
 
 `train` fits ten candidates, picks by the one-standard-error rule, and writes
 `models/model.joblib` plus a full report to `reports/results.json`. The README
 results block above is generated from that file, so it cannot drift.
+
+`models/` is not committed, so the manifest is what says which models the
+documented numbers came from: a fingerprint of each file, what it was fitted
+on and how it measured, and the commit, database and library versions it was
+built from. `dashboard.bat` notes when the models on disk are not the ones it
+describes, and `tools/audit.py` checks the reports and docs against it.
+`python -m valwr.model.manifest` describes whatever is on disk now.
 
 ### Run it
 

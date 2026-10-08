@@ -1,0 +1,37 @@
+{
+  "artifacts": {
+    "model.joblib": {
+      "bytes": 583655,
+      "features": 52,
+      "model": "logistic regression",
+      "norms_as_of": 1788233215,
+      "sha256": "168b28ffe1651a48710d581f764b9844f7e156d687c3ca89eb41db8910d41139",
+      "test": {
+        "accuracy": 0.542605,
+        "auc": 0.560125,
+        "brier": 0.24716,
+        "ece": 0.008011,
+        "log_loss": 0.687427,
+        "n": 10304
+      }
+    },
+    "perf_index.json": {
+      "as_of": 1788233215,
+      "bytes": 828840,
+      "n": 39869,
+      "sha256": "6d3ca5a1f18701c483806cf28dffc3b4b02d10f248f4e590459743c1fa0cdb68",
+      "top1_rate": 0.3047
+    },
+    "role_index.json": {
+      "as_of": 1788285177,
+      "bytes": 1110576,
+      "n": 26427,
+      "sha256": "598cd98c6917edbb6fc14014b70ac1eab2677982b8a142c77850f999641418ee",
+      "top1_rate": 0.3
+    }
+  },
+  "built": {
+    "by": null,
+    "note": "described after the fact: how these files were built was not recorded"
+  }
+}

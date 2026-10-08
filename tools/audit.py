@@ -229,6 +229,77 @@ def check_figures(rep: Report) -> None:
                  f"on {n_test:,} test matches")
 
 
+# --- 2b. the model manifest ---------------------------------------------
+
+# The one figure the dashboard quotes is the per-role score's best-of-five
+# rate, and SCORE-SPEC states it in this table row. The spec is a record kept
+# in order -- the first build measured 27.7% and failed its criteria -- so the
+# last such row is the current claim and the ones before it are history.
+QUOTED_RATE = re.compile(r"\|\s*\*\*the per-role score\*\*\s*\|\s*\*\*([\d.]+)%\*\*")
+
+
+def check_manifest(rep: Report) -> None:
+    """The committed description of the models, against everything else.
+
+    Runs without the models too -- CI has none -- because most of it is the
+    manifest against the committed reports and docs.
+    """
+    from valwr.model import manifest
+    m = manifest.load()
+    if m is None:
+        rep.problem("reports/model_manifest.json",
+                    "missing -- python -m valwr.model.manifest")
+        return
+    arts = m.get("artifacts") or {}
+    model, role = arts.get("model.joblib") or {}, arts.get("role_index.json") or {}
+
+    results = ROOT / "reports" / "results.json"
+    if results.exists() and model:
+        r = json.loads(results.read_text(encoding="utf-8"))
+        if r.get("shipped") != model.get("model"):
+            rep.problem("reports/model_manifest.json",
+                        f"describes {model.get('model')!r}, but results.json "
+                        f"ships {r.get('shipped')!r}")
+        if r.get("n_test") != (model.get("test") or {}).get("n"):
+            rep.problem("reports/model_manifest.json",
+                        f"model tested on {(model.get('test') or {}).get('n')} "
+                        f"matches, results.json on {r.get('n_test')}")
+
+    # The gap that motivated the manifest: a retrain that refitted one index
+    # and left the per-role one -- the one the page scores with -- behind.
+    norms = model.get("norms_as_of")
+    for name in ("role_index.json", "perf_index.json"):
+        fitted = (arts.get(name) or {}).get("as_of")
+        if norms and fitted and fitted < norms:
+            rep.problem(f"models/{name}",
+                        f"fitted at {fitted}, before the model's norms at "
+                        f"{norms} -- python tools/rebuild.py")
+
+    spec = ROOT / "docs" / "SCORE-SPEC.md"
+    rate = role.get("top1_rate")
+    if spec.exists() and rate is not None:
+        quoted = QUOTED_RATE.findall(spec.read_text(encoding="utf-8"))
+        if not quoted:
+            rep.problem("docs/SCORE-SPEC.md",
+                        "no longer states the per-role score's top-1 rate in "
+                        "the table this checks")
+        elif abs(float(quoted[-1]) - rate * 100) > 0.05:
+            rep.problem("docs/SCORE-SPEC.md",
+                        f"quotes the per-role score at {quoted[-1]}%, but its "
+                        f"index measured {rate * 100:.1f}%")
+
+    from valwr import config
+    models = config.load(require_key=False).models_path
+    if not (models / "model.joblib").exists():
+        rep.note("reports/model_manifest.json",
+                 "no models on disk; files not compared")
+        return
+    off = manifest.mismatches(models, m)
+    if off:
+        rep.problem("models/", f"{', '.join(off)} differ from the manifest -- "
+                               f"rebuilt by hand? python tools/rebuild.py")
+
+
 # --- 3. population claims ----------------------------------------------
 
 def check_population(rep: Report) -> None:
@@ -398,6 +469,7 @@ def check_undefined(rep: Report) -> None:
 CHECKS = (
     ("frozen artefacts", check_artefacts),
     ("figures in prose", check_figures),
+    ("model manifest", check_manifest),
     ("population claims", check_population),
     ("duplicated constants", check_constants),
     ("dead imports", check_imports),
