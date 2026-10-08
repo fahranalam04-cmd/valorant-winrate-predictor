@@ -41,7 +41,13 @@ def test_the_page_renders_a_full_scoreboard(tmp_path):
         p_["agent_id"] = f"agent-{i:02d}"
     state = tmp_path / "state.json"
     state.write_text(json.dumps(s), encoding="utf-8")
-    r = subprocess.run([node, str(CHECK), str(PAGE), str(state)],
+    # The shipped model's real record: the page's lookup is checked against
+    # the numbers it will actually be given.
+    from valwr.model import calibration
+    record = tmp_path / "record.json"
+    record.write_text(json.dumps(calibration.published_record()),
+                      encoding="utf-8")
+    r = subprocess.run([node, str(CHECK), str(PAGE), str(state), str(record)],
                        capture_output=True, text=True, timeout=120)
     sys.stdout.write(r.stdout)
     assert r.returncode == 0, r.stdout + r.stderr

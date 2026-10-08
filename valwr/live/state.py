@@ -50,6 +50,9 @@ class LiveContext:
     client: Any                 # HenrikClient | None
     settings: Any
     role_index: Any = None      # roleindex.RoleIndex | None
+    # What the model's probabilities have meant in testing, for the page to
+    # set beside each one; None when results.json is not this model's.
+    record: dict | None = None
     deadline: float = DEFAULT_DEADLINE
     # Lookups already answered in the current match. The poll runs every few
     # seconds and must not repeat them; see resolve.Resolution.completed.
@@ -108,9 +111,11 @@ def open_context(no_fetch: bool = False,
         client = HenrikClient(full.henrik_api_key, conn=conn,
                               limiter=TokenBucket(full.requests_per_minute))
 
+    from valwr.model import calibration
     return LiveContext(conn=conn, bundle=bundle, index=index,
                        role_index=role_index, session=S.build(),
-                       client=client, settings=settings, deadline=deadline)
+                       client=client, settings=settings, deadline=deadline,
+                       record=calibration.track_record(bundle))
 
 
 def display_map(conn, reported: str | None) -> str | None:

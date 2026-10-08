@@ -388,8 +388,10 @@ def _demo_payload(phase: str = "coregame") -> dict:
         # Read from the index rather than written here: a literal in this
         # file is how the live view once advertised an accuracy two retrains
         # out of date, with nothing to catch it.
+        from valwr.model import calibration
         return {"status": "match", "state": demo_state(conn, phase),
-                "top1_rate": _demo_top1(), "fresh": True}
+                "top1_rate": _demo_top1(), "fresh": True,
+                "record": calibration.published_record()}
     finally:
         if conn is not None:
             conn.close()
@@ -401,6 +403,7 @@ def _replay_payload(match_id: str) -> dict:
 
     from valwr import config
     from valwr.dash.replay import replay_state
+    from valwr.model import calibration
     from valwr.rating import potential as pot
     from valwr.rating import roleindex
     from valwr.store import schema
@@ -429,7 +432,8 @@ def _replay_payload(match_id: str) -> dict:
                 # beside another score's numbers.
                 "top1_rate": (role_index.top1_rate if role_index
                               else index.top1_rate if index else None),
-                "fresh": True}
+                "fresh": True,
+                "record": calibration.track_record(bundle)}
     finally:
         conn.close()
 
@@ -442,7 +446,8 @@ def _match_payload(ctx, state: dict, last: str | None) -> dict:
     top1 = (ctx.role_index.top1_rate if ctx.role_index
             else ctx.index.top1_rate if ctx.index else None)
     return {"status": "match", "state": state, "top1_rate": top1,
-            "fresh": state["match_id"] != last}
+            "fresh": state["match_id"] != last,
+            "record": getattr(ctx, "record", None)}
 
 
 def poll_and_record(ctx, on_progress=None) -> dict | None:

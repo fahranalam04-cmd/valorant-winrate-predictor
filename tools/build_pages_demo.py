@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, ".")
 
 from valwr.dash.demo import STREAKS, demo_picks, demo_state, likely
+from valwr.model import calibration
 from valwr.rating import roleindex
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -78,6 +79,9 @@ body.demo-clean .demo-bar,body.demo-clean .demo-room{display:none}
 const BASE = __STATE__;
 const MAPS = __MAPS__;
 const TOP1 = __TOP1__;
+// The shipped model's real test-set record, from the committed results: what
+// its numbers have meant. Only the players are invented.
+const RECORD = __RECORD__;
 const PICKS = __PICKS__;
 const LIKELY = __LIKELY__;
 const STREAKS = __STREAKS__;
@@ -149,7 +153,8 @@ function build(){
     s.lookup = {pending, remaining: 2 * pending.length};
     s.your_picks = Object.assign({}, PICKS, {map: view.map});
   }
-  return {status: "match", state: s, top1_rate: TOP1, fresh: false};
+  return {status: "match", state: s, top1_rate: TOP1, fresh: false,
+          record: RECORD};
 }
 
 /* An invented result, so the page can be seen as it looks once the match is
@@ -339,6 +344,8 @@ def build(out: Path, conn=None) -> dict:
     shim = (SHIM.replace("__STATE__", _json_for_script(state))
                 .replace("__MAPS__", _json_for_script(maps))
                 .replace("__TOP1__", _json_for_script(top1))
+                .replace("__RECORD__", _json_for_script(
+                    calibration.published_record()))
                 .replace("__PICKS__", _json_for_script(demo_picks()))
                 .replace("__STREAKS__", _json_for_script(STREAKS))
                 .replace("__LIKELY__", _json_for_script(

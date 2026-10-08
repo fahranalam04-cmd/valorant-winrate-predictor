@@ -18,7 +18,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 
-const [, , pagePath, statePath] = process.argv;
+const [, , pagePath, statePath, recordPath] = process.argv;
 const html = readFileSync(pagePath, "utf8");
 const code = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"));
 const state = JSON.parse(readFileSync(statePath, "utf8"));
@@ -468,6 +468,64 @@ ck("the opening message says what it is doing",
 }
 
 render({ status: "match", state, top1_rate: 0.296 });
+
+// --- the prediction, said no more strongly than the model can -------------
+{
+  const record = JSON.parse(readFileSync(recordPath, "utf8"));
+  const flat = h => h.replace(/\s+/g, " ");
+  const odds = (p, extra = {}) => {
+    const st = JSON.parse(JSON.stringify(state));
+    st.prediction.win_probability = p;
+    st.prediction.own_probability = st.own_team === "Blue" ? p : 1 - p;
+    Object.assign(st, extra);
+    render({ status: "match", state: st, top1_rate: 0.296, record });
+    return flat(els.stage.innerHTML);
+  };
+  const say = o => (o.match(/class="verdict"><b>([^<]*)<\/b>/) || [])[1];
+  const p = state.prediction.win_probability;
+  const o = odds(p);
+  ck("the header counts who is known, and calls it nothing more",
+     /known$/.test(els.sub.innerHTML.trim()) && !/confidence/.test(els.sub.innerHTML));
+  ck("nothing is 'favoured'", !/favoured/i.test(o));
+  const bin = record.bins.reduce((a, b) =>
+    Math.abs(b[0] - p) < Math.abs(a[0] - p) ? b : a);
+  const won = Math.round((bin[0] >= .5 ? bin[1] : 1 - bin[1]) * 100);
+  ck("beside it, what the same call meant in testing",
+     o.includes(`the side it leaned to won ${won}% of the time`)
+     && o.includes(`${bin[2].toLocaleString("en-US")} test matches`), o);
+  {
+    // A call leaning Red: the bins are Blue's, so the side it leaned to won
+    // whatever share Blue did not.
+    const q = 0.42, b = record.bins.reduce((a, c) =>
+      Math.abs(c[0] - q) < Math.abs(a[0] - q) ? c : a);
+    ck("a call for Red is read from Red's side of the table",
+       b[0] < .5 && odds(q).includes(
+         `the side it leaned to won ${Math.round((1 - b[1]) * 100)}% of the time`));
+  }
+  const known = record.strata.find(x => {
+    const [a, b] = x.known.split("-").map(Number);
+    return state.coverage >= a && state.coverage <= b; });
+  ck("and how often it picks the winner with this many known",
+     o.includes(`${state.coverage} of ${state.players.length} players known it `
+       + `picks the winner ${Math.round(known.accuracy * 100)}% of the time`));
+  ck("a clear call leans", /^Leans (your|their) way$/.test(say(odds(0.58))));
+  ck("toward whichever side it is", say(odds(state.own_team === "Blue" ? 0.42 : 0.58))
+     === "Leans their way");
+  ck("a near one is a slight lean", /^Slight lean/.test(say(odds(0.53))));
+  ck("and a close one is a coin flip", say(odds(0.505)) === "Coin flip");
+  ck("a call beyond anything tested says so",
+     /stronger call than almost any it made in testing/.test(odds(0.85)));
+  ck("so does a lobby too thin to have been tested",
+     /outside what it was tested on \(5 or more\)/.test(odds(0.56, { coverage: 4 })));
+  odds(0.58);
+  for (const fn of handlers.click || [])
+    fn({ target: { closest: s => s.includes("button.row")
+          ? { dataset: { puuid: first.puuid } } : null } });
+  ck("a click keeps the record the socket sent", /class="callrec"/.test(els.stage.innerHTML));
+  render({ status: "match", state, top1_rate: 0.296, record: null });
+  ck("with no record for this model, no record is shown",
+     !/class="callrec"/.test(els.stage.innerHTML));
+}
 
 console.log(bad ? `\n${bad} FAILED` : "\nall checks passed");
 process.exit(bad ? 1 : 0);

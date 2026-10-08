@@ -63,8 +63,9 @@ it, players show a lettered tile and the background is plain.
 
 - **The map**, in large type, with its key art as the page background.
 - **Phase** — *Agent select*, *Live*, or *Custom* for a custom game — then the
-  game mode, **how many of the ten players have match history**, and the
-  **confidence** that follows from it.
+  game mode and **how many of the ten players have match history**. It used to
+  add "high confidence" from that count, which read as how sure the prediction
+  was; it measured only how much was known, so it says the count and stops.
 - The small square by the name is the connection: lit while the page is
   receiving updates. If the server stops, the page says so after two failed
   reconnects rather than showing a stale match.
@@ -84,19 +85,31 @@ When any party marker was **inferred** rather than known, a line says so — see
 ### The odds
 
 The bar splits 100% between **Red** and **Blue**, and the verdict under it reads
-from your side:
+from your side, as a lean:
 
 | Your side's chance | Verdict |
 |---|---|
-| within 1.5 points of 50% | Too close to call |
-| within 5 points | marginally ahead / behind |
-| within 12 points | favoured |
-| within 25 points | clearly favoured |
-| beyond that | heavily favoured |
+| within 2 points of 50% | Coin flip |
+| within 5 points | Slight lean your way / their way |
+| beyond that | Leans your way / their way |
 
-Expect most matches in the first three rows. Nine predictions in ten fall
-between 40% and 60%, and that is the model being honest about a matchmaker
-that works: when it says 60%, that side wins about 60% of the time.
+Nothing says "favoured". The model is calibrated but modest: across its
+10,304 test matches the lowest tenth of its calls averaged 40% for Blue and the
+highest tenth 60%, they meant what they said -- when it rated a side at 60%,
+that side won 61% -- and it picked the winner 54% of the time. So under the verdict is what a number like this has
+meant:
+
+- **What the same call meant in testing** -- how often the side it leaned to
+  won, among the test matches it rated like this one, with the margin on that
+  figure: *the side it leaned to won 56% of the time (±3, 1,030 test matches)*.
+  A call stronger than almost any it made in testing says so.
+- **How often it picks the winner with this many players known** -- 52% with 5
+  or 6, 55% with 9 or 10. Below five known, the prediction is outside what it
+  was tested on, and the line says that instead.
+
+Both come from `reports/results.json`, and only when that file describes the
+model loaded; after a retrain without one, the line is left out rather than
+quoting another model's record (`valwr/model/calibration.py`).
 
 ### What moves the prediction
 

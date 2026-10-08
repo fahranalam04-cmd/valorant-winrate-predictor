@@ -160,6 +160,9 @@ body{
 .oddsbar .atk{background:var(--atk)}
 .oddsbar .def{background:var(--def);justify-content:flex-end}
 .verdict{margin-top:8px;color:var(--bone-dim);font-size:12.5px}
+.verdict b{text-transform:uppercase;letter-spacing:.06em}
+.callrec{margin-top:5px;color:var(--bone-dim);font-size:12px;line-height:1.45;
+  max-width:62em}
 .verdict b{color:var(--bone)}
 
 .warn{margin-top:11px;padding:9px 13px;background:rgba(231,194,125,.07);
@@ -660,14 +663,47 @@ function modeLabel(m){
 }
 const isAtk = t => t === "Red";
 
+/* A lean, in words the model can stand behind. It is calibrated but modest:
+   the extreme tenths of its test-set calls averaged 40% and 60%, and it picked
+   the winner 54% of the time, so nothing here says "favoured" -- trackHTML
+   says what a number like this has meant instead. */
 function verdict(p){
   const e = Math.abs(p - .5);
-  if (e < .015) return "Too close to call";
-  const s = p > .5 ? "Your side is" : "The enemy is";
-  if (e < .05) return s + " marginally ahead";
-  if (e < .12) return s + " favoured";
-  if (e < .25) return s + " clearly favoured";
-  return s + " heavily favoured";
+  if (e < .02) return "Coin flip";
+  return (e < .05 ? "Slight lean " : "Leans ") + (p > .5 ? "your way" : "their way");
+}
+
+/* What the same call meant in testing (model/calibration.py): how often the
+   side it leaned to won, from the reliability bin nearest this prediction,
+   and how often it picks the winner with this many players known. Nothing
+   when the record is not the loaded model's. */
+let RECORD = null;
+function trackHTML(s){
+  const rec = RECORD, pr = s.prediction;
+  if (!rec || !pr || !(rec.bins || []).length) return "";
+  const p = pr.win_probability;                       // Blue's
+  const [m, o, n] = rec.bins.reduce((a, b) =>
+    Math.abs(b[0] - p) < Math.abs(a[0] - p) ? b : a);
+  const won = m >= .5 ? o : 1 - o;
+  const pts = Math.round(1.96 * Math.sqrt(won * (1 - won) / n) * 100);
+  const tested = rec.bins.map(b => b[0]);
+  const beyond = p > Math.max(...tested) + .05 || p < Math.min(...tested) - .05;
+  let out = beyond
+    ? `A stronger call than almost any it made in testing. Its strongest tenth
+       there were won by the side it leaned to ${pc0(won)} of the time`
+    : `When it rated a match like this, the side it leaned to won ${pc0(won)}
+       of the time`;
+  out += ` (±${pts}, ${i0(n.toLocaleString("en-US"))} test matches).`;
+  const range = st => String(st.known).split("-").map(Number);
+  const k = s.coverage, of = s.players.length;
+  const st = (rec.strata || []).find(x => {
+    const [a, b] = range(x); return k >= a && k <= b; });
+  const fewest = Math.min(...(rec.strata || []).map(x => range(x)[0]));
+  if (st) out += ` With ${i0(k)} of ${i0(of)} players known it picks the winner
+    ${pc0(st.accuracy)} of the time.`;
+  else if (k < fewest) out += ` With only ${i0(k)} of ${i0(of)} known, this is
+    outside what it was tested on (${i0(fewest)} or more).`;
+  return `<div class="callrec">${out}</div>`;
 }
 
 /* ---------------- roster ---------------- */
@@ -1263,6 +1299,8 @@ function render(msg){
 
   const s = STATE = msg.state;
   if (msg.top1_rate != null) top1 = msg.top1_rate;
+  // Re-renders from a click carry no record; keep the one the socket sent.
+  if ("record" in msg) RECORD = msg.record;
   if (selected && !s.players.some(p => p.puuid === selected)) selected = null;
 
   $("map").textContent = s.map || "UNKNOWN MAP";
@@ -1271,8 +1309,11 @@ function render(msg){
   // Agent select describes one team, so "of 10" would count five players
   // nobody can see yet.
   const lobby = s.phase === "pregame" ? s.players.length : 10;
+  // How many players have history -- not how sure the prediction is, which
+  // the track record under the odds says. "High confidence" read as the
+  // second while it measured the first.
   $("sub").innerHTML = `${esc(phase)} <b>·</b> ${esc(modeLabel(s.mode))} <b>·</b> ` +
-    `${esc(s.coverage)}/${esc(lobby)} known <b>·</b> ${esc(s.confidence)} confidence`;
+    `${esc(s.coverage)}/${esc(lobby)} known`;
 
   indexParties(s);
 
@@ -1295,7 +1336,7 @@ function render(msg){
         <div class="def" style="width:${(1 - atkPct) * 100}%">BLUE ${
           ((1 - atkPct) * 100).toFixed(0)}%</div></div>
       <div class="verdict"><b>${verdict(own)}</b> — you are on ${esc(s.own_team)}.
-        Model: ${esc(s.model)}.</div></div>`;
+        Model: ${esc(s.model)}.</div>${trackHTML(s)}</div>`;
   } else if (s.phase !== "pregame") {
     // In agent select the enemy is hidden, which the warnings already say;
     // "not enough known" would blame the lookup for something Riot withholds.

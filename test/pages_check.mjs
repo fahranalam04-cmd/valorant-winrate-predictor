@@ -61,6 +61,10 @@ const runs = () => (els.stage.innerHTML.match(/class="run (won|lost)"/g) || []).
 ck("your team's runs are badged", runs() === 2
    && /won 4 in a row/.test(els.stage.innerHTML));
 
+ck("the prediction carries the real model's track record",
+   /the side it leaned to won \d+%/.test(els.stage.innerHTML)
+   && /test matches\)/.test(els.stage.innerHTML));
+
 window.__demo.set("side", "Red");
 ck("switching side moves 'you' to Red", /you are on Red/.test(els.stage.innerHTML));
 ck("and the runs badged are the new side's", runs() === 2
@@ -70,7 +74,10 @@ ck("and the runs badged are the new side's", runs() === 2
 window.__demo.set("known", "thin");
 ck("a thin lobby shows four known", /4\/10 known/.test(els.sub.innerHTML));
 ck("and nobody without history is on a run", runs() === 0);
-ck("and low confidence", /low<\/span>|low confidence/.test(els.sub.innerHTML));
+ck("and says a lobby that thin is outside what it was tested on",
+   /outside what it was tested on/.test(els.stage.innerHTML));
+ck("without calling that 'confidence' in the header",
+   !/confidence/.test(els.sub.innerHTML));
 
 window.__demo.set("phase", "pregame");
 ck("agent select is labelled", /Agent select/.test(els.sub.innerHTML));
