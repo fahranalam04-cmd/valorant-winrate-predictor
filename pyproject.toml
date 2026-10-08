@@ -35,8 +35,8 @@ dependencies = [
     "uvicorn[standard]>=0.29",
     # The game client's own event channel (valwr/live/events.py). uvicorn's
     # [standard] already installs it; named here because this code imports it
-    # directly, and its sync client arrived in 12.
-    "websockets>=12",
+    # directly, and passes `ssl=` to the sync client, which 13 introduced.
+    "websockets>=13",
     "Pillow>=10.0",
 ]
 

@@ -122,7 +122,8 @@ PERFORMANCE_SCORE = "performance score"
 MATCH_IMPACT = "match impact"
 
 
-def played_best_values(conn: sqlite3.Connection, match_id: str
+def played_best_values(conn: sqlite3.Connection, match_id: str,
+                       scores: dict[str, float] | None = None
                        ) -> tuple[dict[str, float], str]:
     """How well each player played one match, and by which measure.
 
@@ -133,13 +134,17 @@ def played_best_values(conn: sqlite3.Connection, match_id: str
     `rating.match_impact`, which stood in for it since patch 13.06 took combat
     score off the scoreboard. Never a mix: a lobby ranked half on one measure
     and half on the other would not be a ranking.
+
+    `scores` are the match's Performance Scores, for a caller already holding
+    them.
     """
     from valwr.live import client_scores
     from valwr.rating.rating import match_impact
     rows = [dict(r) for r in conn.execute(
         "SELECT * FROM match_players WHERE match_id = ? AND rounds_played > 0",
         (match_id,))]
-    ps = client_scores.scores_for(conn, match_id)
+    ps = scores if scores is not None else client_scores.scores_for(
+        conn, match_id)
     if rows and all(r["puuid"] in ps for r in rows):
         return {r["puuid"]: float(ps[r["puuid"]]) for r in rows}, PERFORMANCE_SCORE
     impact = {}

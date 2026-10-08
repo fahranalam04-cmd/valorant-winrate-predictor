@@ -455,7 +455,10 @@ ck("the opening message says what it is doing",
   render({ status: "match", state, review: rv, top1_rate: 0.296 });
   const ps = els.stage.innerHTML;
   ck("ranked on Performance Score when the game gave one",
-     /of 10 on Performance\s+Score/.test(ps) && !/on match\s+impact/.test(ps));
+     /of 10 on Performance\s+Score/.test(ps) && !/of 10 on match\s+impact/.test(ps));
+  ck("and does not claim the quoted accuracy shares its measure",
+     /quoted\s+accuracy is measured on match impact/.test(ps)
+     && !/same measure the score's quoted/.test(ps));
   ck("each block shows its Performance Score", /<td>Performance Score<\/td><td>—<\/td><td>300<\/td>/.test(ps));
   ck("and the note names the measure", /the game's own Performance Score/.test(ps));
   delete rv.best_by;
@@ -522,6 +525,12 @@ render({ status: "match", state, top1_rate: 0.296 });
     fn({ target: { closest: s => s.includes("button.row")
           ? { dataset: { puuid: first.puuid } } : null } });
   ck("a click keeps the record the socket sent", /class="callrec"/.test(els.stage.innerHTML));
+  ck("a record with no coverage groups says nothing about them",
+     !/Infinity/.test(flat(JSON.stringify(
+       (render({ status: "match", top1_rate: 0.296,
+                 record: { ...record, strata: [] },
+                 state: { ...state, coverage: 4 } }), els.stage.innerHTML))))
+     && /class="callrec"/.test(els.stage.innerHTML));
   render({ status: "match", state, top1_rate: 0.296, record: null });
   ck("with no record for this model, no record is shown",
      !/class="callrec"/.test(els.stage.innerHTML));

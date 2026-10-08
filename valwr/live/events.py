@@ -70,6 +70,7 @@ class MatchEvents:
         self._thread: threading.Thread | None = None
         self.connected = False
         self.events = 0
+        self.last_error: str | None = None
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, daemon=True,
@@ -79,12 +80,32 @@ class MatchEvents:
     def stop(self) -> None:
         self._stop.set()
 
+    def _note(self, e: Exception) -> None:
+        """Say once why the channel keeps failing -- unless the game is simply
+        closed or went away, which is the ordinary case and says nothing.
+        Swallowed silently, a missing library or a changed API cost the
+        instant detection with no trace of why."""
+        from valwr.live.lockfile import ClientNotRunning
+        quiet: tuple = (ClientNotRunning, OSError, TimeoutError)
+        try:
+            from websockets.exceptions import ConnectionClosed
+            quiet += (ConnectionClosed,)
+        except ImportError:
+            pass
+        if isinstance(e, quiet):
+            return
+        why = f"{type(e).__name__}: {e}"
+        if why != self.last_error:
+            self.last_error = why
+            print(f"  match announcements unavailable ({why}); the "
+                  f"three-second poll carries on.")
+
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
                 with self._connect() as ws:
                     ws.send(json.dumps([5, SUBSCRIPTION]))
-                    self.connected = True
+                    self.connected, self.last_error = True, None
                     while not self._stop.is_set():
                         try:
                             message = ws.recv(timeout=1.0)
@@ -93,9 +114,9 @@ class MatchEvents:
                         if is_match_event(message):
                             self.events += 1
                             self.on_match()
-            except Exception:                       # noqa: BLE001
+            except Exception as e:                  # noqa: BLE001
                 # Game closed, refused, or restarted. The poll is unaffected;
                 # try again shortly, re-reading the lockfile for the new port.
-                pass
+                self._note(e)
             self.connected = False
             self._stop.wait(self.retry_seconds)

@@ -146,6 +146,17 @@ ck("and the team bar says everyone is looked up", /all looked up/.test(out));
      yp.few.every(a => o.includes(`in ${a.games} game${a.games === 1 ? "" : "s"}`)));
 }
 
+// --- a newer account, with only agents played once or twice --------------
+{
+  const yp = state.your_picks;
+  render({ status: "match", top1_rate: 0.296,
+           state: { ...state, your_picks: { ...yp, agents: [] } } });
+  const o = els.stage.innerHTML;
+  ck("still gets its picks, not the generic hint",
+     /class="panel picks"/.test(o) && /Played once or twice/.test(o));
+  render({ status: "match", state, top1_rate: 0.296 });
+}
+
 // --- the full breakdown is still one click away ---------------------------
 for (const fn of handlers.click || [])
   fn({ target: { closest: s => s.includes("button.pcard")

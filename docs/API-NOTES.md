@@ -415,6 +415,13 @@ for matches the account played, and only while the game is running -- the
 session is the only way in. Scrambled names are the kind of thing a patch
 moves, so every value is checked to be a number in 0-500 before it is stored.
 
+A match is asked about only once it is over -- its result settled, or two
+hours on. Asked mid-game the server has nothing yet, and that answer was once
+remembered for the whole run, so the match just played never got its score. A
+player with no score at all (one who never connected) is left out rather than
+failing the match; a match that cannot be read is asked once a run, not every
+minute; and a server error ends that minute's pass.
+
 ---
 
 ## What is deliberately *not* a data source

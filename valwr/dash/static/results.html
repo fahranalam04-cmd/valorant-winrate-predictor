@@ -116,6 +116,14 @@ function band(rows, title, note){
       <td>${pc(r.accuracy)}</td></tr>`).join("")}</tbody></table>`;
 }
 
+/* Each match is judged on the measure it had; when both appear, say so. */
+function judged(by){
+  if (!by || Object.keys(by).length < 2) return "";
+  return `. Judged on the game's Performance Score in
+    ${esc(by["performance score"] || 0)}, match impact in
+    ${esc(by["match impact"] || 0)}`;
+}
+
 function picks(card){
   const p = card.top_pick;
   if (!p.n) return "";
@@ -124,7 +132,8 @@ function picks(card){
     <div class="cards"><div class="card ${better ? "good" : "flat"}">
       <b>${pc(p.rate)}</b><span>top pick had the best game</span>
       <div class="note">${esc(p.hits)} of ${esc(p.n)} matches, against
-        ${pc(p.chance)} by chance${better ? "" : " — not yet outside noise"}</div>
+        ${pc(p.chance)} by chance${better ? "" : " — not yet outside noise"}${
+        judged(p.judged_by)}</div>
     </div></div>`;
 }
 

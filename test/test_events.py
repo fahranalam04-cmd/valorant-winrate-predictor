@@ -127,6 +127,32 @@ def test_a_failing_wake_does_not_end_the_listener():
     assert len(calls) == 2
 
 
+def test_a_failure_that_is_not_the_game_being_closed_is_said_once(capsys):
+    """Swallowed silently, a missing library or a changed API cost the
+    instant detection with nothing to say why."""
+    from valwr.live.lockfile import ClientNotRunning
+    failures = iter([ClientNotRunning("closed"), ConnectionRefusedError(),
+                     TypeError("unexpected keyword 'ssl'"),
+                     TypeError("unexpected keyword 'ssl'")])
+    seen = []
+
+    def connect():
+        seen.append(1)
+        raise next(failures)
+    listener = E.MatchEvents(lambda: None, connect=connect, retry_seconds=0.01)
+    run_until(listener, lambda: len(seen) >= 4)
+    out = capsys.readouterr().out
+    assert out.count("match announcements unavailable") == 1
+    assert "TypeError" in out and "closed" not in out
+
+
+def test_the_library_it_needs_is_new_enough():
+    """`ssl=` arrived in websockets 13; on 12 every connect failed."""
+    import websockets
+    major = int(websockets.__version__.split(".")[0])
+    assert major >= 13
+
+
 # --- the poll's wait --------------------------------------------------
 
 def _timed(coro_fn):

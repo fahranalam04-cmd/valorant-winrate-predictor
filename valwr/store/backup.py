@@ -30,7 +30,8 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote
+
+from valwr.store import schema
 
 # The scheduled run waits for VALORANT to close rather than copy 10 GB onto
 # the drive the game is running from, which can cost frames mid-match.
@@ -47,9 +48,6 @@ class BackupError(RuntimeError):
     """Raised with what went wrong and what to do about it."""
 
 
-def _uri(path: Path, readonly: bool = True) -> str:
-    """A SQLite URI for `path`, escaped, read-only unless asked otherwise."""
-    return f"file:{quote(path.as_posix(), safe='/:')}" + ("?mode=ro" if readonly else "")
 
 
 def default_full_dir() -> Path:
@@ -71,7 +69,7 @@ def _counts(conn: sqlite3.Connection, schema: str = "main") -> dict[str, int]:
 
 def _verify(path: Path) -> dict[str, int]:
     """quick_check, then the row counts. Raises if the copy is not sound."""
-    conn = sqlite3.connect(_uri(path), uri=True)
+    conn = sqlite3.connect(schema.uri(path), uri=True)
     try:
         got = conn.execute("PRAGMA quick_check").fetchone()[0]
         if got != "ok":
@@ -129,25 +127,28 @@ def full_backup(source: Path, directory: Path, keep: int = 2) -> Path:
     _need_space(directory, source.stat().st_size)
     final = directory / f"{FULL_PREFIX}{_stamp()}.db"
     partial = final.with_name(final.name + ".partial")
-    src = sqlite3.connect(_uri(source), uri=True)
+    src = sqlite3.connect(schema.uri(source), uri=True)
     dst = sqlite3.connect(partial)
+    # Whatever fails -- the copy, the check, the rename -- the partial goes.
+    # Each run has a new name and pruning only sees finished copies, so a
+    # failed one was a ten-gigabyte file left for good.
     try:
-        # One step: the whole copy is read inside a single snapshot, so it is
-        # consistent even with the crawler and dashboard writing meanwhile.
-        src.backup(dst)
-        # The copy inherits the live database's write-ahead log, so merely
-        # opening it to check it left -wal and -shm files beside it. A backup
-        # should be one self-contained file.
-        dst.execute("PRAGMA journal_mode=DELETE")
-    finally:
-        dst.close()
-        src.close()
-    try:
+        try:
+            # One step: the whole copy is read inside a single snapshot, so it
+            # is consistent even with the crawler and dashboard writing.
+            src.backup(dst)
+            # The copy inherits the live database's write-ahead log, so merely
+            # opening it to check it left -wal and -shm files beside it. A
+            # backup should be one self-contained file.
+            dst.execute("PRAGMA journal_mode=DELETE")
+        finally:
+            dst.close()
+            src.close()
         counts = _verify(partial)
-    except Exception:
+        _finish(partial, final, counts, source)
+    except BaseException:
         _discard(partial)
         raise
-    _finish(partial, final, counts, source)
     _prune(directory, FULL_PREFIX, keep)
     return final
 
@@ -160,15 +161,35 @@ def slim_backup(full: Path, directory: Path, keep: int = 4) -> Path:
     added over time keep their order.
     """
     directory.mkdir(parents=True, exist_ok=True)
+    _need_space(directory, _slim_estimate(full, directory))
     final = directory / f"{SLIM_PREFIX}{_stamp()}.db"
     partial = final.with_name(final.name + ".partial")
     _discard(partial)
+    try:
+        return _build_slim(full, directory, final, partial, keep)
+    except BaseException:
+        _discard(partial)
+        raise
+
+
+def _slim_estimate(full: Path, directory: Path) -> int:
+    """Bytes a slim copy will need: the last one's size with room to grow,
+    or, the first time, a tenth of the full copy -- the raw responses it
+    leaves out are most of it (0.47 GB of 10.4 when this was written)."""
+    earlier = sorted(directory.glob(f"{SLIM_PREFIX}*.db"))
+    if earlier:
+        return int(earlier[-1].stat().st_size * 1.5)
+    return full.stat().st_size // 10
+
+
+def _build_slim(full: Path, directory: Path, final: Path, partial: Path,
+                keep: int) -> Path:
     # URI mode on the main connection too: without it SQLite reads the
     # ATTACH argument as a plain filename and creates an empty database
     # called "file:...", attaching that instead of the backup.
-    conn = sqlite3.connect(_uri(partial, readonly=False), uri=True)
+    conn = sqlite3.connect(schema.uri(partial, readonly=False), uri=True)
     try:
-        conn.execute("ATTACH DATABASE ? AS src", (_uri(full),))
+        conn.execute("ATTACH DATABASE ? AS src", (schema.uri(full),))
         objects = conn.execute(
             "SELECT type, name, tbl_name, sql FROM src.sqlite_master "
             "WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' "
@@ -185,14 +206,10 @@ def slim_backup(full: Path, directory: Path, keep: int = 4) -> Path:
         conn.execute("DETACH DATABASE src")
     finally:
         conn.close()
-    try:
-        counts = _verify(partial)
-        if counts != expected:
-            raise BackupError(f"slim copy rows differ from the full copy: "
-                              f"{counts} != {expected}")
-    except Exception:
-        _discard(partial)
-        raise
+    counts = _verify(partial)
+    if counts != expected:
+        raise BackupError(f"slim copy rows differ from the full copy: "
+                          f"{counts} != {expected}")
     _finish(partial, final, counts, full)
     _prune(directory, SLIM_PREFIX, keep)
     return final

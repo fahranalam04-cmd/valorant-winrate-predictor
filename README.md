@@ -349,14 +349,14 @@ these images with `python tools/capture_dashboard.py`
 backup.bat                         # or: python -m valwr.store.backup
 ```
 
-A full copy goes to `%USERPROFILE%alwr-backups` (the last two are kept) and,
+A full copy goes to `%USERPROFILE%\valwr-backups` (the last two are kept) and,
 when OneDrive is present, a slim one -- every match, player and prediction,
-without the raw API responses -- to `OneDrivealwr-backups` (the last four).
+without the raw API responses -- to `OneDrive\valwr-backups` (the last four).
 Each copy is checked with SQLite's `quick_check` and its row counts before
 older ones are pruned, and the full copy is taken while the crawler and
 dashboard keep running. A weekly scheduled task, "valwr weekly backup", runs
 the same thing windowless and waits for VALORANT to close first; its log is
-`valwr-backupsackup.log`. Remove it with
+`valwr-backups\backup.log`. Remove it with
 `Unregister-ScheduledTask -TaskName "valwr weekly backup"` in PowerShell.
 
 To restore, stop the dashboard and the crawler, then copy a backup over the
@@ -366,7 +366,7 @@ responses, which are only needed to re-parse old matches.
 ### Tests
 
 ```bash
-pytest -q                          # 584 tests; needs no .env, model or database
+pytest -q                          # 690 tests; needs no .env, model or database
 python tools/audit.py              # re-derives documented claims, reports drift
 ```
 

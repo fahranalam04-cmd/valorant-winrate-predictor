@@ -14,6 +14,8 @@ So ``scores.TempValueF`` is Performance Score. It is kept with its decimals
 the kind of thing a patch can move, so every value is checked to be a number in
 0-500 before it is trusted; anything else is reported as a changed format and
 nothing is stored, rather than storing the wrong column under the right name.
+A player with no score at all -- one who never connected -- is left out, and
+"played best" then falls back to match impact for that match if they played.
 
 Read-only: one GET per match, to Riot's own server with the running game's
 session, for matches you played. Collected while the game is open -- the
@@ -34,6 +36,10 @@ PS_RANGE = (0, 500)
 # How many matches one pass will ask about. A pass runs once a minute while
 # the game is open, so a backlog clears in a few minutes without a burst.
 PER_PASS = 5
+# A match is only asked about once it is over: settled, or recorded this long
+# ago. Asked mid-game, the server has nothing yet -- and the answer used to be
+# remembered as "not held", so the match just played never got its score.
+FINISHED_AFTER_SECONDS = 2 * 3600
 
 
 class FormatChanged(RuntimeError):
@@ -49,6 +55,10 @@ class NotScored(RuntimeError):
 # so a pass a minute does not ask about them again for as long as this process
 # runs. Only ever a handful of ids.
 _NO_ANSWER: set[str] = set()
+# Matches whose details could not be read. Not asked again this run -- once a
+# minute for the same few would crowd out every older match -- but asked after
+# a restart, which is when an update to this code could have fixed it.
+_UNREADABLE: set[str] = set()
 
 
 def parse(data: dict) -> list[tuple[str, float, dict]]:
@@ -62,6 +72,8 @@ def parse(data: dict) -> list[tuple[str, float, dict]]:
     for p in players:
         scores = p.get("scores") or {}
         value = scores.get(PS_FIELD)
+        if value is None:
+            continue                 # never connected, or left before a round
         if (isinstance(value, bool) or not isinstance(value, (int, float))
                 or not PS_RANGE[0] <= value <= PS_RANGE[1]):
             raise FormatChanged(
@@ -106,19 +118,30 @@ def scores_for(conn: sqlite3.Connection, match_id: str) -> dict[str, float]:
         (match_id,))}
 
 
-def missing(conn: sqlite3.Connection, limit: int | None = None) -> list[str]:
-    """Recorded bomb-mode matches with no Performance Scores yet, newest first.
+def missing(conn: sqlite3.Connection, limit: int | None = None,
+            now: int | None = None) -> list[str]:
+    """Finished bomb-mode matches with no Performance Scores yet, newest first.
 
     Only standard bomb defusal: the other modes carry no score to ask for.
     """
+    now = int(now or time.time())
     sql = ("SELECT match_id FROM live_predictions WHERE standard_mode = 1 "
+           "AND (settled_at IS NOT NULL OR made_at < ?) "
            "AND match_id NOT IN (SELECT DISTINCT match_id FROM client_scores) "
            "ORDER BY made_at DESC")
-    args: tuple = ()
+    args: tuple = (now - FINISHED_AFTER_SECONDS,)
     if limit is not None:
         sql += " LIMIT ?"
-        args = (limit,)
+        args += (limit,)
     return [r[0] for r in conn.execute(sql, args)]
+
+
+def wanted(conn: sqlite3.Connection, now: int | None = None) -> list[str]:
+    """What a pass would ask about: missing, and not already given up on in
+    this run. Checked before a session is built, so a backlog of matches the
+    client does not hold costs nothing once each has been asked."""
+    return [m for m in missing(conn, now=now)
+            if m not in _NO_ANSWER and m not in _UNREADABLE]
 
 
 def fetch(session, match_id: str) -> dict | None:
@@ -138,28 +161,40 @@ def collect(conn: sqlite3.Connection, session, limit: int | None = PER_PASS,
     Afterwards the stored verdicts are re-judged, because "played best" means
     Performance Score wherever the game's own numbers exist.
     """
-    out = {"stored": 0, "unavailable": 0, "not_scored": 0, "format_changed": 0}
-    todo = [m for m in missing(conn) if m not in _NO_ANSWER]
-    for match_id in todo[:limit] if limit is not None else todo:
-        data = fetch(session, match_id)
-        if data is None:
-            _NO_ANSWER.add(match_id)
-            out["unavailable"] += 1
-            continue
-        try:
-            rows = parse(data)
-        except NotScored:
-            _NO_ANSWER.add(match_id)
-            out["not_scored"] += 1
-            continue
-        except FormatChanged:
-            out["format_changed"] += 1
-            continue
-        store(conn, match_id, rows, now)
-        out["stored"] += 1
-    if out["stored"]:
-        from valwr.live import outcomes
-        outcomes.rescore(conn)
+    import httpx
+    out = {"stored": 0, "unavailable": 0, "not_scored": 0, "format_changed": 0,
+           "server_error": 0}
+    todo = wanted(conn, now)
+    try:
+        for match_id in todo[:limit] if limit is not None else todo:
+            try:
+                data = fetch(session, match_id)
+            except httpx.HTTPError:
+                # Riot's server erring or limiting. Stop this pass rather than
+                # press on; the next one, a minute away, asks again.
+                out["server_error"] += 1
+                break
+            if data is None:
+                _NO_ANSWER.add(match_id)
+                out["unavailable"] += 1
+                continue
+            try:
+                rows = parse(data)
+            except NotScored:
+                _NO_ANSWER.add(match_id)
+                out["not_scored"] += 1
+                continue
+            except FormatChanged:
+                _UNREADABLE.add(match_id)
+                out["format_changed"] += 1
+                continue
+            store(conn, match_id, rows, now)
+            out["stored"] += 1
+    finally:
+        # Even when the session expired partway, what was stored is re-judged.
+        if out["stored"]:
+            from valwr.live import outcomes
+            outcomes.rescore(conn)
     return out
 
 

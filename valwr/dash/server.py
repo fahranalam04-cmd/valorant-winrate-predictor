@@ -298,7 +298,11 @@ def recorded(match_id: str) -> bool:
 
 
 def _review_payload(match_id: str) -> dict:
-    """A recorded match: what was predicted, and the result once it lands."""
+    """A recorded match: what was predicted, and the result once it lands.
+
+    No `record` beside it, deliberately: the record has to belong to the
+    model that made the prediction, and this one may predate a retrain.
+    """
     conn = _open_db()
     if conn is None:
         return {"status": "error", "message": "no database"}
@@ -482,6 +486,10 @@ def settle_tick(no_fetch: bool = False) -> dict[str, int]:
     from valwr.collect.limiter import TokenBucket
     from valwr.store import schema
     s = config.load(require_key=False)
+    # Never create one: connecting to a path with nothing there makes an
+    # empty database, and the next run would read that as the real one.
+    if not s.database_path.exists():
+        return {"settled": 0}
     conn = schema.connect(s.database_path)
     client = None
     try:
@@ -496,7 +504,7 @@ def settle_tick(no_fetch: bool = False) -> dict[str, int]:
         # The game's own Performance Score, while the game is open to ask --
         # its session is the only way to reach it.
         from valwr.live import client_scores
-        if client_scores.missing(conn, 1):
+        if client_scores.wanted(conn):
             from valwr.live import lockfile
             from valwr.live import session as S
             try:
@@ -946,7 +954,16 @@ def main(argv=None) -> int:
     try:
         from valwr import config as _cfg
         from valwr.store import schema as _schema
-        _conn = _schema.connect(_cfg.load(require_key=False).database_path)
+        _db = _cfg.load(require_key=False).database_path
+        if not _db.exists():
+            # Nothing to bring up to date -- and connecting would create an
+            # empty database where the real one should be.
+            raise FileNotFoundError(_db)
+        _conn = _schema.connect(_db)
+        # Tables added since the database was made -- client_scores, say --
+        # exist before anything reads them. Only the crawler made them before,
+        # so a database last touched by an older version failed every settle.
+        _schema.create_all(_conn)
         freed = outcomes.unstick(_conn)
         _conn.commit()
         # "Played best" changed meaning in 13.06. Re-judge what is already

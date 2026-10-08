@@ -39,9 +39,12 @@ def test_a_value_that_cannot_be_a_performance_score_is_not_stored(bad):
         C.parse(details(215.0, bad))
 
 
-def test_a_field_missing_for_some_players_is_a_changed_format():
-    with pytest.raises(C.FormatChanged):
-        C.parse(details(215.0, None, 300.0))
+def test_a_player_with_no_score_is_left_out_and_the_rest_kept():
+    """Someone who never connected has no Performance Score. Treating the
+    whole match as unreadable for it asked about that match every minute
+    forever and kept the other nine scores out."""
+    rows = C.parse(details(215.0, None, 300.0))
+    assert [(p, ps) for p, ps, _ in rows] == [("p0", 215.0), ("p2", 300.0)]
 
 
 def test_a_mode_the_game_does_not_score_is_not_a_changed_format():
@@ -61,8 +64,10 @@ def conn(tmp_path):
                   (mid, made, standard))
     c.commit()
     C._NO_ANSWER.clear()
+    C._UNREADABLE.clear()
     yield c
     C._NO_ANSWER.clear()
+    C._UNREADABLE.clear()
 
 
 def test_only_bomb_mode_matches_without_scores_are_asked_about(conn):
@@ -91,9 +96,78 @@ def test_a_match_with_no_answer_is_not_asked_about_every_minute(conn, monkeypatc
     assert sorted(asked) == ["new", "old"], f"asked again: {asked}"
 
 
-def test_a_changed_format_is_asked_about_again(conn, monkeypatch):
-    """Unlike "not held", a format change may be fixed by an update to this
-    code, so it is not written off."""
-    monkeypatch.setattr(C, "fetch", lambda s, mid: details(999.0))
+def test_a_changed_format_is_asked_about_once_a_run(conn, monkeypatch):
+    """Not every minute -- five unreadable matches, newest first, used to
+    crowd out every older one -- but again after a restart, since an update
+    to this code is what would fix it."""
+    asked = []
+
+    def unreadable(session, mid):
+        asked.append(mid)
+        return details(999.0)
+    monkeypatch.setattr(C, "fetch", unreadable)
     assert C.collect(conn, object(), limit=None)["format_changed"] == 2
+    assert C.collect(conn, object(), limit=None)["format_changed"] == 0
+    assert C.wanted(conn) == []
+    C._UNREADABLE.clear()                        # a restart
     assert C.collect(conn, object(), limit=None)["format_changed"] == 2
+    assert len(asked) == 4
+
+
+def test_a_match_still_being_played_is_not_asked_about(conn, monkeypatch):
+    """Mid-game the server has nothing yet, and "nothing" used to be
+    remembered for the whole run -- so the match just played never got its
+    score. It waits until it is settled, or long enough over."""
+    import time as _time
+    now = int(_time.time())
+    conn.execute("INSERT INTO live_predictions (match_id, made_at, phase, "
+                 "standard_mode, state_json) VALUES ('live', ?, 'coregame', 1, "
+                 "'{}')", (now - 600,))
+    conn.commit()
+    assert "live" not in C.missing(conn, now=now)
+    conn.execute("UPDATE live_predictions SET settled_at = ? WHERE match_id = "
+                 "'live'", (now,))
+    assert C.missing(conn, now=now)[0] == "live"
+    conn.execute("UPDATE live_predictions SET settled_at = NULL WHERE "
+                 "match_id = 'live'")
+    assert "live" in C.missing(conn, now=now + C.FINISHED_AFTER_SECONDS)
+
+
+def test_a_server_error_ends_the_pass_and_keeps_what_was_stored(conn,
+                                                                monkeypatch):
+    import httpx
+
+    from valwr.live import outcomes
+    answers = iter([details(215.0, 330.0), httpx.HTTPStatusError(
+        "503", request=httpx.Request("GET", "https://pd"), response=httpx.Response(503))])
+
+    def fetch(session, mid):
+        got = next(answers)
+        if isinstance(got, Exception):
+            raise got
+        return got
+    rescored = []
+    monkeypatch.setattr(C, "fetch", fetch)
+    monkeypatch.setattr(outcomes, "rescore", lambda c: rescored.append(1))
+    got = C.collect(conn, object(), limit=None)
+    assert got["stored"] == 1 and got["server_error"] == 1
+    assert rescored == [1], "the stored match must still be re-judged"
+
+
+def test_what_was_stored_is_rejudged_even_if_the_session_expires(conn,
+                                                                 monkeypatch):
+    from valwr.live import outcomes
+    from valwr.live import session as S
+    answers = iter([details(215.0, 330.0), S.SessionExpired("aged out")])
+
+    def fetch(session, mid):
+        got = next(answers)
+        if isinstance(got, Exception):
+            raise got
+        return got
+    rescored = []
+    monkeypatch.setattr(C, "fetch", fetch)
+    monkeypatch.setattr(outcomes, "rescore", lambda c: rescored.append(1))
+    with pytest.raises(S.SessionExpired):
+        C.collect(conn, object(), limit=None)
+    assert rescored == [1]

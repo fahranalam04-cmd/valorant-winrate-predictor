@@ -311,7 +311,10 @@ how often it called them right, how its predicted percentages compare with how
 often you actually won, and the same broken down by how much of the lobby was
 known and by its stated confidence. It reports the interval around every figure
 and says plainly when there are too few matches to conclude anything -- around
-30 is where it starts to mean something.
+30 is where it starts to mean something. How often the player score's top pick
+had the best game is one figure, each match judged on the measure it had -- the
+game's Performance Score or match impact -- and it says how many were judged
+each way.
 
 Two rules keep it honest. **Only standard bomb defusal counts** toward the
 figures, because that is all the model was trained on; other modes are recorded

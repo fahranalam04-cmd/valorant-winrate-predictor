@@ -38,6 +38,62 @@ def test_auth_header_uses_the_literal_username_riot(tmp_path):
     assert decoded == "riot:pw"
 
 
+def test_a_lockfile_being_rewritten_is_not_a_crash(tmp_path, monkeypatch):
+    """The client rewrites it as it starts and stops. Read at that moment it
+    raised PermissionError, which nothing caught: the crawler's pause check
+    crashed it."""
+    f = tmp_path / "lockfile"
+    f.write_text("Riot Client:1:2:pw:https", encoding="utf-8")
+
+    def busy(self, *a, **k):
+        raise PermissionError("in use")
+    monkeypatch.setattr(type(f), "read_text", busy)
+    with pytest.raises(lockfile.ClientNotRunning, match="unreadable"):
+        lockfile.read(f)
+    monkeypatch.setattr(lockfile, "LOCKFILE", f)
+    assert lockfile.game_is_running() is False
+
+
+def test_the_dashboard_never_creates_a_database(tmp_path, monkeypatch):
+    """Connecting to a path with nothing there makes an empty database, and
+    the next run reads it as the real one -- the portable drive unplugged,
+    say. Both the launch and the once-a-minute collector did."""
+    from valwr.dash import server as DS
+    db = tmp_path / "drive" / "valwr.db"
+    monkeypatch.setenv("DATABASE_PATH", str(db))
+    monkeypatch.setattr(DS, "port_file", lambda: tmp_path / "dashboard-port")
+    _fake_uvicorn(monkeypatch)
+    monkeypatch.setattr(DS, "port_free", lambda host, port: True)
+    assert DS.main(["--no-browser", "--port", "8796"]) == 0
+    assert DS.settle_tick(no_fetch=True) == {"settled": 0}
+    assert not db.exists() and not db.parent.exists()
+
+
+def test_the_dashboard_creates_tables_newer_than_the_database(tmp_path,
+                                                              monkeypatch):
+    """Only the crawler created tables. A database last touched by an older
+    version had no client_scores, and every settle failed reading it."""
+    from valwr.dash import server as DS
+    from valwr.store import schema
+    db = tmp_path / "old.db"
+    c = schema.connect(db)
+    schema.create_all(c)
+    c.execute("DROP TABLE client_scores")
+    c.commit()
+    c.close()
+    monkeypatch.setenv("DATABASE_PATH", str(db))
+    monkeypatch.setattr(DS, "port_file", lambda: tmp_path / "dashboard-port")
+    _fake_uvicorn(monkeypatch)
+    monkeypatch.setattr(DS, "port_free", lambda host, port: True)
+    assert DS.main(["--no-browser", "--port", "8795"]) == 0
+    c = schema.connect(db)
+    try:
+        assert c.execute("SELECT name FROM sqlite_master WHERE name = "
+                         "'client_scores'").fetchone()
+    finally:
+        c.close()
+
+
 def test_a_missing_lockfile_says_the_client_is_not_running(tmp_path):
     with pytest.raises(lockfile.ClientNotRunning, match="not running"):
         lockfile.read(tmp_path / "absent")
@@ -1808,7 +1864,7 @@ def _settle_tick(tmp_path, monkeypatch, missing, running=True):
     db = tmp_path / "valwr.db"
     schema.create_all(schema.connect(db))
     monkeypatch.setenv("DATABASE_PATH", str(db))
-    monkeypatch.setattr(client_scores, "missing", lambda conn, limit=None: missing)
+    monkeypatch.setattr(client_scores, "wanted", lambda conn, now=None: missing)
     monkeypatch.setattr(lockfile, "game_is_running", lambda: running)
     monkeypatch.setattr(S, "build", lambda: "session")
     asked = []

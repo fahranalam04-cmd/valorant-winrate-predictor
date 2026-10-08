@@ -89,13 +89,20 @@ class Resolution:
     # with no competitive history at all -- on every tick, forever, spending
     # the quota agent select needs on answers it already had.
     completed: set[tuple[str, int]] = field(default_factory=set)
+    # The completed lookups the API refused outright. Not asked again, but they
+    # told us nothing -- the streak badge must not read one as "up to date".
+    failed: set[tuple[str, int]] = field(default_factory=set)
     # Lookups planned but not reached: the deadline or the quota ran out.
     remaining: list[tuple[str, int]] = field(default_factory=list)
 
     @property
     def pending(self) -> set[str]:
-        """Players whose first page is still to come, so nothing to show yet."""
-        return {p for p, start in self.remaining if start == 0}
+        """Players with nothing stored whose first page is still to come, so
+        nothing to show yet. Someone known being refreshed is not "being
+        looked up": their card is already full, and the team bar said
+        otherwise."""
+        return {p for p, start in self.remaining
+                if start == 0 and p not in self.known}
 
     @property
     def coverage(self) -> int:
@@ -265,6 +272,7 @@ def resolve(conn: sqlite3.Connection, match: LiveMatch, own_puuid: str,
             return False
         except HenrikError:
             out.stale.discard(puuid)    # unfetchable; do not keep retrying it
+            out.failed.add((puuid, start))
         out.completed.add((puuid, start))
         out.remaining.remove((puuid, start))
         if on_progress:

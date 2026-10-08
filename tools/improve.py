@@ -259,11 +259,6 @@ def main(argv=None) -> int:
                 print(f"  {fair['train']} of them are now inside the training "
                       f"window, so that comparison flatters the new model. "
                       f"Read the {fair['val'] + fair['test']} outside it.")
-        print("\n  Then, to bring the rest of the project with it:")
-        print("    python -m valwr.model.analyze")
-        print("    python tools/validate_potential.py --write-index")
-        print("    python tools/model_metrics.py")
-        print("    python -m valwr.sandbox benchmark")
 
     card["suggestions"] = suggestions(card)
     OUT.parent.mkdir(exist_ok=True)

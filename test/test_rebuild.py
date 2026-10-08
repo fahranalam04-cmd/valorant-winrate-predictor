@@ -166,6 +166,51 @@ def test_a_failed_step_puts_every_previous_model_back(models, database, tmp_path
     assert M.load(path) is None, "a failed build must not be described"
 
 
+def test_stopping_it_mid_step_puts_the_old_models_back(models, database,
+                                                      tmp_path):
+    """Ctrl-C in a half-hour training run is the likeliest way to stop it."""
+    rebuild = _tool("rebuild")
+    before = (models / "model.joblib").read_bytes()
+
+    def interrupted(cmd, cwd=None):
+        (models / "model.joblib").write_text("half-written", "utf-8")
+        raise KeyboardInterrupt
+    with pytest.raises(KeyboardInterrupt):
+        rebuild.run(models, database, runner=interrupted,
+                    manifest_path=tmp_path / "manifest.json")
+    assert (models / "model.joblib").read_bytes() == before
+
+
+def test_the_commit_is_read_before_the_steps_change_the_tree(
+        models, database, tmp_path, monkeypatch):
+    """The steps rewrite tracked reports and docs; read afterwards, the tree
+    was always modified and every build was recorded as uncommitted."""
+    rebuild = _tool("rebuild")
+    order = []
+    monkeypatch.setattr(rebuild, "commit", lambda: order.append("commit") or "abc")
+
+    def runner(cmd, cwd=None):
+        order.append("step")
+        return subprocess.CompletedProcess(cmd, 0)
+    path = tmp_path / "manifest.json"
+    rebuild.run(models, database, runner=runner, manifest_path=path)
+    assert order[0] == "commit" and order.count("commit") == 1
+    assert M.load(path)["built"]["commit"] == "abc"
+
+
+def test_describing_unchanged_models_keeps_how_they_were_built(
+        models, tmp_path, monkeypatch):
+    monkeypatch.setattr(M, "PATH", tmp_path / "manifest.json")
+    monkeypatch.setenv("MODELS_PATH", str(models))
+    built = {"by": "tools/rebuild.py", "commit": "abc"}
+    M.write(models, built)
+    assert M.main([]) == 0
+    assert M.load()["built"] == built, "the same files, the same build"
+    (models / "perf_index.json").write_text("{}", "utf-8")
+    assert M.main([]) == 0
+    assert M.load()["built"]["by"] is None, "different files: not that build"
+
+
 def test_a_file_that_did_not_exist_before_is_removed_again(models, database,
                                                            tmp_path):
     rebuild = _tool("rebuild")
@@ -274,7 +319,7 @@ def test_the_preflight_warns_but_does_not_stop(tmp_path, monkeypatch, models):
     preflight = _tool("preflight")
     monkeypatch.setattr(M, "PATH", tmp_path / "manifest.json")
     monkeypatch.setenv("MODELS_PATH", str(models))
-    # Its own: another test may have left a file at the shared sandbox path.
+    # Its own, so this never depends on what the shared sandbox holds.
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "absent.db"))
     monkeypatch.setattr("valwr.live.lockfile.game_is_running", lambda: False)
     # The indexes here are stand-ins; loading them is not what is under test.

@@ -267,6 +267,17 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
     return applied
 
 
+def uri(path: Path, readonly: bool = True) -> str:
+    """A SQLite URI for `path`, escaped, read-only unless asked otherwise.
+
+    Built by hand, a path with '#', '?' or '%' in it is cut short or misread
+    by SQLite's URI parser, and the wrong file is opened.
+    """
+    from urllib.parse import quote
+    return (f"file:{quote(Path(path).as_posix(), safe='/:')}"
+            + ("?mode=ro" if readonly else ""))
+
+
 def connect(database_path: Path) -> sqlite3.Connection:
     """Open the database, creating its directory if needed."""
     database_path.parent.mkdir(parents=True, exist_ok=True)

@@ -80,18 +80,24 @@ def restore(models: Path, saved: Path) -> None:
             (models / name).unlink(missing_ok=True)    # it did not exist before
 
 
-def provenance(database: Path, seconds: dict) -> dict:
-    from importlib.metadata import PackageNotFoundError, version
-
+def commit() -> str | None:
+    """The code being built from. Read before the steps run: they rewrite
+    tracked reports and docs, so asking afterwards always found the tree
+    modified."""
     def git(*args):
         try:
             return subprocess.run(["git", *args], cwd=ROOT, capture_output=True,
                                   text=True, timeout=30).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             return ""
-    commit = git("rev-parse", "HEAD") or None
-    if commit and git("status", "--porcelain", "--untracked-files=no"):
-        commit += "+uncommitted"
+    sha = git("rev-parse", "HEAD") or None
+    if sha and git("status", "--porcelain", "--untracked-files=no"):
+        sha += "+uncommitted"
+    return sha
+
+
+def provenance(database: Path, seconds: dict, sha: str | None) -> dict:
+    from importlib.metadata import PackageNotFoundError, version
     versions = {"python": platform.python_version()}
     for lib in LIBRARIES:
         try:
@@ -99,7 +105,9 @@ def provenance(database: Path, seconds: dict) -> dict:
         except PackageNotFoundError:
             versions[lib] = None
     import sqlite3
-    conn = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+
+    from valwr.store import schema
+    conn = sqlite3.connect(schema.uri(database), uri=True)
     try:
         matches, newest = conn.execute(
             "SELECT COUNT(*), MAX(started_at) FROM matches").fetchone()
@@ -107,7 +115,7 @@ def provenance(database: Path, seconds: dict) -> dict:
         conn.close()
     return {"by": "tools/rebuild.py",
             "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "commit": commit,
+            "commit": sha,
             "database": {"matches": matches, "newest_match": newest},
             "versions": versions,
             # A list, in the order they ran: the manifest sorts its keys.
@@ -118,27 +126,35 @@ def provenance(database: Path, seconds: dict) -> dict:
 def run(models: Path, database: Path, runner=subprocess.run,
         manifest_path: Path | None = None) -> int:
     manifest_path = manifest_path or manifest.PATH
+    sha = commit()
     saved = backup(models)
     print(f"  models backed up to {saved.relative_to(models.parent)}")
     seconds: dict[str, float] = {}
-    for i, (label, cmd) in enumerate(STEPS, 1):
-        print(f"\n  [{i}/{len(STEPS)}] {label}", flush=True)
-        started = time.monotonic()
-        try:
-            code = runner(cmd, cwd=ROOT).returncode
-        except (OSError, subprocess.SubprocessError) as e:
-            print(f"  could not run it: {e}")
-            code = -1
-        seconds[label] = time.monotonic() - started
-        if code != 0:
-            restore(models, saved)
-            print(f"\n  '{label}' failed (exit {code}). The previous models are "
-                  f"back in place; the dashboard is unaffected.")
-            print("  Reports and docs regenerated before it are left for "
-                  "`git diff`;\n  `git checkout -- reports docs README.md` "
-                  "returns them.")
-            return 1
-    manifest.write(models, provenance(database, seconds), manifest_path)
+    try:
+        for i, (label, cmd) in enumerate(STEPS, 1):
+            print(f"\n  [{i}/{len(STEPS)}] {label}", flush=True)
+            started = time.monotonic()
+            try:
+                code = runner(cmd, cwd=ROOT).returncode
+            except (OSError, subprocess.SubprocessError) as e:
+                print(f"  could not run it: {e}")
+                code = -1
+            seconds[label] = time.monotonic() - started
+            if code != 0:
+                restore(models, saved)
+                print(f"\n  '{label}' failed (exit {code}). The previous models "
+                      f"are back in place; the dashboard is unaffected.")
+                print("  Reports and docs regenerated before it are left for "
+                      "`git diff`;\n  `git checkout -- reports docs README.md` "
+                      "returns them.")
+                return 1
+    except BaseException:
+        # Ctrl-C in a half-hour training run is the likeliest way to stop
+        # this, and it left a new model beside old indexes.
+        restore(models, saved)
+        print("\n  Stopped. The previous models are back in place.")
+        raise
+    manifest.write(models, provenance(database, seconds, sha), manifest_path)
     print(f"\n  wrote {manifest_path.name}. "
           f"Rebuilt in {sum(seconds.values()) / 60:.0f} min.")
     print("\n  Audit -- after a retrain, prose figures are expected to need "

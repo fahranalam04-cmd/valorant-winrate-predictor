@@ -98,10 +98,16 @@ def mismatches(models: Path, manifest: dict) -> list[str]:
 def main(argv=None) -> int:
     from valwr import config
     models = config.load(require_key=False).models_path
-    got = write(models)
+    # The files a rebuild described are still those files: keep what it
+    # recorded about how they were built, which this cannot know.
+    held = load()
+    kept = (held or {}).get("built") if held and not mismatches(models, held) \
+        else None
+    got = write(models, kept)
     for name, a in got["artifacts"].items():
         print(f"  {name:<16} {a['sha256'][:12]}  {a['bytes']:>9,} bytes")
-    print(f"  wrote {PATH.relative_to(ROOT)}")
+    shown = PATH.relative_to(ROOT) if PATH.is_relative_to(ROOT) else PATH
+    print(f"  wrote {shown}")
     if not got["artifacts"]:
         print("  no models found -- nothing described")
         return 1

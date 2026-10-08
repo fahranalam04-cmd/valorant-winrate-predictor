@@ -28,6 +28,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from valwr import config  # noqa: E402
+from valwr.store import schema  # noqa: E402
 
 BACK_TO_BACK_SECONDS = 55 * 60      # live/streak.py COMPLETE_WITHIN_SECONDS
 
@@ -76,7 +77,7 @@ def line(label: str, g: pd.DataFrame) -> str:
 
 def main() -> int:
     db = config.load(require_key=False).database_path
-    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    conn = sqlite3.connect(schema.uri(db), uri=True)
     df = games(conn)
     print(f"  {len(df):,} competitive games, {df.puuid.nunique():,} players; "
           f"next-game win rate overall {df.won.mean():.1%}\n")

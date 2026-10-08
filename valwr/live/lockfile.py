@@ -75,7 +75,13 @@ def read(path: pathlib.Path | None = None) -> Lock:
     if not path.exists():
         raise ClientNotRunning(
             f"no lockfile at {path} -- the Riot Client is not running")
-    parts = path.read_text(encoding="utf-8").strip().split(":")
+    try:
+        parts = path.read_text(encoding="utf-8").strip().split(":")
+    except OSError as e:
+        # The client rewriting it as it starts or stops. Every caller already
+        # treats "not running" as "look again shortly", which is right here;
+        # an exception of any other kind crashed the crawler's pause check.
+        raise ClientNotRunning(f"lockfile at {path} unreadable ({e})") from e
     if len(parts) != 5:
         raise ClientNotRunning(
             f"lockfile has {len(parts)} fields, expected 5 "

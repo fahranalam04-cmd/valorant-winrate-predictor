@@ -104,22 +104,33 @@ def check_layout(browser, url: str) -> list[str]:
         page = browser.new_page(viewport={"width": width, "height": 1000}, **CSP)
         page.goto(url + "?clean")
         settle(page)
+        # The line under the name may trail off -- the reason at its end is
+        # also on the card -- but never through the tags before it: the
+        # agent, a run this session, the rank. This once checked classes the
+        # row no longer had, and so could not fail.
         got = page.evaluate("""() => {
           const clipped = e => e.scrollWidth > e.clientWidth + 1;
           const names = [...document.querySelectorAll('button.row .nm')];
-          const rest = [...document.querySelectorAll(
-              'button.row .why, button.row .rsn, button.row .sub')];
+          const cut = [...document.querySelectorAll(
+              'button.row .rs .ag, button.row .rs .run, button.row .rs .rank')]
+            .filter(t => t.getBoundingClientRect().right
+                         > t.closest('.rs').getBoundingClientRect().right + 1);
           return {narrowest: Math.min(...names.map(e => e.clientWidth)),
                   names: names.filter(clipped).length,
-                  rest: rest.filter(clipped).length};
+                  tags: cut.length,
+                  checked: document.querySelectorAll('button.row .rs .ag').length};
         }""")
         if got["narrowest"] < MIN_NAME_PX:
             problems.append(f"{width}px: a name column is "
                             f"{got['narrowest']}px wide")
         if got["names"]:
             problems.append(f"{width}px: {got['names']} gamertag(s) clipped")
-        if got["rest"]:
-            problems.append(f"{width}px: {got['rest']} reason line(s) clipped")
+        if not got["checked"]:
+            problems.append(f"{width}px: no row tags found to check -- the "
+                            f"markup has moved and this check with it")
+        if got["tags"]:
+            problems.append(f"{width}px: {got['tags']} agent, run or rank "
+                            f"tag(s) cut off")
         page.close()
     return problems
 

@@ -43,4 +43,9 @@ def pytest_configure(config):
 
 
 def pytest_unconfigure(config):
+    # A test that failed can leave a SQLite connection reachable only from
+    # its traceback, and Windows will not delete a file that is open. Closed
+    # by collecting them first, or a failing run left its sandbox behind.
+    import gc
+    gc.collect()
     shutil.rmtree(_SANDBOX, ignore_errors=True)

@@ -383,9 +383,12 @@ def test_the_scorecard_refuses_to_read_anything_into_two_matches(conn):
 
 
 def test_the_verdict_wording_matches_the_page():
-    assert review.verdict(0.5) == "too close to call"
-    assert review.verdict(0.56) == "your side favoured"
-    assert review.verdict(0.30) == "the enemy clearly favoured"
+    """A lean, as the page says it -- "favoured" claimed more than a model
+    right 54% of the time can, and the scorecard kept saying it."""
+    assert review.verdict(0.5) == "coin flip"
+    assert review.verdict(0.53) == "slight lean your way"
+    assert review.verdict(0.56) == "leans your way"
+    assert review.verdict(0.30) == "leans their way"
     assert review.verdict(None) == "no prediction"
 
 
@@ -686,6 +689,32 @@ def test_scores_that_arrive_after_settling_re_judge_the_verdict(conn, monkeypatc
     client_scores._NO_ANSWER.clear()
     assert client_scores.collect(conn, object())["stored"] == 1
     assert hit() == 1, "by the game's own score b0 played best"
+
+
+def test_the_scorecard_says_which_measure_judged_its_top_picks(conn):
+    """One figure over every match, each judged on the measure it had -- and
+    the split said, rather than two measures averaged in silence."""
+    second = _leakage().make_match("m2", "2026-08-02T00:00:00Z", winner="Blue")
+    outcomes.record(conn, state(match_id="m1"), now=1000)
+    outcomes.record(conn, state(match_id="m2"), now=1100)
+    outcomes.settle(conn, FakeAPI(finished(best="b3")), "na", "m1", now=2000)
+    outcomes.settle(conn, FakeAPI(second), "na", "m2", now=2100)
+    _performance(conn, {p: 300.0 for p in _everyone(conn)})
+    card = review.scorecard(conn)
+    assert card["top_pick"]["judged_by"] == {
+        outcomes.PERFORMANCE_SCORE: 1, outcomes.MATCH_IMPACT: 1}
+
+
+def test_the_split_is_only_mentioned_when_there_is_one(conn):
+    card = {"competitive": {"n": 12, "se": 0.14, "accuracy": 0.5,
+                            "actual": 0.5, "predicted": 0.5}, "top_pick": {
+        "n": 12, "hits": 4, "rate": 1 / 3, "se": 0.13, "chance": 0.2,
+        "judged_by": {"performance score": 5, "match impact": 7}},
+        "by_coverage": [], "everything": {"n": 0}}
+    said = " ".join(review.insights(card))
+    assert "Performance Score in 5" in said and "match impact in 7" in said
+    card["top_pick"]["judged_by"] = {"match impact": 12}
+    assert "Performance Score in" not in " ".join(review.insights(card))
 
 
 def test_the_after_game_page_says_which_measure_ranked_the_lobby(conn):

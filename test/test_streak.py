@@ -218,6 +218,163 @@ def test_the_live_poll_asks_again_for_a_teammate_a_game_behind(
     assert ("rival", 0) not in client.calls
 
 
+def test_a_known_teammate_being_refreshed_is_not_being_looked_up(tmp_path):
+    """Their card is full. The team bar used to say "looking up" for them."""
+    conn, match = _lobby(tmp_path)
+    out = R.resolve(conn, match, "me", NOW, client=_Recorder(),
+                    deadline_seconds=0, teammates_first=True,
+                    refresh_last=["behind"])
+    assert ("behind", 0) in out.remaining
+    assert out.pending == {"stranger"}
+
+
+def test_a_refused_refresh_is_not_an_answer(tmp_path):
+    from valwr.collect.client import HenrikError
+
+    class Refuses(_Recorder):
+        def matches(self, region, platform, puuid, size, mode, start=0):
+            if puuid == "behind":
+                raise HenrikError("404")
+            return super().matches(region, platform, puuid, size, mode, start)
+    conn, match = _lobby(tmp_path)
+    out = R.resolve(conn, match, "me", NOW, client=Refuses(),
+                    deadline_seconds=30, refresh_last=["behind"])
+    assert ("behind", 0) in out.completed, "not asked again"
+    assert ("behind", 0) in out.failed, "but it told us nothing"
+
+
+def _poll(tmp_path, monkeypatch, client, clock, match=None):
+    """poll_once on a real store, with scoring stubbed and the clock set."""
+    import types
+
+    from valwr.live import predict as P
+    from valwr.live import state as st
+    if match is None:
+        conn, match = _lobby(tmp_path, "coregame")
+    else:
+        conn = match[0]
+        match = match[1]
+    monkeypatch.setattr(st, "current_match", lambda ctx: match)
+    monkeypatch.setattr(st, "display_map", lambda conn, m: m)
+    monkeypatch.setattr(st, "parties", lambda *a, **k: [])
+    monkeypatch.setattr(P, "predict", lambda *a, **k: None)
+    monkeypatch.setattr(st.time, "time", lambda: clock[0])
+    ctx = st.LiveContext(conn=conn, bundle={"best": "lr"}, index=None,
+                         session=types.SimpleNamespace(puuid="me"),
+                         client=client, deadline=30,
+                         settings=types.SimpleNamespace(region="na",
+                                                        platform="pc"))
+    return ctx, conn, match
+
+
+def test_a_record_complete_when_the_match_began_stays_complete_during_it(
+        tmp_path, monkeypatch):
+    """Judged from each poll's clock, a teammate whose last game began 50
+    minutes before the match looked a game behind six minutes in: the badge
+    vanished and a lookup was spent mid-match on a game nobody could have
+    played -- they were in this one."""
+    from valwr.live import state as st
+    # Twenty stored, so nothing about their depth asks for a fetch either.
+    conn = store(tmp_path, [(50 + 45 * k, 0 if k < 3 else 1) for k in range(20)],
+                 puuid="ally")
+    match = LiveMatch("live", "coregame", "Ascent", "BombGameMode", [
+        LivePlayer("me", "Blue", "x", None), LivePlayer("ally", "Blue", "x", None)])
+    clock = [NOW]
+    client = _Recorder()
+    ctx, _, _ = _poll(tmp_path, monkeypatch, client, clock, (conn, match))
+    badge = lambda s: next(p["streak"] for p in s["players"]          # noqa: E731
+                           if p["puuid"] == "ally")
+    assert badge(st.poll_once(ctx)) == {"result": "lost", "count": 3}
+    clock[0] = NOW + 30 * MIN
+    assert badge(st.poll_once(ctx)) == {"result": "lost", "count": 3}
+    assert ("ally", 0) not in client.calls
+
+
+def test_no_badge_from_a_record_whose_refresh_was_refused(tmp_path,
+                                                          monkeypatch):
+    """Their newest stored game began 80 minutes before the match: they may
+    have played one since. The refresh that would say was refused, so the
+    stored run of losses may be out of date, and is not shown."""
+    from valwr.collect.client import HenrikError
+    from valwr.live import state as st
+
+    class Refuses(_Recorder):
+        def matches(self, region, platform, puuid, size, mode, start=0):
+            super().matches(region, platform, puuid, size, mode, start)
+            raise HenrikError("404")
+    conn = store(tmp_path, [(80 + 45 * k, 0 if k < 3 else 1) for k in range(20)],
+                 puuid="ally")
+    match = LiveMatch("live", "pregame", "Ascent", "BombGameMode", [
+        LivePlayer("me", "Blue", "x", None), LivePlayer("ally", "Blue", "x", None)])
+    monkeypatch.setattr(st.picks, "your_picks", lambda *a, **k: None)
+    client = Refuses()
+    ctx, _, _ = _poll(tmp_path, monkeypatch, client, [NOW], (conn, match))
+    got = st.poll_once(ctx)
+    assert ("ally", 0) in client.calls, "the refresh was asked for"
+    assert next(p["streak"] for p in got["players"]
+                if p["puuid"] == "ally") is None
+
+
+def test_a_new_match_starts_the_clock_again(tmp_path, monkeypatch):
+    from valwr.live import state as st
+    clock = [NOW]
+    ctx, conn, match = _poll(tmp_path, monkeypatch, _Recorder(), clock)
+    st.poll_once(ctx)
+    assert ctx.work_since == NOW
+    clock[0] = NOW + 45 * MIN
+    st.poll_once(ctx)
+    assert ctx.work_since == NOW, "the same match keeps its start"
+    import dataclasses
+    later = dataclasses.replace(match, match_id="next")
+    monkeypatch.setattr(st, "current_match", lambda ctx: later)
+    st.poll_once(ctx)
+    assert ctx.work_since == NOW + 45 * MIN and ctx.work_failed == set()
+
+
+def test_your_picks_are_built_once_a_match(tmp_path, monkeypatch):
+    """They read your whole history; agent select repaints every second or
+    two. A refresh of your own games is the one thing that changes them."""
+    from valwr.live import state as st
+    conn, match = _lobby(tmp_path)
+    clock = [NOW]
+    ctx, _, _ = _poll(tmp_path, monkeypatch, _Recorder(), clock, (conn, match))
+    built = []
+    monkeypatch.setattr(st.picks, "your_picks",
+                        lambda *a, **k: built.append(1) or {"agents": []})
+    for _ in range(3):
+        st.poll_once(ctx)
+    assert len(built) == 1
+    conn.execute("INSERT INTO match_players (match_id, puuid, team, agent, "
+                 "started_at, map, won, rounds_played) VALUES "
+                 "('me0', 'me', 'Blue', 'Jett', ?, 'Ascent', 1, 20) "
+                 "ON CONFLICT DO UPDATE SET started_at = excluded.started_at",
+                 (NOW - 5 * MIN,))
+    st.poll_once(ctx)
+    assert len(built) == 2, "your own newest game moved"
+
+
+def test_an_agent_newer_than_the_model_still_has_a_role(tmp_path):
+    """Locked on an agent the model's role map predates, a teammate filled no
+    role at all, and the strip called theirs open."""
+    import types
+
+    from valwr.live import state as st
+    conn = store(tmp_path, [(30, 1)], puuid="ally")
+    conn.execute("INSERT INTO ref_agents (uuid, name, role) VALUES "
+                 "('u-new', 'Newcomer', 'Sentinel')")
+    conn.commit()
+    match = LiveMatch("live", "pregame", "Ascent", "BombGameMode", [
+        LivePlayer("me", "Blue", "x", None),
+        LivePlayer("ally", "Blue", "u-new", "Newcomer", "locked")])
+    ctx = types.SimpleNamespace(conn=conn, bundle={"roles": {"Jett": "Duelist"}},
+                                index=None, role_index=None,
+                                session=types.SimpleNamespace(puuid="me"))
+    rows = {r["puuid"]: r for r in st._player_rows(ctx, match, NOW)}
+    assert rows["ally"]["role"] == "Sentinel"
+    assert st.display_roles(conn, {"Newcomer": "Duelist"})["Newcomer"] == \
+        "Duelist", "the model's own map wins where it has the agent"
+
+
 # --- on the page's state ---------------------------------------------------
 
 def test_only_your_own_team_carries_a_streak(tmp_path, monkeypatch):

@@ -119,6 +119,50 @@ def test_a_copy_that_fails_its_check_is_not_kept_and_costs_no_older_one(
     _only_finished_copies(tmp_path / "full")
 
 
+@pytest.mark.parametrize("kind", ["full", "slim"])
+def test_whatever_fails_the_partial_copy_is_removed(source, tmp_path, stamps,
+                                                    monkeypatch, kind):
+    """Each run has a new name and pruning sees only finished copies, so a
+    copy that failed after the check -- OneDrive holding the file during the
+    rename, say -- was a file left for good."""
+    full = B.full_backup(source, tmp_path / "full") if kind == "slim" else None
+
+    def locked(*a, **k):
+        raise PermissionError("the file is in use")
+    monkeypatch.setattr(B, "_finish", locked)
+    with pytest.raises(PermissionError):
+        if kind == "full":
+            B.full_backup(source, tmp_path / "full")
+        else:
+            B.slim_backup(full, tmp_path / "slim")
+    _only_finished_copies(tmp_path / kind)
+
+
+def test_the_slim_copy_checks_for_space_too(source, tmp_path, stamps,
+                                             monkeypatch):
+    full = B.full_backup(source, tmp_path / "full")
+    monkeypatch.setattr(B.shutil, "disk_usage",
+                        lambda p: type("U", (), {"free": 1024})())
+    with pytest.raises(B.BackupError, match="not enough space"):
+        B.slim_backup(full, tmp_path / "slim")
+    assert not list((tmp_path / "slim").glob("*"))
+
+
+def test_a_path_sqlite_would_misread_still_opens_the_right_file(tmp_path):
+    # Both legal in a Windows file name, and both read as URI syntax.
+    odd = tmp_path / "100% #1.db"
+    conn = sqlite3.connect(odd)
+    conn.execute("CREATE TABLE t (x)")
+    conn.execute("INSERT INTO t VALUES (7)")
+    conn.commit()
+    conn.close()
+    ro = sqlite3.connect(schema.uri(odd), uri=True)
+    try:
+        assert ro.execute("SELECT x FROM t").fetchone() == (7,)
+    finally:
+        ro.close()
+
+
 def test_a_missing_database_asks_whether_the_drive_is_connected(tmp_path):
     with pytest.raises(B.BackupError, match="drive connected"):
         B.full_backup(tmp_path / "unplugged" / "valwr.db", tmp_path / "full")

@@ -102,20 +102,16 @@ def _se(p: float, n: int) -> float:
 
 
 def verdict(p: float | None) -> str:
-    """The same wording the page uses, so the review reads like the page."""
+    """The same wording the page uses (index.html `verdict`), so the review
+    reads like the page: a lean, never "favoured", which claimed more than a
+    model right 54% of the time can."""
     if p is None:
         return "no prediction"
     edge = abs(p - 0.5)
-    side = "your side" if p > 0.5 else "the enemy"
-    if edge < 0.015:
-        return "too close to call"
-    if edge < 0.05:
-        return f"{side} marginally ahead"
-    if edge < 0.12:
-        return f"{side} favoured"
-    if edge < 0.25:
-        return f"{side} clearly favoured"
-    return f"{side} heavily favoured"
+    if edge < 0.02:
+        return "coin flip"
+    way = "your way" if p > 0.5 else "their way"
+    return f"slight lean {way}" if edge < 0.05 else f"leans {way}"
 
 
 def recent(conn: sqlite3.Connection, limit: int = 6) -> list[dict]:
@@ -174,12 +170,12 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
     # Score where the client gave it, match impact otherwise.
     from valwr.live import client_scores
     from valwr.live.outcomes import played_best_values
-    values, best_by = played_best_values(conn, match_id)
+    performance = client_scores.scores_for(conn, match_id)
+    values, best_by = played_best_values(conn, match_id, performance)
     actual_rank = {
         puuid: i + 1
         for i, puuid in enumerate(sorted(values, key=values.get, reverse=True))
     }
-    performance = client_scores.scores_for(conn, match_id)
     actual_adr, actual_acs = {}, {}
     for puuid, r in played.items():
         rounds = r["rounds_played"] or 0
@@ -358,6 +354,14 @@ def scorecard(conn: sqlite3.Connection, limit: int = 50) -> dict:
 
     picks = [r for r in standard if r["top_pick_hit"] is not None]
     hits = sum(r["top_pick_hit"] for r in picks)
+    # Each verdict is judged on the measure its match had: the game's own
+    # Performance Score where the client gave it, match impact otherwise. One
+    # figure, with the split said, rather than two each resting on less.
+    from valwr.live.outcomes import played_best_values
+    judged_by: dict[str, int] = {}
+    for r in picks:
+        basis = played_best_values(conn, r["match_id"])[1]
+        judged_by[basis] = judged_by.get(basis, 0) + 1
     out = {
         "recorded": len(rows),
         "settled": len(settled),
@@ -372,6 +376,7 @@ def scorecard(conn: sqlite3.Connection, limit: int = 50) -> dict:
             "rate": hits / len(picks) if picks else None,
             "se": _se(hits / len(picks), len(picks)) if picks else None,
             "chance": TOP_PICK_CHANCE,
+            "judged_by": judged_by,
         },
         "by_map": _bucket(standard, lambda r: r["map"] or "?"),
         "by_mode": _bucket(settled, lambda r: r["mode"] or "?"),
@@ -480,6 +485,13 @@ def insights(card: dict) -> list[str]:
                        f"{pick['rate'] * 100:.0f}% of the time; against 20% by "
                        f"chance that is not yet outside noise on "
                        f"{pick['n']} matches.")
+        by = pick.get("judged_by") or {}
+        if len(by) > 1:
+            out.append(f"\"Best teammate\" is judged on the game's own "
+                       f"Performance Score in {by.get('performance score', 0)} "
+                       f"of those and on match impact in "
+                       f"{by.get('match impact', 0)} -- whichever each match "
+                       f"had.")
 
     worst = [b for b in card["by_coverage"] if b["n"] >= 5]
     if len(worst) >= 2:

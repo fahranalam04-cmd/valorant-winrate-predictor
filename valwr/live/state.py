@@ -58,6 +58,14 @@ class LiveContext:
     # seconds and must not repeat them; see resolve.Resolution.completed.
     work_match: str | None = None
     work_done: set = field(default_factory=set)
+    work_failed: set = field(default_factory=set)
+    # When this match was first seen. The streak badge is judged from here,
+    # not from each poll: nobody in this match can have played another game
+    # since it began, and measuring from "now" made a teammate's complete
+    # record look a game behind six minutes into the match.
+    work_since: int = 0
+    # Per-match results that do not change within it (see _assemble).
+    cache: dict = field(default_factory=dict)
 
     @property
     def model_name(self) -> str:
@@ -230,14 +238,21 @@ def parties(conn, match, as_of: int, exact: dict | None = None) -> list[dict]:
 
 
 def _player_rows(ctx: LiveContext, match, as_of: int,
-                 fetched: set = frozenset()) -> list[dict]:
+                 fetched: set = frozenset(),
+                 since: int | None = None) -> list[dict]:
     """Every player in the lobby, scored where we can and honest where we cannot.
 
-    `fetched` holds the lookups that have answered during this match.
+    `fetched` holds the lookups that have answered during this match, and
+    `since` is when the match was first seen.
     """
     names = gamertags(ctx.conn, [p.puuid for p in match.players])
     roles = ctx.bundle.get("roles") or {}
+    # For what the page shows -- a role tag, the team's strip, likely roles --
+    # an agent released since the model was trained still has a role.
+    # Scoring keeps the model's own map.
+    shown = display_roles(ctx.conn, roles)
     own_team = match.team_of(ctx.session.puuid)
+    since = since or as_of
     rows = []
     for p in match.players:
         entry = {
@@ -249,13 +264,13 @@ def _player_rows(ctx: LiveContext, match, as_of: int,
             # page addresses the bundled artwork directly. None during agent
             # select, before a pick is locked.
             "agent_id": p.agent_id,
-            "role": roles.get(p.agent),
+            "role": shown.get(p.agent),
             "team": p.team,
             "is_you": p.puuid == ctx.session.puuid,
             # Agent select: locked, hovering, or neither -- and for anyone who
             # has not locked, the role their last twenty games point to.
             "selection": p.selection,
-            "likely": (comp.likely_role(ctx.conn, p.puuid, as_of, roles)
+            "likely": (comp.likely_role(ctx.conn, p.puuid, as_of, shown)
                        if match.phase == "pregame"
                        and (not p.agent_id or p.selection == "selected")
                        else None),
@@ -269,7 +284,7 @@ def _player_rows(ctx: LiveContext, match, as_of: int,
             "career": None, "recent": None,
             # Three or more the same this session, for your own team only.
             # See live/streak.py for why a badge and nothing more.
-            "streak": (streak.current(ctx.conn, p.puuid, as_of,
+            "streak": (streak.current(ctx.conn, p.puuid, since,
                                       fetched=(p.puuid, 0) in fetched)
                        if own_team and p.team == own_team else None),
         }
@@ -361,7 +376,8 @@ def poll_once(ctx: LiveContext, on_progress=None) -> dict | None:
 
     as_of = int(time.time())
     if ctx.work_match != match.match_id:
-        ctx.work_match, ctx.work_done = match.match_id, set()
+        ctx.work_match, ctx.work_since = match.match_id, as_of
+        ctx.work_done, ctx.work_failed, ctx.cache = set(), set(), {}
 
     def progress(res):
         # With nothing left to fetch, the final state is built the moment
@@ -388,9 +404,38 @@ def poll_once(ctx: LiveContext, on_progress=None) -> dict | None:
                                p.puuid for p in match.players
                                if own_team and p.team == own_team
                                and streak.may_be_missing_a_game(
-                                   ctx.conn, p.puuid, as_of)])
+                                   ctx.conn, p.puuid, ctx.work_since)])
     ctx.work_done |= resolution.completed
+    ctx.work_failed |= resolution.failed
     return _assemble(ctx, match, resolution, as_of)
+
+
+def display_roles(conn, roles: dict[str, str]) -> dict[str, str]:
+    """The model's agent-to-role map, filled in from ref_agents for agents
+    released since it was trained -- a teammate on a new agent otherwise
+    left their role marked open."""
+    try:
+        ref = {r[0]: r[1] for r in conn.execute(
+            "SELECT name, role FROM ref_agents WHERE role IS NOT NULL")}
+    except Exception:                               # noqa: BLE001
+        ref = {}
+    return {**ref, **roles}
+
+
+def _your_picks(ctx: LiveContext, match, as_of: int) -> dict | None:
+    """Your picks, built once per match. They read your whole history, and
+    agent select repaints every second or two; only a refresh of your own
+    games can change them, so that is part of the key."""
+    me = ctx.session.puuid
+    key = (match.match_id, match.map_name, R.newest_match(ctx.conn, me, as_of))
+    cache = ctx.cache
+    held = cache.get("your_picks")
+    if held is None or held[0] != key:
+        held = (key, picks.your_picks(
+            ctx.conn, me, as_of, match.map_name, ctx.bundle.get("norms"),
+            display_roles(ctx.conn, ctx.bundle.get("roles") or {})))
+        cache["your_picks"] = held
+    return held[1]
 
 
 def _assemble(ctx: LiveContext, match, resolution, as_of: int) -> dict:
@@ -417,18 +462,18 @@ def _assemble(ctx: LiveContext, match, resolution, as_of: int) -> dict:
         "model": ctx.model_name,
         "warnings": _warnings(match, ctx.session.puuid),
         "parties": parties(ctx.conn, match, as_of),
-        "players": _player_rows(ctx, match, as_of,
-                                fetched=ctx.work_done | resolution.completed),
+        "players": _player_rows(
+            ctx, match, as_of, since=ctx.work_since or as_of,
+            fetched=((ctx.work_done | resolution.completed)
+                     - (ctx.work_failed | resolution.failed))),
         # Who is still being looked up. A player with no card data is either
         # still coming or has no competitive history at all, and the page has
         # to know which before it tells you something about them.
         "lookup": {"pending": sorted(resolution.pending),
                    "remaining": len(resolution.remaining)},
         # Agent select is where you pick, so it is the only phase that asks.
-        "your_picks": (picks.your_picks(
-            ctx.conn, ctx.session.puuid, as_of, match.map_name,
-            ctx.bundle.get("norms"), ctx.bundle.get("roles") or {})
-            if match.phase == "pregame" else None),
+        "your_picks": (_your_picks(ctx, match, as_of)
+                       if match.phase == "pregame" else None),
         "prediction": None,
     }
     if prediction is not None:
