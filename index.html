@@ -161,6 +161,9 @@ body{
 .oddsbar .atk{background:var(--atk)}
 .oddsbar .def{background:var(--def);justify-content:flex-end}
 .verdict{margin-top:8px;color:var(--bone-dim);font-size:12.5px}
+.verdict b{text-transform:uppercase;letter-spacing:.06em}
+.callrec{margin-top:5px;color:var(--bone-dim);font-size:12px;line-height:1.45;
+  max-width:62em}
 .verdict b{color:var(--bone)}
 
 .warn{margin-top:11px;padding:9px 13px;background:rgba(231,194,125,.07);
@@ -235,6 +238,12 @@ body{
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rs .ag{color:var(--slate)}
 .alert{color:var(--gold);margin-left:6px}
+/* A run this session. In words, so it does not lean on telling two hues apart,
+   and outlined like the rank tag so it sits in every theme. */
+.run{display:inline-block;margin-left:7px;padding:0 5px;
+  font:700 9.5px/15px var(--display);letter-spacing:.06em;vertical-align:1px;
+  border:1px solid currentColor;white-space:nowrap}
+.run.lost{color:var(--val)} .run.won{color:var(--win)}
 
 /* Rank sits with the agent name, not in its own column -- the row already
    carries four numbers and a fifth would not survive a phone. */
@@ -367,6 +376,41 @@ table.pstats td.mute,.pstats .mute{color:var(--ghost)}
    on in agent select, so it takes the colour of the card still loading. */
 .pregame .tcount{color:var(--bone-dim);text-shadow:0 1px 4px rgba(0,0,0,.9)}
 .pregame .tcount .pend{color:var(--gold);font-weight:700}
+/* The team's roles so far: who has locked, who is hovering, and what the
+   undecided are likely to play. An empty role is what agent select is for. */
+.comp{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;
+  margin:0 0 7px}
+.comp .slot{background:var(--sunk);padding:6px 10px 7px;min-width:0;
+  border-top:2px solid var(--line-soft)}
+.comp .slot b{display:block;font:700 9px/1 var(--display);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--slate);margin-bottom:4px}
+.comp .slot span{display:block;font-size:12px;line-height:1.35;color:var(--bone-dim);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.comp .slot .lik{color:var(--slate);font-style:italic}
+.comp .slot.open{border-top-color:var(--gold)}
+.comp .slot.open b,.comp .slot.open span{color:var(--gold)}
+.rs .hov{color:var(--gold);font-size:10.5px;margin-left:4px}
+.rs .lik{color:var(--slate);font-style:italic}
+.picks .fill{display:inline-block;margin-left:6px;padding:0 5px;
+  font:700 8.5px/15px var(--display);letter-spacing:.12em;text-transform:uppercase;
+  color:var(--void);background:var(--gold)}
+/* Your picks: the empty panel in agent select, put to the question it is
+   there for. Agents played once or twice sit under a divider, readable --
+   fewer games is a reason to read with care, not to hide them. */
+.picks .ptitle{font:700 19px/1 var(--display);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--gold);padding:18px 20px 0}
+.picks .ptitle span{color:var(--slate);font-size:11px;letter-spacing:.18em}
+.picks .pnote{color:var(--slate);font-size:12px;line-height:1.5;padding:8px 20px 4px}
+.picks table.pstats{width:calc(100% - 40px);margin:6px 20px 0}
+.picks td b{font-weight:600;color:var(--bone)}
+.picks td .role{font-size:10.5px;color:var(--ghost);margin-left:6px}
+.picks td.up{color:var(--win)}
+.picks td.dn{color:var(--val)}
+.picks td.mute{color:var(--bone-dim)}
+.picks tr.split td{font:600 9px/1 var(--display);letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ghost);padding:12px 0 4px;border-top:0}
+.picks td .n{color:var(--ghost);font-size:11px}
+.picks .hint{padding:14px 20px 18px;text-align:left;font-size:11.5px}
 .pcard{position:relative;display:grid;
   grid-template-columns:62px minmax(0,1fr) auto;
   grid-template-areas:"score who stats" "score info info";
@@ -392,12 +436,12 @@ table.pstats td.mute,.pstats .mute{color:var(--ghost)}
 .cwho{grid-area:who;position:relative;min-width:0}
 /* Fixed columns, so K/D on one card sits directly above K/D on the next. */
 .cstats{grid-area:stats;position:relative;display:grid;
-  grid-template-columns:124px repeat(4,54px);gap:10px}
+  grid-template-columns:124px repeat(4,50px);gap:8px}
 .cstats .st{text-align:left}
 .cinfo{grid-area:info;position:relative;min-width:0;display:grid;
   grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:18px}
 /* In place of the numbers, at the numbers' width, so the column holds. */
-.cmsg{grid-area:stats;position:relative;width:380px;white-space:normal}
+.cmsg{grid-area:stats;position:relative;width:356px;white-space:normal}
 .cline{font-size:12.5px;line-height:1.5;color:var(--bone-dim);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cline .ck{display:inline-block;min-width:70px;font:600 9px/1 var(--display);
@@ -582,9 +626,15 @@ body.demo-clean .demo-bar,body.demo-clean .demo-room{display:none}
 <script>
 (function(){
 "use strict";
-const BASE = {"match_id": "demo", "phase": "coregame", "is_custom": false, "standard_mode": true, "map": "Ascent", "mode": "BombGameMode", "as_of": 0, "own_team": "Blue", "enemy_team": "Red", "team_sizes": {"Blue": 5, "Red": 5}, "coverage": 8, "confidence": "medium", "fetched": 0, "model": "logistic regression", "parties": [{"members": ["demo-00", "demo-01"], "team": "Blue", "size": 2, "label": "duo", "source": "inferred"}, {"members": ["demo-05", "demo-06", "demo-08"], "team": "Red", "size": 3, "label": "trio", "source": "inferred"}], "warnings": ["Demo data. These players are invented and no database, game client or network was touched to build this."], "players": [{"puuid": "demo-05", "name": "Yarrow#na2", "known_name": true, "agent": "Reyna", "agent_id": "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc", "role": "Duelist", "team": "Red", "is_you": false, "score": 91, "flag": {"note": "Finishes top-2 in 71% of their lobbies, against 20% by chance. Well above what this rank explains."}, "career": {"games": 74, "wins": 53, "losses": 21, "kills": 1249, "deaths": 812, "assists": 261, "acs": 288.7, "adr": 191.1, "kd": 1.54, "headshot_rate": 0.334, "win_rate": 0.71}, "rank": {"tier": 20, "name": "Diamond 3", "short": "D3", "division": "Diamond", "ranked": true}, "recent": {"games": 20, "wins": 15, "losses": 5, "kills": 337, "deaths": 219, "assists": 70, "acs": 300.2, "adr": 198.7, "kd": 1.63, "headshot_rate": 0.3407, "win_rate": 0.7668}, "reason": "wins duels", "raw": 1.547, "detail": {"score": 91, "raw": 1.547, "reason": "wins duels", "components": [{"key": "adr", "label": "damage per round", "value": 190.5, "z": 1.44, "weight": 0.266, "contribution": 0.383, "note": "well above average"}, {"key": "kd", "label": "kills per death", "value": 1.54, "z": 1.23, "weight": 0.2185, "contribution": 0.269, "note": "well above average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.96, "weight": 0.1425, "contribution": 0.137, "note": "above average"}, {"key": "trades", "label": "trades", "value": null, "z": 1.37, "weight": 0.1045, "contribution": 0.143, "note": "well above average"}, {"key": "fb", "label": "opening kills", "value": 0.11, "z": 1.09, "weight": 0.095, "contribution": 0.104, "note": "well above average"}, {"key": "hs", "label": "headshot rate", "value": 0.334, "z": 1.37, "weight": 0.057, "contribution": 0.078, "note": "well above average"}, {"key": "map_edge", "label": "map adjustment", "value": 5.77, "z": 0.48, "weight": 0.05, "contribution": 0.024, "note": "above average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.61, "weight": 0.0285, "contribution": 0.017, "note": "above average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 1.37, "weight": 0.0285, "contribution": 0.039, "note": "well above average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 1.37, "weight": 0.0095, "contribution": 0.013, "note": "well above average"}], "career": {"games": 74, "wins": 53, "losses": 21, "kills": 1249, "deaths": 812, "assists": 261, "acs": 288.7, "adr": 191.1, "kd": 1.54, "headshot_rate": 0.334, "win_rate": 0.71}, "recent": {"games": 20, "wins": 15, "losses": 5, "kills": 337, "deaths": 219, "assists": 70, "acs": 300.2, "adr": 198.7, "kd": 1.63, "headshot_rate": 0.3407, "win_rate": 0.7668}, "recent_window": 20, "map": {"games": 9, "wins": 6, "losses": 3, "kills": 151, "deaths": 98, "assists": 31, "acs": 277.2, "adr": 183.5, "kd": 1.46, "headshot_rate": 0.324, "win_rate": 0.6958, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Reyna", "games": 7}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Split", "agent": "Reyna", "acs": 389.7, "adr": 258.0, "kills": 29, "deaths": 12, "assists": 4, "headshot_rate": 0.33, "rounds_won": 13, "rounds_lost": 5, "won": true, "ago": "1 hour ago"}, {"map": "Lotus", "agent": "Omen", "acs": 236.7, "adr": 156.7, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Reyna", "acs": 294.5, "adr": 194.9, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 74, "seconds_old": 3600, "label": "last match 1 hour ago", "stale": false}}}, {"puuid": "demo-00", "name": "Meridian#na1", "known_name": true, "agent": "Jett", "agent_id": "add6443a-41bd-e414-f6ad-e58d267f4e95", "role": "Duelist", "team": "Blue", "is_you": true, "score": 82, "flag": null, "career": {"games": 412, "wins": 227, "losses": 185, "kills": 6103, "deaths": 4980, "assists": 1844, "acs": 251.4, "adr": 166.4, "kd": 1.23, "headshot_rate": 0.281, "win_rate": 0.55}, "rank": {"tier": 18, "name": "Diamond 1", "short": "D1", "division": "Diamond", "ranked": true}, "recent": {"games": 20, "wins": 12, "losses": 8, "kills": 296, "deaths": 241, "assists": 89, "acs": 261.5, "adr": 173.1, "kd": 1.3, "headshot_rate": 0.2866, "win_rate": 0.594}, "reason": "consistently strong", "raw": 1.247, "detail": {"score": 82, "raw": 1.247, "reason": "consistently strong", "components": [{"key": "adr", "label": "damage per round", "value": 165.9, "z": 1.12, "weight": 0.266, "contribution": 0.298, "note": "well above average"}, {"key": "kd", "label": "kills per death", "value": 1.23, "z": 0.96, "weight": 0.2185, "contribution": 0.21, "note": "above average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.75, "weight": 0.1425, "contribution": 0.107, "note": "above average"}, {"key": "trades", "label": "trades", "value": null, "z": 1.07, "weight": 0.1045, "contribution": 0.112, "note": "well above average"}, {"key": "fb", "label": "opening kills", "value": 0.11, "z": 0.85, "weight": 0.095, "contribution": 0.081, "note": "above average"}, {"key": "hs", "label": "headshot rate", "value": 0.281, "z": 1.07, "weight": 0.057, "contribution": 0.061, "note": "well above average"}, {"key": "map_edge", "label": "map adjustment", "value": 5.03, "z": 0.37, "weight": 0.05, "contribution": 0.018, "note": "above average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.48, "weight": 0.0285, "contribution": 0.014, "note": "above average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 1.07, "weight": 0.0285, "contribution": 0.03, "note": "well above average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 1.07, "weight": 0.0095, "contribution": 0.01, "note": "well above average"}], "career": {"games": 412, "wins": 227, "losses": 185, "kills": 6103, "deaths": 4980, "assists": 1844, "acs": 251.4, "adr": 166.4, "kd": 1.23, "headshot_rate": 0.281, "win_rate": 0.55}, "recent": {"games": 20, "wins": 12, "losses": 8, "kills": 296, "deaths": 241, "assists": 89, "acs": 261.5, "adr": 173.1, "kd": 1.3, "headshot_rate": 0.2866, "win_rate": 0.594}, "recent_window": 20, "map": {"games": 34, "wins": 18, "losses": 16, "kills": 503, "deaths": 410, "assists": 152, "acs": 241.3, "adr": 159.7, "kd": 1.17, "headshot_rate": 0.2726, "win_rate": 0.539, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Jett", "games": 32}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Ascent", "agent": "Jett", "acs": 289.1, "adr": 191.4, "kills": 21, "deaths": 14, "assists": 3, "headshot_rate": 0.27, "rounds_won": 13, "rounds_lost": 9, "won": true, "ago": "2 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 206.1, "adr": 136.5, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Jett", "acs": 256.4, "adr": 169.8, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 412, "seconds_old": 7200, "label": "last match 2 hours ago", "stale": false}}}, {"puuid": "demo-01", "name": "halcyon#0000", "known_name": true, "agent": "Omen", "agent_id": "8e253930-4c05-31dd-1b6c-968525494517", "role": "Controller", "team": "Blue", "is_you": false, "score": 67, "flag": null, "career": {"games": 188, "wins": 96, "losses": 92, "kills": 2610, "deaths": 2430, "assists": 998, "acs": 224.8, "adr": 148.8, "kd": 1.07, "headshot_rate": 0.243, "win_rate": 0.51}, "rank": {"tier": 16, "name": "Platinum 2", "short": "P2", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 277, "deaths": 258, "assists": 106, "acs": 233.8, "adr": 154.8, "kd": 1.13, "headshot_rate": 0.2479, "win_rate": 0.5508}, "reason": "damages every round", "raw": 0.567, "detail": {"score": 67, "raw": 0.567, "reason": "damages every round", "components": [{"key": "kd", "label": "kills per death", "value": 1.07, "z": 0.51, "weight": 0.2185, "contribution": 0.111, "note": "above average"}, {"key": "adr", "label": "damage per round", "value": 148.4, "z": 0.59, "weight": 0.1995, "contribution": 0.118, "note": "above average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.4, "weight": 0.1995, "contribution": 0.08, "note": "above average"}, {"key": "assists", "label": "assists per round", "value": 0.28, "z": 0.31, "weight": 0.152, "contribution": 0.047, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": 0.57, "weight": 0.076, "contribution": 0.043, "note": "above average"}, {"key": "hs", "label": "headshot rate", "value": 0.243, "z": 0.57, "weight": 0.057, "contribution": 0.032, "note": "above average"}, {"key": "map_edge", "label": "map adjustment", "value": 4.5, "z": 0.2, "weight": 0.05, "contribution": 0.01, "note": "about average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.26, "weight": 0.0285, "contribution": 0.007, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 0.57, "weight": 0.0095, "contribution": 0.005, "note": "above average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 0.57, "weight": 0.0095, "contribution": 0.005, "note": "above average"}], "career": {"games": 188, "wins": 96, "losses": 92, "kills": 2610, "deaths": 2430, "assists": 998, "acs": 224.8, "adr": 148.8, "kd": 1.07, "headshot_rate": 0.243, "win_rate": 0.51}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 277, "deaths": 258, "assists": 106, "acs": 233.8, "adr": 154.8, "kd": 1.13, "headshot_rate": 0.2479, "win_rate": 0.5508}, "recent_window": 20, "map": {"games": 12, "wins": 6, "losses": 6, "kills": 166, "deaths": 155, "assists": 63, "acs": 215.8, "adr": 142.9, "kd": 1.02, "headshot_rate": 0.2357, "win_rate": 0.4998, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Omen", "games": 10}, {"agent": "Astra", "games": 2}]}, "form": [{"map": "Bind", "agent": "Omen", "acs": 274.3, "adr": 181.6, "kills": 24, "deaths": 17, "assists": 5, "headshot_rate": 0.25, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "40 minutes ago"}, {"map": "Lotus", "agent": "Omen", "acs": 184.3, "adr": 122.0, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Omen", "acs": 229.3, "adr": 151.8, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 188, "seconds_old": 2400, "label": "last match 40 minutes ago", "stale": false}}}, {"puuid": "demo-09", "name": "Winterlight#eu3", "known_name": true, "agent": "Neon", "agent_id": "bb2a4828-46eb-8cd1-e765-15848195d751", "role": "Duelist", "team": "Red", "is_you": false, "score": 56, "flag": null, "career": {"games": 64, "wins": 31, "losses": 33, "kills": 883, "deaths": 866, "assists": 262, "acs": 219.7, "adr": 145.4, "kd": 1.02, "headshot_rate": 0.244, "win_rate": 0.48}, "rank": {"tier": 12, "name": "Gold 1", "short": "G1", "division": "Gold", "ranked": true}, "recent": {"games": 20, "wins": 10, "losses": 10, "kills": 275, "deaths": 270, "assists": 81, "acs": 228.5, "adr": 151.3, "kd": 1.08, "headshot_rate": 0.2489, "win_rate": 0.5184}, "reason": "loses duels", "raw": 0.38, "detail": {"score": 56, "raw": 0.38, "reason": "loses duels", "components": [{"key": "adr", "label": "damage per round", "value": 145.0, "z": 0.21, "weight": 0.266, "contribution": 0.056, "note": "about average"}, {"key": "kd", "label": "kills per death", "value": 1.02, "z": 0.18, "weight": 0.2185, "contribution": 0.039, "note": "about average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.14, "weight": 0.1425, "contribution": 0.02, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": 0.2, "weight": 0.1045, "contribution": 0.021, "note": "about average"}, {"key": "fb", "label": "opening kills", "value": 0.11, "z": 0.16, "weight": 0.095, "contribution": 0.015, "note": "about average"}, {"key": "hs", "label": "headshot rate", "value": 0.244, "z": 0.2, "weight": 0.057, "contribution": 0.011, "note": "about average"}, {"key": "map_edge", "label": "map adjustment", "value": 4.39, "z": 0.07, "weight": 0.05, "contribution": 0.004, "note": "about average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.09, "weight": 0.0285, "contribution": 0.003, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 0.2, "weight": 0.0285, "contribution": 0.006, "note": "about average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 0.2, "weight": 0.0095, "contribution": 0.002, "note": "about average"}], "career": {"games": 64, "wins": 31, "losses": 33, "kills": 883, "deaths": 866, "assists": 262, "acs": 219.7, "adr": 145.4, "kd": 1.02, "headshot_rate": 0.244, "win_rate": 0.48}, "recent": {"games": 20, "wins": 10, "losses": 10, "kills": 275, "deaths": 270, "assists": 81, "acs": 228.5, "adr": 151.3, "kd": 1.08, "headshot_rate": 0.2489, "win_rate": 0.5184}, "recent_window": 20, "map": {"games": 6, "wins": 3, "losses": 3, "kills": 82, "deaths": 81, "assists": 24, "acs": 210.9, "adr": 139.6, "kd": 0.97, "headshot_rate": 0.2367, "win_rate": 0.4704, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Neon", "games": 4}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Pearl", "agent": "Neon", "acs": 197.7, "adr": 130.9, "kills": 13, "deaths": 16, "assists": 4, "headshot_rate": 0.21, "rounds_won": 12, "rounds_lost": 14, "won": false, "ago": "2 days ago"}, {"map": "Lotus", "agent": "Omen", "acs": 180.2, "adr": 119.3, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Neon", "acs": 224.1, "adr": 148.4, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 64, "seconds_old": 172800, "label": "last match 2 days ago", "stale": true}}}, {"puuid": "demo-06", "name": "Ossuary#eu1", "known_name": true, "agent": "Fade", "agent_id": "dade69b4-4f5a-8528-247b-219e5a1facd6", "role": "Initiator", "team": "Red", "is_you": false, "score": 63, "flag": null, "career": {"games": 260, "wins": 130, "losses": 130, "kills": 3520, "deaths": 3380, "assists": 1502, "acs": 218.2, "adr": 144.4, "kd": 1.04, "headshot_rate": 0.236, "win_rate": 0.5}, "rank": {"tier": 16, "name": "Platinum 2", "short": "P2", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 270, "deaths": 260, "assists": 115, "acs": 226.9, "adr": 150.2, "kd": 1.1, "headshot_rate": 0.2407, "win_rate": 0.54}, "reason": "consistently strong", "raw": 0.333, "detail": {"score": 63, "raw": 0.333, "reason": "consistently strong", "components": [{"key": "adr", "label": "damage per round", "value": 144.0, "z": 0.46, "weight": 0.247, "contribution": 0.114, "note": "above average"}, {"key": "kda", "label": "kills and assists per death", "value": 1.4, "z": 0.41, "weight": 0.247, "contribution": 0.101, "note": "above average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.3, "weight": 0.228, "contribution": 0.068, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": 0.43, "weight": 0.0855, "contribution": 0.037, "note": "above average"}, {"key": "hs", "label": "headshot rate", "value": 0.236, "z": 0.43, "weight": 0.0665, "contribution": 0.029, "note": "above average"}, {"key": "map_edge", "label": "map adjustment", "value": 4.36, "z": 0.15, "weight": 0.05, "contribution": 0.007, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 0.43, "weight": 0.038, "contribution": 0.016, "note": "above average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.2, "weight": 0.0285, "contribution": 0.006, "note": "about average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 0.43, "weight": 0.0095, "contribution": 0.004, "note": "above average"}], "career": {"games": 260, "wins": 130, "losses": 130, "kills": 3520, "deaths": 3380, "assists": 1502, "acs": 218.2, "adr": 144.4, "kd": 1.04, "headshot_rate": 0.236, "win_rate": 0.5}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 270, "deaths": 260, "assists": 115, "acs": 226.9, "adr": 150.2, "kd": 1.1, "headshot_rate": 0.2407, "win_rate": 0.54}, "recent_window": 20, "map": {"games": 21, "wins": 10, "losses": 11, "kills": 284, "deaths": 273, "assists": 121, "acs": 209.5, "adr": 138.7, "kd": 0.99, "headshot_rate": 0.2289, "win_rate": 0.49, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Fade", "games": 19}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Sunset", "agent": "Fade", "acs": 185.5, "adr": 122.8, "kills": 11, "deaths": 14, "assists": 6, "headshot_rate": 0.18, "rounds_won": 10, "rounds_lost": 13, "won": false, "ago": "5 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 178.9, "adr": 118.4, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Fade", "acs": 222.6, "adr": 147.3, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 260, "seconds_old": 18000, "label": "last match 5 hours ago", "stale": false}}}, {"puuid": "demo-08", "name": "Quietus#ap2", "known_name": true, "agent": "Breach", "agent_id": "5f8d3a7f-467b-97f3-062c-13acf203c006", "role": "Initiator", "team": "Red", "is_you": false, "score": 58, "flag": null, "career": {"games": 143, "wins": 70, "losses": 73, "kills": 1902, "deaths": 1930, "assists": 870, "acs": 213.6, "adr": 141.4, "kd": 0.99, "headshot_rate": 0.227, "win_rate": 0.49}, "rank": {"tier": 15, "name": "Platinum 1", "short": "P1", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 266, "deaths": 269, "assists": 121, "acs": 222.1, "adr": 147.0, "kd": 1.05, "headshot_rate": 0.2315, "win_rate": 0.5292}, "reason": "middle of the pack", "raw": 0.167, "detail": {"score": 58, "raw": 0.167, "reason": "middle of the pack", "components": [{"key": "adr", "label": "damage per round", "value": 141.0, "z": 0.28, "weight": 0.247, "contribution": 0.069, "note": "about average"}, {"key": "kda", "label": "kills and assists per death", "value": 1.34, "z": 0.25, "weight": 0.247, "contribution": 0.062, "note": "about average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.19, "weight": 0.228, "contribution": 0.043, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": 0.27, "weight": 0.0855, "contribution": 0.023, "note": "about average"}, {"key": "hs", "label": "headshot rate", "value": 0.227, "z": 0.27, "weight": 0.0665, "contribution": 0.018, "note": "about average"}, {"key": "map_edge", "label": "map adjustment", "value": 4.27, "z": 0.09, "weight": 0.05, "contribution": 0.004, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 0.27, "weight": 0.038, "contribution": 0.01, "note": "about average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.12, "weight": 0.0285, "contribution": 0.003, "note": "about average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 0.27, "weight": 0.0095, "contribution": 0.003, "note": "about average"}], "career": {"games": 143, "wins": 70, "losses": 73, "kills": 1902, "deaths": 1930, "assists": 870, "acs": 213.6, "adr": 141.4, "kd": 0.99, "headshot_rate": 0.227, "win_rate": 0.49}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 266, "deaths": 269, "assists": 121, "acs": 222.1, "adr": 147.0, "kd": 1.05, "headshot_rate": 0.2315, "win_rate": 0.5292}, "recent_window": 20, "map": {"games": 11, "wins": 5, "losses": 6, "kills": 146, "deaths": 148, "assists": 66, "acs": 205.1, "adr": 135.8, "kd": 0.94, "headshot_rate": 0.2202, "win_rate": 0.4802, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Breach", "games": 9}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Icebox", "agent": "Breach", "acs": 217.9, "adr": 144.2, "kills": 17, "deaths": 15, "assists": 9, "headshot_rate": 0.24, "rounds_won": 11, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Lotus", "agent": "Omen", "acs": 175.2, "adr": 116.0, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Breach", "acs": 217.9, "adr": 144.2, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 143, "seconds_old": 86400, "label": "last match yesterday", "stale": false}}}, {"puuid": "demo-03", "name": "Tessellate#kr1", "known_name": true, "agent": "Sova", "agent_id": "320b2a48-4d9b-a075-30f1-1f93a9b638fa", "role": "Initiator", "team": "Blue", "is_you": false, "score": 54, "flag": null, "career": {"games": 96, "wins": 45, "losses": 51, "kills": 1290, "deaths": 1355, "assists": 612, "acs": 209.1, "adr": 138.4, "kd": 0.95, "headshot_rate": 0.219, "win_rate": 0.47}, "rank": {"tier": 15, "name": "Platinum 1", "short": "P1", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 10, "losses": 10, "kills": 268, "deaths": 282, "assists": 127, "acs": 217.5, "adr": 144.0, "kd": 1.01, "headshot_rate": 0.2234, "win_rate": 0.5076}, "reason": "middle of the pack", "raw": 0.033, "detail": {"score": 54, "raw": 0.033, "reason": "middle of the pack", "components": [{"key": "adr", "label": "damage per round", "value": 138.0, "z": 0.14, "weight": 0.247, "contribution": 0.035, "note": "about average"}, {"key": "kda", "label": "kills and assists per death", "value": 1.28, "z": 0.13, "weight": 0.247, "contribution": 0.032, "note": "about average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.09, "weight": 0.228, "contribution": 0.021, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": 0.13, "weight": 0.0855, "contribution": 0.011, "note": "about average"}, {"key": "hs", "label": "headshot rate", "value": 0.219, "z": 0.13, "weight": 0.0665, "contribution": 0.009, "note": "about average"}, {"key": "map_edge", "label": "map adjustment", "value": 4.18, "z": 0.05, "weight": 0.05, "contribution": 0.003, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 0.13, "weight": 0.038, "contribution": 0.005, "note": "about average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.06, "weight": 0.0285, "contribution": 0.002, "note": "about average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 0.13, "weight": 0.0095, "contribution": 0.001, "note": "about average"}], "career": {"games": 96, "wins": 45, "losses": 51, "kills": 1290, "deaths": 1355, "assists": 612, "acs": 209.1, "adr": 138.4, "kd": 0.95, "headshot_rate": 0.219, "win_rate": 0.47}, "recent": {"games": 20, "wins": 10, "losses": 10, "kills": 268, "deaths": 282, "assists": 127, "acs": 217.5, "adr": 144.0, "kd": 1.01, "headshot_rate": 0.2234, "win_rate": 0.5076}, "recent_window": 20, "map": {"games": 8, "wins": 4, "losses": 4, "kills": 107, "deaths": 112, "assists": 51, "acs": 200.7, "adr": 132.9, "kd": 0.9, "headshot_rate": 0.2124, "win_rate": 0.4606, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Sova", "games": 6}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Haven", "agent": "Sova", "acs": 209.1, "adr": 138.4, "kills": 16, "deaths": 16, "assists": 8, "headshot_rate": 0.22, "rounds_won": 14, "rounds_lost": 12, "won": true, "ago": "3 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 171.5, "adr": 113.5, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Sova", "acs": 213.3, "adr": 141.2, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 96, "seconds_old": 10800, "label": "last match 3 hours ago", "stale": false}}}, {"puuid": "demo-04", "name": "brief candle#ap1", "known_name": true, "agent": "Killjoy", "agent_id": "1e58de9c-4950-5125-93e9-a0aee9f98746", "role": "Sentinel", "team": "Blue", "is_you": false, "score": 46, "flag": null, "career": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 196.3, "adr": 130.0, "kd": 0.86, "headshot_rate": 0.198, "win_rate": 0.42}, "rank": {"tier": 13, "name": "Gold 2", "short": "G2", "division": "Gold", "ranked": true}, "recent": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 204.2, "adr": 135.2, "kd": 0.91, "headshot_rate": 0.202, "win_rate": 0.4536}, "reason": "below par lately, but only 4 games", "raw": -0.113, "detail": {"score": 46, "raw": -0.113, "reason": "below par lately, but only 4 games", "components": [{"key": "kda", "label": "kills and assists per death", "value": 1.16, "z": -0.13, "weight": 0.2375, "contribution": -0.031, "note": "about average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": -0.09, "weight": 0.209, "contribution": -0.019, "note": "about average"}, {"key": "adr", "label": "damage per round", "value": 129.6, "z": -0.14, "weight": 0.171, "contribution": -0.024, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": -0.13, "weight": 0.0855, "contribution": -0.011, "note": "about average"}, {"key": "defuses", "label": "defuses", "value": null, "z": -0.13, "weight": 0.076, "contribution": -0.01, "note": "about average"}, {"key": "hs", "label": "headshot rate", "value": 0.198, "z": -0.13, "weight": 0.0665, "contribution": -0.009, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": -0.13, "weight": 0.057, "contribution": -0.007, "note": "about average"}, {"key": "map_edge", "label": "map adjustment", "value": 3.93, "z": null, "weight": 0.05, "contribution": 0.0, "note": "not counted -- 1 game on this map, 3 needed"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": -0.06, "weight": 0.0285, "contribution": -0.002, "note": "about average"}, {"key": "fd", "label": "opening deaths", "value": 0.1, "z": 0.08, "weight": -0.019, "contribution": -0.002, "note": "about average"}], "career": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 196.3, "adr": 130.0, "kd": 0.86, "headshot_rate": 0.198, "win_rate": 0.42}, "recent": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 204.2, "adr": 135.2, "kd": 0.91, "headshot_rate": 0.202, "win_rate": 0.4536}, "recent_window": 20, "map": {"games": 1, "wins": 0, "losses": 1, "kills": 13, "deaths": 15, "assists": 7, "acs": 188.4, "adr": 124.7, "kd": 0.82, "headshot_rate": 0.1921, "win_rate": 0.4116, "name": "Ascent", "counts_toward_score": false, "gate": 3, "agents": [{"agent": "Killjoy", "games": 1}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Lotus", "agent": "Killjoy", "acs": 153.1, "adr": 101.4, "kills": 9, "deaths": 15, "assists": 11, "headshot_rate": 0.19, "rounds_won": 7, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Lotus", "agent": "Omen", "acs": 161.0, "adr": 106.6, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Killjoy", "acs": 200.2, "adr": 132.5, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 4, "seconds_old": 86400, "label": "last match yesterday", "stale": false}}}, {"puuid": "demo-02", "name": "nine lives#eu2", "known_name": true, "agent": "Sage", "agent_id": "569fdd95-4d10-43ab-ca70-79becc718b46", "role": "Sentinel", "team": "Blue", "is_you": false, "score": null, "flag": null, "career": null, "rank": {"tier": 0, "name": "Unranked", "short": "--", "division": "Unranked", "ranked": false}, "recent": null, "reason": "no history", "detail": null}, {"puuid": "demo-07", "name": "pale fire#na3", "known_name": true, "agent": "Cypher", "agent_id": "117ed9e3-49f3-6512-3ccf-0cada7e3823b", "role": "Sentinel", "team": "Red", "is_you": false, "score": null, "flag": null, "career": null, "rank": {"tier": 0, "name": "Unranked", "short": "--", "division": "Unranked", "ranked": false}, "recent": null, "reason": "no history", "detail": null}], "lookup": {"pending": [], "remaining": 0}, "prediction": {"own_probability": 0.5731, "win_probability": 0.5731, "factors": [{"name": "d_rank", "value": 0.182}, {"name": "d_acs", "value": -0.061}, {"name": "d_kd", "value": 0.044}]}};
+const BASE = {"match_id": "demo", "phase": "coregame", "is_custom": false, "standard_mode": true, "map": "Ascent", "mode": "BombGameMode", "as_of": 0, "own_team": "Blue", "enemy_team": "Red", "team_sizes": {"Blue": 5, "Red": 5}, "coverage": 8, "confidence": "medium", "fetched": 0, "model": "logistic regression", "parties": [{"members": ["demo-00", "demo-01"], "team": "Blue", "size": 2, "label": "duo", "source": "inferred"}, {"members": ["demo-05", "demo-06", "demo-08"], "team": "Red", "size": 3, "label": "trio", "source": "inferred"}], "warnings": ["Demo data. These players are invented and no database, game client or network was touched to build this."], "players": [{"puuid": "demo-05", "name": "Yarrow#na2", "known_name": true, "agent": "Reyna", "agent_id": "a3bfb853-43b2-7238-a4f1-ad90e9e46bcc", "role": "Duelist", "team": "Red", "is_you": false, "selection": null, "likely": null, "streak": null, "score": 91, "flag": {"note": "Finishes top-2 in 71% of their lobbies, against 20% by chance. Well above what this rank explains."}, "career": {"games": 74, "wins": 53, "losses": 21, "kills": 1249, "deaths": 812, "assists": 261, "acs": 288.7, "adr": 191.1, "kd": 1.54, "headshot_rate": 0.334, "win_rate": 0.71}, "rank": {"tier": 20, "name": "Diamond 3", "short": "D3", "division": "Diamond", "ranked": true}, "recent": {"games": 20, "wins": 15, "losses": 5, "kills": 337, "deaths": 219, "assists": 70, "acs": 300.2, "adr": 198.7, "kd": 1.63, "headshot_rate": 0.3407, "win_rate": 0.7668}, "reason": "wins duels", "raw": 1.547, "detail": {"score": 91, "raw": 1.547, "reason": "wins duels", "components": [{"key": "adr", "label": "damage per round", "value": 190.5, "z": 1.44, "weight": 0.266, "contribution": 0.383, "note": "well above average"}, {"key": "kd", "label": "kills per death", "value": 1.54, "z": 1.23, "weight": 0.2185, "contribution": 0.269, "note": "well above average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.96, "weight": 0.1425, "contribution": 0.137, "note": "above average"}, {"key": "trades", "label": "trades", "value": null, "z": 1.37, "weight": 0.1045, "contribution": 0.143, "note": "well above average"}, {"key": "fb", "label": "opening kills", "value": 0.11, "z": 1.09, "weight": 0.095, "contribution": 0.104, "note": "well above average"}, {"key": "hs", "label": "headshot rate", "value": 0.334, "z": 1.37, "weight": 0.057, "contribution": 0.078, "note": "well above average"}, {"key": "map_edge", "label": "map adjustment", "value": 5.77, "z": 0.48, "weight": 0.05, "contribution": 0.024, "note": "above average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.61, "weight": 0.0285, "contribution": 0.017, "note": "above average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 1.37, "weight": 0.0285, "contribution": 0.039, "note": "well above average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 1.37, "weight": 0.0095, "contribution": 0.013, "note": "well above average"}], "career": {"games": 74, "wins": 53, "losses": 21, "kills": 1249, "deaths": 812, "assists": 261, "acs": 288.7, "adr": 191.1, "kd": 1.54, "headshot_rate": 0.334, "win_rate": 0.71}, "recent": {"games": 20, "wins": 15, "losses": 5, "kills": 337, "deaths": 219, "assists": 70, "acs": 300.2, "adr": 198.7, "kd": 1.63, "headshot_rate": 0.3407, "win_rate": 0.7668}, "recent_window": 20, "map": {"games": 9, "wins": 6, "losses": 3, "kills": 151, "deaths": 98, "assists": 31, "acs": 277.2, "adr": 183.5, "kd": 1.46, "headshot_rate": 0.324, "win_rate": 0.6958, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Reyna", "games": 7}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Split", "agent": "Reyna", "acs": 389.7, "adr": 258.0, "kills": 29, "deaths": 12, "assists": 4, "headshot_rate": 0.33, "rounds_won": 13, "rounds_lost": 5, "won": true, "ago": "1 hour ago"}, {"map": "Lotus", "agent": "Omen", "acs": 236.7, "adr": 156.7, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Reyna", "acs": 294.5, "adr": 194.9, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 74, "seconds_old": 3600, "label": "last match 1 hour ago", "stale": false}}}, {"puuid": "demo-00", "name": "Meridian#na1", "known_name": true, "agent": "Jett", "agent_id": "add6443a-41bd-e414-f6ad-e58d267f4e95", "role": "Duelist", "team": "Blue", "is_you": true, "selection": null, "likely": null, "streak": null, "score": 82, "flag": null, "career": {"games": 412, "wins": 227, "losses": 185, "kills": 6103, "deaths": 4980, "assists": 1844, "acs": 251.4, "adr": 166.4, "kd": 1.23, "headshot_rate": 0.281, "win_rate": 0.55}, "rank": {"tier": 18, "name": "Diamond 1", "short": "D1", "division": "Diamond", "ranked": true}, "recent": {"games": 20, "wins": 12, "losses": 8, "kills": 296, "deaths": 241, "assists": 89, "acs": 261.5, "adr": 173.1, "kd": 1.3, "headshot_rate": 0.2866, "win_rate": 0.594}, "reason": "consistently strong", "raw": 1.247, "detail": {"score": 82, "raw": 1.247, "reason": "consistently strong", "components": [{"key": "adr", "label": "damage per round", "value": 165.9, "z": 1.12, "weight": 0.266, "contribution": 0.298, "note": "well above average"}, {"key": "kd", "label": "kills per death", "value": 1.23, "z": 0.96, "weight": 0.2185, "contribution": 0.21, "note": "above average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.75, "weight": 0.1425, "contribution": 0.107, "note": "above average"}, {"key": "trades", "label": "trades", "value": null, "z": 1.07, "weight": 0.1045, "contribution": 0.112, "note": "well above average"}, {"key": "fb", "label": "opening kills", "value": 0.11, "z": 0.85, "weight": 0.095, "contribution": 0.081, "note": "above average"}, {"key": "hs", "label": "headshot rate", "value": 0.281, "z": 1.07, "weight": 0.057, "contribution": 0.061, "note": "well above average"}, {"key": "map_edge", "label": "map adjustment", "value": 5.03, "z": 0.37, "weight": 0.05, "contribution": 0.018, "note": "above average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.48, "weight": 0.0285, "contribution": 0.014, "note": "above average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 1.07, "weight": 0.0285, "contribution": 0.03, "note": "well above average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 1.07, "weight": 0.0095, "contribution": 0.01, "note": "well above average"}], "career": {"games": 412, "wins": 227, "losses": 185, "kills": 6103, "deaths": 4980, "assists": 1844, "acs": 251.4, "adr": 166.4, "kd": 1.23, "headshot_rate": 0.281, "win_rate": 0.55}, "recent": {"games": 20, "wins": 12, "losses": 8, "kills": 296, "deaths": 241, "assists": 89, "acs": 261.5, "adr": 173.1, "kd": 1.3, "headshot_rate": 0.2866, "win_rate": 0.594}, "recent_window": 20, "map": {"games": 34, "wins": 18, "losses": 16, "kills": 503, "deaths": 410, "assists": 152, "acs": 241.3, "adr": 159.7, "kd": 1.17, "headshot_rate": 0.2726, "win_rate": 0.539, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Jett", "games": 32}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Ascent", "agent": "Jett", "acs": 289.1, "adr": 191.4, "kills": 21, "deaths": 14, "assists": 3, "headshot_rate": 0.27, "rounds_won": 13, "rounds_lost": 9, "won": true, "ago": "2 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 206.1, "adr": 136.5, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Jett", "acs": 256.4, "adr": 169.8, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 412, "seconds_old": 7200, "label": "last match 2 hours ago", "stale": false}}}, {"puuid": "demo-01", "name": "halcyon#0000", "known_name": true, "agent": "Omen", "agent_id": "8e253930-4c05-31dd-1b6c-968525494517", "role": "Controller", "team": "Blue", "is_you": false, "selection": null, "likely": null, "streak": {"result": "won", "count": 4}, "score": 67, "flag": null, "career": {"games": 188, "wins": 96, "losses": 92, "kills": 2610, "deaths": 2430, "assists": 998, "acs": 224.8, "adr": 148.8, "kd": 1.07, "headshot_rate": 0.243, "win_rate": 0.51}, "rank": {"tier": 16, "name": "Platinum 2", "short": "P2", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 277, "deaths": 258, "assists": 106, "acs": 233.8, "adr": 154.8, "kd": 1.13, "headshot_rate": 0.2479, "win_rate": 0.5508}, "reason": "damages every round", "raw": 0.567, "detail": {"score": 67, "raw": 0.567, "reason": "damages every round", "components": [{"key": "kd", "label": "kills per death", "value": 1.07, "z": 0.51, "weight": 0.2185, "contribution": 0.111, "note": "above average"}, {"key": "adr", "label": "damage per round", "value": 148.4, "z": 0.59, "weight": 0.1995, "contribution": 0.118, "note": "above average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.4, "weight": 0.1995, "contribution": 0.08, "note": "above average"}, {"key": "assists", "label": "assists per round", "value": 0.28, "z": 0.31, "weight": 0.152, "contribution": 0.047, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": 0.57, "weight": 0.076, "contribution": 0.043, "note": "above average"}, {"key": "hs", "label": "headshot rate", "value": 0.243, "z": 0.57, "weight": 0.057, "contribution": 0.032, "note": "above average"}, {"key": "map_edge", "label": "map adjustment", "value": 4.5, "z": 0.2, "weight": 0.05, "contribution": 0.01, "note": "about average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.26, "weight": 0.0285, "contribution": 0.007, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 0.57, "weight": 0.0095, "contribution": 0.005, "note": "above average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 0.57, "weight": 0.0095, "contribution": 0.005, "note": "above average"}], "career": {"games": 188, "wins": 96, "losses": 92, "kills": 2610, "deaths": 2430, "assists": 998, "acs": 224.8, "adr": 148.8, "kd": 1.07, "headshot_rate": 0.243, "win_rate": 0.51}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 277, "deaths": 258, "assists": 106, "acs": 233.8, "adr": 154.8, "kd": 1.13, "headshot_rate": 0.2479, "win_rate": 0.5508}, "recent_window": 20, "map": {"games": 12, "wins": 6, "losses": 6, "kills": 166, "deaths": 155, "assists": 63, "acs": 215.8, "adr": 142.9, "kd": 1.02, "headshot_rate": 0.2357, "win_rate": 0.4998, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Omen", "games": 10}, {"agent": "Astra", "games": 2}]}, "form": [{"map": "Bind", "agent": "Omen", "acs": 274.3, "adr": 181.6, "kills": 24, "deaths": 17, "assists": 5, "headshot_rate": 0.25, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "40 minutes ago"}, {"map": "Lotus", "agent": "Omen", "acs": 184.3, "adr": 122.0, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Omen", "acs": 229.3, "adr": 151.8, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 188, "seconds_old": 2400, "label": "last match 40 minutes ago", "stale": false}}}, {"puuid": "demo-09", "name": "Winterlight#eu3", "known_name": true, "agent": "Neon", "agent_id": "bb2a4828-46eb-8cd1-e765-15848195d751", "role": "Duelist", "team": "Red", "is_you": false, "selection": null, "likely": null, "streak": null, "score": 56, "flag": null, "career": {"games": 64, "wins": 31, "losses": 33, "kills": 883, "deaths": 866, "assists": 262, "acs": 219.7, "adr": 145.4, "kd": 1.02, "headshot_rate": 0.244, "win_rate": 0.48}, "rank": {"tier": 12, "name": "Gold 1", "short": "G1", "division": "Gold", "ranked": true}, "recent": {"games": 20, "wins": 10, "losses": 10, "kills": 275, "deaths": 270, "assists": 81, "acs": 228.5, "adr": 151.3, "kd": 1.08, "headshot_rate": 0.2489, "win_rate": 0.5184}, "reason": "loses duels", "raw": 0.38, "detail": {"score": 56, "raw": 0.38, "reason": "loses duels", "components": [{"key": "adr", "label": "damage per round", "value": 145.0, "z": 0.21, "weight": 0.266, "contribution": 0.056, "note": "about average"}, {"key": "kd", "label": "kills per death", "value": 1.02, "z": 0.18, "weight": 0.2185, "contribution": 0.039, "note": "about average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.14, "weight": 0.1425, "contribution": 0.02, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": 0.2, "weight": 0.1045, "contribution": 0.021, "note": "about average"}, {"key": "fb", "label": "opening kills", "value": 0.11, "z": 0.16, "weight": 0.095, "contribution": 0.015, "note": "about average"}, {"key": "hs", "label": "headshot rate", "value": 0.244, "z": 0.2, "weight": 0.057, "contribution": 0.011, "note": "about average"}, {"key": "map_edge", "label": "map adjustment", "value": 4.39, "z": 0.07, "weight": 0.05, "contribution": 0.004, "note": "about average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.09, "weight": 0.0285, "contribution": 0.003, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 0.2, "weight": 0.0285, "contribution": 0.006, "note": "about average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 0.2, "weight": 0.0095, "contribution": 0.002, "note": "about average"}], "career": {"games": 64, "wins": 31, "losses": 33, "kills": 883, "deaths": 866, "assists": 262, "acs": 219.7, "adr": 145.4, "kd": 1.02, "headshot_rate": 0.244, "win_rate": 0.48}, "recent": {"games": 20, "wins": 10, "losses": 10, "kills": 275, "deaths": 270, "assists": 81, "acs": 228.5, "adr": 151.3, "kd": 1.08, "headshot_rate": 0.2489, "win_rate": 0.5184}, "recent_window": 20, "map": {"games": 6, "wins": 3, "losses": 3, "kills": 82, "deaths": 81, "assists": 24, "acs": 210.9, "adr": 139.6, "kd": 0.97, "headshot_rate": 0.2367, "win_rate": 0.4704, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Neon", "games": 4}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Pearl", "agent": "Neon", "acs": 197.7, "adr": 130.9, "kills": 13, "deaths": 16, "assists": 4, "headshot_rate": 0.21, "rounds_won": 12, "rounds_lost": 14, "won": false, "ago": "2 days ago"}, {"map": "Lotus", "agent": "Omen", "acs": 180.2, "adr": 119.3, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Neon", "acs": 224.1, "adr": 148.4, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 64, "seconds_old": 172800, "label": "last match 2 days ago", "stale": true}}}, {"puuid": "demo-06", "name": "Ossuary#eu1", "known_name": true, "agent": "Fade", "agent_id": "dade69b4-4f5a-8528-247b-219e5a1facd6", "role": "Initiator", "team": "Red", "is_you": false, "selection": null, "likely": null, "streak": null, "score": 63, "flag": null, "career": {"games": 260, "wins": 130, "losses": 130, "kills": 3520, "deaths": 3380, "assists": 1502, "acs": 218.2, "adr": 144.4, "kd": 1.04, "headshot_rate": 0.236, "win_rate": 0.5}, "rank": {"tier": 16, "name": "Platinum 2", "short": "P2", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 270, "deaths": 260, "assists": 115, "acs": 226.9, "adr": 150.2, "kd": 1.1, "headshot_rate": 0.2407, "win_rate": 0.54}, "reason": "consistently strong", "raw": 0.333, "detail": {"score": 63, "raw": 0.333, "reason": "consistently strong", "components": [{"key": "adr", "label": "damage per round", "value": 144.0, "z": 0.46, "weight": 0.247, "contribution": 0.114, "note": "above average"}, {"key": "kda", "label": "kills and assists per death", "value": 1.4, "z": 0.41, "weight": 0.247, "contribution": 0.101, "note": "above average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.3, "weight": 0.228, "contribution": 0.068, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": 0.43, "weight": 0.0855, "contribution": 0.037, "note": "above average"}, {"key": "hs", "label": "headshot rate", "value": 0.236, "z": 0.43, "weight": 0.0665, "contribution": 0.029, "note": "above average"}, {"key": "map_edge", "label": "map adjustment", "value": 4.36, "z": 0.15, "weight": 0.05, "contribution": 0.007, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 0.43, "weight": 0.038, "contribution": 0.016, "note": "above average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.2, "weight": 0.0285, "contribution": 0.006, "note": "about average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 0.43, "weight": 0.0095, "contribution": 0.004, "note": "above average"}], "career": {"games": 260, "wins": 130, "losses": 130, "kills": 3520, "deaths": 3380, "assists": 1502, "acs": 218.2, "adr": 144.4, "kd": 1.04, "headshot_rate": 0.236, "win_rate": 0.5}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 270, "deaths": 260, "assists": 115, "acs": 226.9, "adr": 150.2, "kd": 1.1, "headshot_rate": 0.2407, "win_rate": 0.54}, "recent_window": 20, "map": {"games": 21, "wins": 10, "losses": 11, "kills": 284, "deaths": 273, "assists": 121, "acs": 209.5, "adr": 138.7, "kd": 0.99, "headshot_rate": 0.2289, "win_rate": 0.49, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Fade", "games": 19}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Sunset", "agent": "Fade", "acs": 185.5, "adr": 122.8, "kills": 11, "deaths": 14, "assists": 6, "headshot_rate": 0.18, "rounds_won": 10, "rounds_lost": 13, "won": false, "ago": "5 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 178.9, "adr": 118.4, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Fade", "acs": 222.6, "adr": 147.3, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 260, "seconds_old": 18000, "label": "last match 5 hours ago", "stale": false}}}, {"puuid": "demo-08", "name": "Quietus#ap2", "known_name": true, "agent": "Breach", "agent_id": "5f8d3a7f-467b-97f3-062c-13acf203c006", "role": "Initiator", "team": "Red", "is_you": false, "selection": null, "likely": null, "streak": null, "score": 58, "flag": null, "career": {"games": 143, "wins": 70, "losses": 73, "kills": 1902, "deaths": 1930, "assists": 870, "acs": 213.6, "adr": 141.4, "kd": 0.99, "headshot_rate": 0.227, "win_rate": 0.49}, "rank": {"tier": 15, "name": "Platinum 1", "short": "P1", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 266, "deaths": 269, "assists": 121, "acs": 222.1, "adr": 147.0, "kd": 1.05, "headshot_rate": 0.2315, "win_rate": 0.5292}, "reason": "middle of the pack", "raw": 0.167, "detail": {"score": 58, "raw": 0.167, "reason": "middle of the pack", "components": [{"key": "adr", "label": "damage per round", "value": 141.0, "z": 0.28, "weight": 0.247, "contribution": 0.069, "note": "about average"}, {"key": "kda", "label": "kills and assists per death", "value": 1.34, "z": 0.25, "weight": 0.247, "contribution": 0.062, "note": "about average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.19, "weight": 0.228, "contribution": 0.043, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": 0.27, "weight": 0.0855, "contribution": 0.023, "note": "about average"}, {"key": "hs", "label": "headshot rate", "value": 0.227, "z": 0.27, "weight": 0.0665, "contribution": 0.018, "note": "about average"}, {"key": "map_edge", "label": "map adjustment", "value": 4.27, "z": 0.09, "weight": 0.05, "contribution": 0.004, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 0.27, "weight": 0.038, "contribution": 0.01, "note": "about average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.12, "weight": 0.0285, "contribution": 0.003, "note": "about average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 0.27, "weight": 0.0095, "contribution": 0.003, "note": "about average"}], "career": {"games": 143, "wins": 70, "losses": 73, "kills": 1902, "deaths": 1930, "assists": 870, "acs": 213.6, "adr": 141.4, "kd": 0.99, "headshot_rate": 0.227, "win_rate": 0.49}, "recent": {"games": 20, "wins": 11, "losses": 9, "kills": 266, "deaths": 269, "assists": 121, "acs": 222.1, "adr": 147.0, "kd": 1.05, "headshot_rate": 0.2315, "win_rate": 0.5292}, "recent_window": 20, "map": {"games": 11, "wins": 5, "losses": 6, "kills": 146, "deaths": 148, "assists": 66, "acs": 205.1, "adr": 135.8, "kd": 0.94, "headshot_rate": 0.2202, "win_rate": 0.4802, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Breach", "games": 9}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Icebox", "agent": "Breach", "acs": 217.9, "adr": 144.2, "kills": 17, "deaths": 15, "assists": 9, "headshot_rate": 0.24, "rounds_won": 11, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Lotus", "agent": "Omen", "acs": 175.2, "adr": 116.0, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Breach", "acs": 217.9, "adr": 144.2, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 143, "seconds_old": 86400, "label": "last match yesterday", "stale": false}}}, {"puuid": "demo-03", "name": "Tessellate#kr1", "known_name": true, "agent": "Sova", "agent_id": "320b2a48-4d9b-a075-30f1-1f93a9b638fa", "role": "Initiator", "team": "Blue", "is_you": false, "selection": null, "likely": null, "streak": null, "score": 54, "flag": null, "career": {"games": 96, "wins": 45, "losses": 51, "kills": 1290, "deaths": 1355, "assists": 612, "acs": 209.1, "adr": 138.4, "kd": 0.95, "headshot_rate": 0.219, "win_rate": 0.47}, "rank": {"tier": 15, "name": "Platinum 1", "short": "P1", "division": "Platinum", "ranked": true}, "recent": {"games": 20, "wins": 10, "losses": 10, "kills": 268, "deaths": 282, "assists": 127, "acs": 217.5, "adr": 144.0, "kd": 1.01, "headshot_rate": 0.2234, "win_rate": 0.5076}, "reason": "middle of the pack", "raw": 0.033, "detail": {"score": 54, "raw": 0.033, "reason": "middle of the pack", "components": [{"key": "adr", "label": "damage per round", "value": 138.0, "z": 0.14, "weight": 0.247, "contribution": 0.035, "note": "about average"}, {"key": "kda", "label": "kills and assists per death", "value": 1.28, "z": 0.13, "weight": 0.247, "contribution": 0.032, "note": "about average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": 0.09, "weight": 0.228, "contribution": 0.021, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": 0.13, "weight": 0.0855, "contribution": 0.011, "note": "about average"}, {"key": "hs", "label": "headshot rate", "value": 0.219, "z": 0.13, "weight": 0.0665, "contribution": 0.009, "note": "about average"}, {"key": "map_edge", "label": "map adjustment", "value": 4.18, "z": 0.05, "weight": 0.05, "contribution": 0.003, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": 0.13, "weight": 0.038, "contribution": 0.005, "note": "about average"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": 0.06, "weight": 0.0285, "contribution": 0.002, "note": "about average"}, {"key": "defuses", "label": "defuses", "value": null, "z": 0.13, "weight": 0.0095, "contribution": 0.001, "note": "about average"}], "career": {"games": 96, "wins": 45, "losses": 51, "kills": 1290, "deaths": 1355, "assists": 612, "acs": 209.1, "adr": 138.4, "kd": 0.95, "headshot_rate": 0.219, "win_rate": 0.47}, "recent": {"games": 20, "wins": 10, "losses": 10, "kills": 268, "deaths": 282, "assists": 127, "acs": 217.5, "adr": 144.0, "kd": 1.01, "headshot_rate": 0.2234, "win_rate": 0.5076}, "recent_window": 20, "map": {"games": 8, "wins": 4, "losses": 4, "kills": 107, "deaths": 112, "assists": 51, "acs": 200.7, "adr": 132.9, "kd": 0.9, "headshot_rate": 0.2124, "win_rate": 0.4606, "name": "Ascent", "counts_toward_score": true, "gate": 3, "agents": [{"agent": "Sova", "games": 6}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Haven", "agent": "Sova", "acs": 209.1, "adr": 138.4, "kills": 16, "deaths": 16, "assists": 8, "headshot_rate": 0.22, "rounds_won": 14, "rounds_lost": 12, "won": true, "ago": "3 hours ago"}, {"map": "Lotus", "agent": "Omen", "acs": 171.5, "adr": 113.5, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Sova", "acs": 213.3, "adr": 141.2, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 96, "seconds_old": 10800, "label": "last match 3 hours ago", "stale": false}}}, {"puuid": "demo-04", "name": "brief candle#ap1", "known_name": true, "agent": "Killjoy", "agent_id": "1e58de9c-4950-5125-93e9-a0aee9f98746", "role": "Sentinel", "team": "Blue", "is_you": false, "selection": null, "likely": null, "streak": {"result": "lost", "count": 3}, "score": 46, "flag": null, "career": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 196.3, "adr": 130.0, "kd": 0.86, "headshot_rate": 0.198, "win_rate": 0.42}, "rank": {"tier": 13, "name": "Gold 2", "short": "G2", "division": "Gold", "ranked": true}, "recent": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 204.2, "adr": 135.2, "kd": 0.91, "headshot_rate": 0.202, "win_rate": 0.4536}, "reason": "below par lately, but only 4 games", "raw": -0.113, "detail": {"score": 46, "raw": -0.113, "reason": "below par lately, but only 4 games", "components": [{"key": "kda", "label": "kills and assists per death", "value": 1.16, "z": -0.13, "weight": 0.2375, "contribution": -0.031, "note": "about average"}, {"key": "kast", "label": "rounds contributed to", "value": 0.72, "z": -0.09, "weight": 0.209, "contribution": -0.019, "note": "about average"}, {"key": "adr", "label": "damage per round", "value": 129.6, "z": -0.14, "weight": 0.171, "contribution": -0.024, "note": "about average"}, {"key": "trades", "label": "trades", "value": null, "z": -0.13, "weight": 0.0855, "contribution": -0.011, "note": "about average"}, {"key": "defuses", "label": "defuses", "value": null, "z": -0.13, "weight": 0.076, "contribution": -0.01, "note": "about average"}, {"key": "hs", "label": "headshot rate", "value": 0.198, "z": -0.13, "weight": 0.0665, "contribution": -0.009, "note": "about average"}, {"key": "plants", "label": "spike plants", "value": null, "z": -0.13, "weight": 0.057, "contribution": -0.007, "note": "about average"}, {"key": "map_edge", "label": "map adjustment", "value": 3.93, "z": null, "weight": 0.05, "contribution": 0.0, "note": "not counted -- 1 game on this map, 3 needed"}, {"key": "abilities", "label": "ability use", "value": 2.1, "z": -0.06, "weight": 0.0285, "contribution": -0.002, "note": "about average"}, {"key": "fd", "label": "opening deaths", "value": 0.1, "z": 0.08, "weight": -0.019, "contribution": -0.002, "note": "about average"}], "career": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 196.3, "adr": 130.0, "kd": 0.86, "headshot_rate": 0.198, "win_rate": 0.42}, "recent": {"games": 4, "wins": 2, "losses": 2, "kills": 52, "deaths": 61, "assists": 30, "acs": 204.2, "adr": 135.2, "kd": 0.91, "headshot_rate": 0.202, "win_rate": 0.4536}, "recent_window": 20, "map": {"games": 1, "wins": 0, "losses": 1, "kills": 13, "deaths": 15, "assists": 7, "acs": 188.4, "adr": 124.7, "kd": 0.82, "headshot_rate": 0.1921, "win_rate": 0.4116, "name": "Ascent", "counts_toward_score": false, "gate": 3, "agents": [{"agent": "Killjoy", "games": 1}, {"agent": "Omen", "games": 2}]}, "form": [{"map": "Lotus", "agent": "Killjoy", "acs": 153.1, "adr": 101.4, "kills": 9, "deaths": 15, "assists": 11, "headshot_rate": 0.19, "rounds_won": 7, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Lotus", "agent": "Omen", "acs": 161.0, "adr": 106.6, "kills": 12, "deaths": 18, "assists": 9, "headshot_rate": 0.18, "rounds_won": 8, "rounds_lost": 13, "won": false, "ago": "yesterday"}, {"map": "Split", "agent": "Killjoy", "acs": 200.2, "adr": 132.5, "kills": 17, "deaths": 16, "assists": 5, "headshot_rate": 0.24, "rounds_won": 13, "rounds_lost": 11, "won": true, "ago": "2 days ago"}], "freshness": {"games_known": 4, "seconds_old": 86400, "label": "last match yesterday", "stale": false}}}, {"puuid": "demo-02", "name": "nine lives#eu2", "known_name": true, "agent": "Sage", "agent_id": "569fdd95-4d10-43ab-ca70-79becc718b46", "role": "Sentinel", "team": "Blue", "is_you": false, "selection": null, "likely": null, "streak": null, "score": null, "flag": null, "career": null, "rank": {"tier": 0, "name": "Unranked", "short": "--", "division": "Unranked", "ranked": false}, "recent": null, "reason": "no history", "detail": null}, {"puuid": "demo-07", "name": "pale fire#na3", "known_name": true, "agent": "Cypher", "agent_id": "117ed9e3-49f3-6512-3ccf-0cada7e3823b", "role": "Sentinel", "team": "Red", "is_you": false, "selection": null, "likely": null, "streak": null, "score": null, "flag": null, "career": null, "rank": {"tier": 0, "name": "Unranked", "short": "--", "division": "Unranked", "ranked": false}, "recent": null, "reason": "no history", "detail": null}], "lookup": {"pending": [], "remaining": 0}, "your_picks": null, "prediction": {"own_probability": 0.5731, "win_probability": 0.5731, "factors": [{"name": "d_rank", "value": 0.182}, {"name": "d_acs", "value": -0.061}, {"name": "d_kd", "value": 0.044}]}};
 const MAPS = ["Ascent", "Abyss", "Bind", "Breeze", "Corrode", "Fracture", "Haven", "Icebox", "Lotus", "Pearl", "Split", "Sunset"];
 const TOP1 = 0.3;
+// The shipped model's real test-set record, from the committed results: what
+// its numbers have meant. Only the players are invented.
+const RECORD = {"n_test": 10304, "bins": [[0.397, 0.4394, 1031], [0.4408, 0.419, 1031], [0.4611, 0.4675, 1031], [0.4781, 0.4937, 1031], [0.4928, 0.5049, 1030], [0.5071, 0.5233, 1030], [0.5216, 0.5311, 1030], [0.5381, 0.5272, 1030], [0.5598, 0.5583, 1030], [0.604, 0.6107, 1030]], "strata": [{"known": "5-6", "n": 1469, "accuracy": 0.5228}, {"known": "7-8", "n": 3212, "accuracy": 0.5442}, {"known": "9-10", "n": 5623, "accuracy": 0.5469}]};
+const PICKS = {"map": "Ascent", "games": 74, "agents": [{"agent": "Jett", "role": "Duelist", "games": 32, "wins": 18, "losses": 14, "vs_usual": 0.52, "label": "well above your usual", "here": {"games": 2, "wins": 1, "losses": 1}}, {"agent": "Killjoy", "role": "Sentinel", "games": 9, "wins": 5, "losses": 4, "vs_usual": 0.21, "label": "above your usual", "here": {"games": 1, "wins": 1, "losses": 0}}, {"agent": "Reyna", "role": "Duelist", "games": 4, "wins": 3, "losses": 1, "vs_usual": 0.16, "label": "above your usual", "here": {"games": 0, "wins": 0, "losses": 0}}, {"agent": "Omen", "role": "Controller", "games": 14, "wins": 7, "losses": 7, "vs_usual": 0.04, "label": "your usual", "here": {"games": 3, "wins": 2, "losses": 1}}, {"agent": "Cypher", "role": "Sentinel", "games": 5, "wins": 2, "losses": 3, "vs_usual": 0.01, "label": "your usual", "here": {"games": 1, "wins": 0, "losses": 1}}, {"agent": "Fade", "role": "Initiator", "games": 3, "wins": 1, "losses": 2, "vs_usual": -0.09, "label": "your usual", "here": {"games": 0, "wins": 0, "losses": 0}}, {"agent": "Brimstone", "role": "Controller", "games": 3, "wins": 1, "losses": 2, "vs_usual": -0.19, "label": "below your usual", "here": {"games": 1, "wins": 1, "losses": 0}}, {"agent": "Sova", "role": "Initiator", "games": 6, "wins": 2, "losses": 4, "vs_usual": -0.38, "label": "well below your usual", "here": {"games": 1, "wins": 0, "losses": 1}}], "few": [{"agent": "Neon", "role": "Duelist", "games": 2, "wins": 2, "losses": 0, "vs_usual": 0.71, "label": "well above your usual", "here": {"games": 0, "wins": 0, "losses": 0}}, {"agent": "Viper", "role": "Controller", "games": 1, "wins": 1, "losses": 0, "vs_usual": 0.42, "label": "well above your usual", "here": {"games": 0, "wins": 0, "losses": 0}}, {"agent": "Sage", "role": "Sentinel", "games": 1, "wins": 1, "losses": 0, "vs_usual": 0.18, "label": "above your usual", "here": {"games": 1, "wins": 1, "losses": 0}}, {"agent": "Raze", "role": "Duelist", "games": 2, "wins": 1, "losses": 1, "vs_usual": -0.07, "label": "your usual", "here": {"games": 0, "wins": 0, "losses": 0}}, {"agent": "Skye", "role": "Initiator", "games": 1, "wins": 0, "losses": 1, "vs_usual": -0.31, "label": "below your usual", "here": {"games": 0, "wins": 0, "losses": 0}}, {"agent": "Breach", "role": "Initiator", "games": 2, "wins": 0, "losses": 2, "vs_usual": -0.44, "label": "well below your usual", "here": {"games": 0, "wins": 0, "losses": 0}}]};
+const LIKELY = {"demo-05": {"role": "Duelist", "games": 18, "of": 20}, "demo-00": {"role": "Duelist", "games": 16, "of": 20}, "demo-01": {"role": "Controller", "games": 15, "of": 20}, "demo-09": {"role": "Duelist", "games": 10, "of": 20}, "demo-06": {"role": "Initiator", "games": 11, "of": 20}, "demo-08": {"role": "Controller", "games": 14, "of": 20}, "demo-03": {"role": "Duelist", "games": 12, "of": 20}, "demo-04": {"role": "Duelist", "games": 9, "of": 20}, "demo-02": null, "demo-07": null};
+const STREAKS = {"demo-01": {"result": "won", "count": 4}, "demo-04": {"result": "lost", "count": 3}, "demo-06": {"result": "won", "count": 3}, "demo-09": {"result": "lost", "count": 3}};
 const qs = new URLSearchParams(location.search);
 const view = {map: MAPS.includes(qs.get("map")) ? qs.get("map") : BASE.map,
               side: qs.get("side") === "Red" ? "Red" : "Blue",
@@ -615,6 +665,11 @@ function build(){
 
   const you = s.players.find(p => p.team === view.side);
   for (const p of s.players) p.is_you = p === you;
+  // The live page carries a run for your own team only, and only for someone
+  // with stored games to have run in.
+  for (const p of s.players)
+    p.streak = p.team === view.side && p.score !== null
+      ? STREAKS[p.puuid] || null : null;
   s.own_team = view.side;
   s.enemy_team = view.side === "Blue" ? "Red" : "Blue";
   const blue = BASE.prediction.win_probability;
@@ -636,10 +691,20 @@ function build(){
     // up rather than shown as having none.
     for (const p of s.players.slice(-2))
       Object.assign(p, {agent: null, agent_id: null, role: null});
+    // Locked unless still choosing, with one teammate hovering as most
+    // lobbies have; the undecided carry the role their history points to.
+    for (const p of s.players)
+      Object.assign(p, {selection: p.agent ? "locked" : null,
+                        likely: p.agent ? null : LIKELY[p.puuid] || null});
+    const hover = s.players.find(p => p.agent && !p.is_you);
+    if (hover) Object.assign(hover, {selection: "selected",
+                                     likely: LIKELY[hover.puuid] || null});
     const pending = s.players.filter(p => p.score === null).map(p => p.puuid);
     s.lookup = {pending, remaining: 2 * pending.length};
+    s.your_picks = Object.assign({}, PICKS, {map: view.map});
   }
-  return {status: "match", state: s, top1_rate: TOP1, fresh: false};
+  return {status: "match", state: s, top1_rate: TOP1, fresh: false,
+          record: RECORD};
 }
 
 /* An invented result, so the page can be seen as it looks once the match is
@@ -837,14 +902,49 @@ function modeLabel(m){
 }
 const isAtk = t => t === "Red";
 
+/* A lean, in words the model can stand behind. It is calibrated but modest:
+   the extreme tenths of its test-set calls averaged 40% and 60%, and it picked
+   the winner 54% of the time, so nothing here says "favoured" -- trackHTML
+   says what a number like this has meant instead. */
 function verdict(p){
   const e = Math.abs(p - .5);
-  if (e < .015) return "Too close to call";
-  const s = p > .5 ? "Your side is" : "The enemy is";
-  if (e < .05) return s + " marginally ahead";
-  if (e < .12) return s + " favoured";
-  if (e < .25) return s + " clearly favoured";
-  return s + " heavily favoured";
+  if (e < .02) return "Coin flip";
+  return (e < .05 ? "Slight lean " : "Leans ") + (p > .5 ? "your way" : "their way");
+}
+
+/* What the same call meant in testing (model/calibration.py): how often the
+   side it leaned to won, from the reliability bin nearest this prediction,
+   and how often it picks the winner with this many players known. Nothing
+   when the record is not the loaded model's. */
+let RECORD = null;
+function trackHTML(s){
+  const rec = RECORD, pr = s.prediction;
+  if (!rec || !pr || !(rec.bins || []).length) return "";
+  const p = pr.win_probability;                       // Blue's
+  const [m, o, n] = rec.bins.reduce((a, b) =>
+    Math.abs(b[0] - p) < Math.abs(a[0] - p) ? b : a);
+  const won = m >= .5 ? o : 1 - o;
+  const pts = Math.round(1.96 * Math.sqrt(won * (1 - won) / n) * 100);
+  const tested = rec.bins.map(b => b[0]);
+  const beyond = p > Math.max(...tested) + .05 || p < Math.min(...tested) - .05;
+  let out = beyond
+    ? `A stronger call than almost any it made in testing. Its strongest tenth
+       there were won by the side it leaned to ${pc0(won)} of the time`
+    : `When it rated a match like this, the side it leaned to won ${pc0(won)}
+       of the time`;
+  out += ` (±${pts}, ${i0(n.toLocaleString("en-US"))} test matches).`;
+  const range = st => String(st.known).split("-").map(Number);
+  const k = s.coverage, of = s.players.length;
+  const st = (rec.strata || []).find(x => {
+    const [a, b] = range(x); return k >= a && k <= b; });
+  const fewest = Math.min(...(rec.strata || []).map(x => range(x)[0])
+    .filter(Number.isFinite));
+  if (st) out += ` With ${i0(k)} of ${i0(of)} players known it picks the winner
+    ${pc0(st.accuracy)} of the time.`;
+  else if (Number.isFinite(fewest) && k < fewest)
+    out += ` With only ${i0(k)} of ${i0(of)} known, this is
+    outside what it was tested on (${i0(fewest)} or more).`;
+  return `<div class="callrec">${out}</div>`;
 }
 
 /* ---------------- roster ---------------- */
@@ -874,6 +974,17 @@ function rankTag(r){
   return `<span class="rank ${cls}" title="${esc(r.name)}">${esc(r.short)}</span>`;
 }
 
+/* Three or more the same this session, your team only (live/streak.py). The
+   score and the prediction never read it. Beside the name on a card; on a
+   scoreboard row it follows the agent instead, because the two-column board
+   has no room left on the name line for the longest Riot IDs, and a name cut
+   short is worse than a reason that trails off. */
+function runTag(p){
+  const r = p.streak;
+  if (!r || (r.result !== "won" && r.result !== "lost")) return "";
+  return `<span class="run ${r.result}">${r.result} ${i0(r.count)} in a row</span>`;
+}
+
 function rowHTML(p){
   const c = p.career, r = p.recent, known = p.score !== null;
   const stat = (label, val, cls) =>
@@ -888,7 +999,7 @@ function rowHTML(p){
       <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
         partyTag(p.puuid)}${
         p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}</div>
-      <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>
+      <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>${runTag(p)}
         ${rankTag(p.rank)}
         &nbsp;·&nbsp;${esc(p.reason)}</div>
     </div>
@@ -979,8 +1090,13 @@ function cardHTML(p, pending, mapName){
     <div class="cwho">
       <div class="nm">${esc(p.name)}${p.is_you ? '<span class="tag">YOU</span>' : ""}${
         partyTag(p.puuid)}${
-        p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}</div>
-      <div class="rs"><span class="ag">${esc(p.agent || "selecting")}</span>
+        p.flag ? '<span class="alert" title="irregularity flagged">◆</span>' : ""}${
+        runTag(p)}</div>
+      <div class="rs">${p.agent ? `<span class="ag">${esc(p.agent)}</span>${
+          p.selection === "selected" ? '<span class="hov">hovering</span>' : ""}`
+        : p.likely && !p.is_you ? `<span class="ag lik">likely ${esc(p.likely.role)} ${
+          i0(p.likely.games)}/${i0(p.likely.of)}</span>`
+        : '<span class="ag">selecting</span>'}
         ${rankTag(p.rank)}${known ? `&nbsp;·&nbsp;${esc(p.reason)}` : ""}</div>
     </div>
     ${body}
@@ -1003,6 +1119,7 @@ function pregameHTML(s){
       <span class="trule"></span>
       <span class="tcount">${known}/${players.length} known · ${left}</span>
     </div>
+    ${compHTML(s)}
     <div class="cards">${players.map(p =>
       cardHTML(p, pending.has(p.puuid), s.map)).join("")}</div>
   </section>`;
@@ -1035,8 +1152,87 @@ function twoUp(career, recent, win){
       same games.</span></div>` : ""}`;
 }
 
+/* Who covers which role on your team so far. Locked and hovered agents say;
+   for anyone undecided, the role their last twenty games point to. You are
+   left out while you are still choosing -- that is the decision this is for. */
+const ROLES = ["Duelist", "Controller", "Initiator", "Sentinel"];
+const short = name => String(name || "").split("#")[0];
+
+function teamRoles(s){
+  const by = Object.fromEntries(ROLES.map(r => [r, []]));
+  for (const p of s.players.filter(x => x.team === s.own_team)){
+    if (p.agent && p.role && by[p.role])
+      by[p.role].push({p, how: p.selection === "selected" ? "hovering"
+                               : p.selection === "locked" ? "locked" : "picked"});
+    else if (!p.is_you && p.likely && by[p.likely.role])
+      by[p.likely.role].push({p, how: "likely"});
+  }
+  return {by, open: ROLES.filter(r => !by[r].length)};
+}
+
+function compHTML(s){
+  const {by} = teamRoles(s);
+  const who = e => e.how === "likely"
+    ? `<span class="lik">${esc(short(e.p.name))} likely, ${i0(e.p.likely.games)}/${
+        i0(e.p.likely.of)}</span>`
+    : `<span>${esc(short(e.p.name))} · ${esc(e.p.agent)}${
+        e.how === "hovering" ? " (hovering)" : ""}</span>`;
+  return `<div class="comp">${ROLES.map(r => by[r].length
+    ? `<div class="slot"><b>${r}</b>${by[r].map(who).join("")}</div>`
+    : `<div class="slot open"><b>${r}</b><span>open</span></div>`).join("")}</div>`;
+}
+
+/* In agent select the panel answers what to pick: the agents you play best,
+   against your own average. A teammate's card replaces it on click, and ESC
+   brings it back. */
+const PICK_TONE = {
+  "well above your usual": ["up", "▲▲ well above"],
+  "above your usual": ["up", "▲ above"],
+  "your usual": ["mute", "≈ your usual"],
+  "below your usual": ["dn", "▼ below"],
+  "well below your usual": ["dn", "▼▼ well below"],
+};
+
+function picksHTML(s){
+  const yp = s.your_picks, few = yp.few || [];
+  const open = new Set(teamRoles(s).open);
+  const row = (a, played) => {
+    const [tone, text] = PICK_TONE[a.label] || ["mute", a.label];
+    const h = a.here || {};
+    return `<tr class="${played ? "few" : ""}">
+      <td><b>${esc(a.agent)}</b><span class="role">${esc(a.role || "")}</span>${
+        open.has(a.role) ? '<span class="fill">open role</span>' : ""}</td>
+      <td class="${tone}">${esc(text)}${played ? ` <span class="n">in ${
+        i0(a.games)} game${a.games === 1 ? "" : "s"}</span>` : ""}</td>
+      <td>${i0(a.games)}</td>
+      <td>${i0(a.wins)}–${i0(a.losses)}</td>
+      <td>${h.games ? `${i0(h.wins)}–${i0(h.losses)}` : "—"}</td></tr>`;
+  };
+  const rows = yp.agents.map(a => row(a, false)).join("") + (few.length
+    ? `<tr class="split"><td colspan="5">Played once or twice</td></tr>`
+      + few.map(a => row(a, true)).join("") : "");
+  return `<aside class="panel picks">
+    <div class="ptitle">Your picks <span>· ${esc(yp.map || s.map || "")}</span></div>
+    <div class="pnote">How well you play each agent, against your own average
+      over ${i0(yp.games)} competitive games. Agents with three or more are
+      ranked, pulled toward your average when games are few; under them, the
+      ones you have played once or twice, with what those games showed. The
+      map record is context: one to three games an agent is all anyone has.</div>
+    <table class="pstats"><thead><tr><th>agent</th><th>you on it</th>
+      <th>games</th><th>w–l</th><th>on ${esc(yp.map || s.map || "map")}</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    <div class="hint">Click a teammate for their full card;
+      <span class="kbd">ESC</span> comes back here.</div>
+  </aside>`;
+}
+
 function panelHTML(s){
   const p = s.players.find(x => x.puuid === selected);
+  // Agents played once or twice count too: a newer account has only those.
+  const yp = s.your_picks;
+  if (!p && s.phase === "pregame" && yp
+      && ((yp.agents || []).length || (yp.few || []).length))
+    return picksHTML(s);
   if (!p) return `<aside class="panel"><div class="hint">
       Select any player for their agent, career record,<br>
       recent form and how they play ${esc(s.map || "this map")}.
@@ -1164,6 +1360,7 @@ function playerBlock(p, rv, rated, placed){
   const move = (p.predicted_rank && p.actual_rank)
     ? p.predicted_rank - p.actual_rank : null;
   const places = n => `${n} place${n === 1 ? "" : "s"}`;
+  const by = rv.best_by === "performance score" ? "Performance Score" : "match impact";
   const placing = move === 0 ? `exactly where the score put them`
     : `${places(Math.abs(move))} ${move > 0 ? "better" : "worse"} than the
        score expected`;
@@ -1179,6 +1376,8 @@ function playerBlock(p, rv, rated, placed){
       // damage figure. Shown as it was rather than left blank.
       : ["Combat score", n1(p.career_acs), n1(p.acs),
          deltaCell(p.acs_delta, v => Math.abs(v).toFixed(0), 1)],
+    ...(p.performance_score != null
+      ? [["Performance Score", "—", i0(p.performance_score), "—"]] : []),
     ["K / D", p.career_kd == null ? "—" : Number(p.career_kd).toFixed(2),
      p.kd == null ? "—" : Number(p.kd).toFixed(2),
      deltaCell(p.kd_delta, v => Math.abs(v).toFixed(2), 1)],
@@ -1199,11 +1398,11 @@ function playerBlock(p, rv, rated, placed){
     <div class="pline">${p.predicted_rank
       ? `Ranked <b>#${i0(p.predicted_rank)}</b> of the ${i0(rated)} players the
          page could score, and finished <b>#${p.actual_rank
-           ? i0(p.actual_rank) : "—"}</b> of ${i0(placed)} on match
-         impact${move === null ? "" : ` — ${placing}`}.`
+           ? i0(p.actual_rank) : "—"}</b> of ${i0(placed)} on ${by}${
+         move === null ? "" : ` — ${placing}`}.`
       : `There was no history to score them on before the match${p.actual_rank
-         ? `; they finished #${i0(p.actual_rank)} of ${i0(placed)} on match
-            impact` : ""}.`}
+         ? `; they finished #${i0(p.actual_rank)} of ${i0(placed)} on ${by}`
+         : ""}.`}
       ${p.versus_usual ? ` They played <b>${esc(p.versus_usual)}</b>.` : ""}</div>
     ${p.reason ? `<div class="pwhy">“${esc(p.reason)}”</div>` : ""}
     <table class="pstats"><thead><tr><th></th>
@@ -1247,8 +1446,12 @@ function compareHTML(rv){
     ${group("Your team", side(rv.own_team))}
     ${group("Enemy team", side(other))}
     <div class="cmp" style="border:0;padding-top:12px"><span class="k">Placing
-      is by match impact in that match -- the same measure the accuracy figures
-      use. “Before” is the player's own career
+      is by ${rv.best_by === "performance score"
+        ? `the game's own Performance Score in that match. The score's quoted
+           accuracy is measured on match impact -- only your own lobbies have
+           a Performance Score -- so the two are close kin, not the same`
+        : "match impact in that match -- the same measure the score's quoted "
+          + "accuracy uses"}. “Before” is the player's own career
       average up to the moment the match started, never including the match
       itself — so the change column is how they played against how they usually
       play, not against the rest of the lobby.</span></div></div>`;
@@ -1295,11 +1498,14 @@ function recentHTML(list){
       <a href="/results">/results</a>.</div></div>`;
 }
 
-/* A match in progress has a page of its own too, and saying so on the live
-   view means it is never only reachable through a pop-up the browser may have
-   refused or the player may have closed. */
-function matchLinkHTML(matchId){
-  if (!matchId || pinnedMatch()) return "";
+/* A match in progress has a page of its own too, and this link is the way to
+   it: nothing pops up. Only once a prediction is recorded, at the loading
+   screen -- in agent select the page does not exist yet, and the cards need
+   the room. */
+function matchLinkHTML(s){
+  const matchId = s.match_id;
+  if (!matchId || pinnedMatch() || !s.prediction || s.phase === "pregame")
+    return "";
   return `<div class="ownpage"><a href="/m/${encodeURIComponent(matchId)}"
     target="_blank" rel="noopener">This match has its own page — it keeps the
     prediction and fills in the comparison when the game ends ↗</a></div>`;
@@ -1324,6 +1530,13 @@ function render(msg){
     $("stage").innerHTML = `<div class="idle">${esc(msg.message)}…</div>`;
     return;
   }
+  /* Between agent select and the match Riot briefly answers neither. The
+     cards stay up, and the line under the map says why nothing is moving. */
+  if (msg.status === "loading"){
+    $("sub").textContent = "Agent select is over — the match is loading";
+    if (!STATE) $("stage").innerHTML = `<div class="idle">The match is loading…</div>`;
+    return;
+  }
   if (msg.status === "lobby"){
     $("map").textContent = "STANDBY"; $("sub").textContent = "waiting for a match";
     $("stage").innerHTML = `<div class="idle">Queue, or start a custom game.</div>`
@@ -1333,6 +1546,8 @@ function render(msg){
 
   const s = STATE = msg.state;
   if (msg.top1_rate != null) top1 = msg.top1_rate;
+  // Re-renders from a click carry no record; keep the one the socket sent.
+  if ("record" in msg) RECORD = msg.record;
   if (selected && !s.players.some(p => p.puuid === selected)) selected = null;
 
   $("map").textContent = s.map || "UNKNOWN MAP";
@@ -1341,15 +1556,18 @@ function render(msg){
   // Agent select describes one team, so "of 10" would count five players
   // nobody can see yet.
   const lobby = s.phase === "pregame" ? s.players.length : 10;
+  // How many players have history -- not how sure the prediction is, which
+  // the track record under the odds says. "High confidence" read as the
+  // second while it measured the first.
   $("sub").innerHTML = `${esc(phase)} <b>·</b> ${esc(modeLabel(s.mode))} <b>·</b> ` +
-    `${esc(s.coverage)}/${esc(lobby)} known <b>·</b> ${esc(s.confidence)} confidence`;
+    `${esc(s.coverage)}/${esc(lobby)} known`;
 
   indexParties(s);
 
   if (msg.review){ REVIEW = msg.review; REVIEW_ID = s.match_id; }
   else if (REVIEW_ID !== s.match_id){ REVIEW = null; REVIEW_ID = null; }
   const review = REVIEW;
-  let head = matchLinkHTML(s.match_id);
+  let head = matchLinkHTML(s);
   for (const w of s.warnings) head += `<div class="warn">${esc(w)}</div>`;
   if ((s.parties || []).some(g => g.source === "inferred"))
     head += `<div class="partynote">Party markers are inferred from who has
@@ -1365,7 +1583,7 @@ function render(msg){
         <div class="def" style="width:${(1 - atkPct) * 100}%">BLUE ${
           ((1 - atkPct) * 100).toFixed(0)}%</div></div>
       <div class="verdict"><b>${verdict(own)}</b> — you are on ${esc(s.own_team)}.
-        Model: ${esc(s.model)}.</div></div>`;
+        Model: ${esc(s.model)}.</div>${trackHTML(s)}</div>`;
   } else if (s.phase !== "pregame") {
     // In agent select the enemy is hidden, which the warnings already say;
     // "not enough known" would blame the lookup for something Riot withholds.
