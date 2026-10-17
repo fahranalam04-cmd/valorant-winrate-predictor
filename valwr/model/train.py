@@ -26,6 +26,12 @@ from valwr.features import build as fb
 from valwr.model import baselines, evaluate, serving, split
 from valwr.store import schema
 
+# The repository's reports/, where everything that reads results.json looks.
+# This was "two folders above the database", which was the repository only
+# while the database sat in data/: moved to another drive, training wrote its
+# report there and the next step judged the new model by the old report.
+REPORTS = Path(__file__).resolve().parent.parent.parent / "reports"
+
 RANDOM_STATE = 17
 
 # Swept on validation over C in [0.003, 1.0]. The curve is almost flat --
@@ -357,7 +363,7 @@ def main(argv=None) -> int:
     eligible = [r for r in ranked if r.log_loss <= threshold]
     winner_name = min(eligible, key=lambda r: COMPLEXITY.get(r.name, 99)).name
 
-    out = Path(s.database_path).parent.parent / "reports"
+    out = REPORTS
     out.mkdir(exist_ok=True)
     (out / "results.json").write_text(json.dumps({
         "n_train": len(tr), "n_val": len(va), "n_test": len(te),

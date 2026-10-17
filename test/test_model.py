@@ -320,3 +320,10 @@ def test_report_renders_every_headline_number_from_the_run():
     assert f"{best['log_loss']:.4f}" in out
     assert f"{res['n_test']:,}" in out
     assert f"{res['n_train']:,}" in out
+
+
+def test_training_reports_where_everything_reads_them():
+    """Not beside the database: moved to another drive, results.json went
+    with it, and the rebuild's next step read the previous model's report."""
+    from valwr.model import calibration, report, train
+    assert train.REPORTS / "results.json" == report.RESULTS == calibration.RESULTS
