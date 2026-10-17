@@ -14,7 +14,10 @@ measurement stays in this document rather than being quietly dropped.
 The tables were replaced on **26 September 2026**, after patch 13.06 (below).
 The replacements score **30.0% against the old score's 29.8%** on 3,000 teams,
 which passes criterion 1 for the first time. Criterion 2 still fails: within a
-role, the old single formula still orders players better.
+role, the old single formula still orders players better. Remeasured after the
+October retrain on newer teams, they score **28.8% against 29.8%** -- and the
+September tables score the same 28.8% there, so the drop is the newer period,
+not the refit (see the end of section 4).
 
 ---
 
@@ -564,6 +567,30 @@ teams, both scores on the same teams
 | Sentinel | +0.172 | +0.142 | 26.8% | 29.6% |
 | Controller | +0.151 | +0.122 | 25.4% | 29.0% |
 | Initiator | +0.172 | +0.164 | 25.8% | 27.9% |
+
+**Remeasured after the October 2026 retrain** (`tools/rebuild.py`), on the
+3,000 newest test-period teams, both scores on the same teams. The win model
+doubled its training data; the tables were refitted on it.
+
+| | top-1 |
+|---|---|
+| the old score | 29.8% |
+| **the per-role score** | **28.8%** |
+| career ACS alone | 29.9% |
+| shuffled (control) | 20.3% |
+
+The September tables, measured on these same teams, also score 28.8%: the
+refit lost nothing, and the drop from 30.0% is the newer, harder period. On
+this sample the per-role score trails the old one by a point -- more than the
+0.7-point standard error -- and is behind it for Sentinels, so criterion 1
+fails here where it passed in September. The dashboard quotes the 28.8%.
+
+| role | rho old | rho new | named old | named new |
+|---|---|---|---|---|
+| Duelist | +0.176 | +0.173 | 32.6% | 27.4% |
+| Sentinel | +0.188 | +0.162 | 30.8% | 28.5% |
+| Controller | +0.164 | +0.160 | 26.7% | 31.4% |
+| Initiator | +0.159 | +0.152 | 24.3% | 29.0% |
 
 **It passes criterion 1 and still fails criterion 2.** Top-1 is level with the
 old score, where the first tables were two points behind it. The best game is

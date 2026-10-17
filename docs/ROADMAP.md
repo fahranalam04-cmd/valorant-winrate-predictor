@@ -135,7 +135,7 @@ passes.
   different odds. [MODEL-CHOICE.md](MODEL-CHOICE.md) has every model and every
   metric.
 - **No calibration layer.** Isotonic recalibration, fitted on validation, made
-  held-out log loss worse (0.6893 against 0.6874). The raw model is already
+  held-out log loss worse (0.6899 against 0.6890). The raw model is already
   calibrated to within a point — expected calibration error 0.008.
 - **No SHAP.** For a linear model, each feature's contribution is exactly its
   weight times its standardised value, and those contributions sum to the

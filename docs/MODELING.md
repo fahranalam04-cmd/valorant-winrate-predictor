@@ -19,11 +19,11 @@ the ceiling is set by how much matchmaking leaves on the table.
 
 ### Expected, then measured
 
-| Metric | Expected before any data | Measured, 10,304 held-out matches |
+| Metric | Expected before any data | Measured, 10,316 held-out matches |
 |---|---|---|
-| AUC-ROC | 0.60 – 0.68 | **0.560** |
-| Accuracy | 58 – 64% | **54.3% ± 1.0%** |
-| Log loss | ~0.66 – 0.68 | **0.6874** (coin flip 0.6931) |
+| AUC-ROC | 0.60 – 0.68 | **0.551** |
+| Accuracy | 58 – 64% | **53.8% ± 1.0%** |
+| Log loss | ~0.66 – 0.68 | **0.6890** (coin flip 0.6931) |
 
 The result landed below the expected range, and the write-up says so rather
 than moving the goalposts. Matchmaking is better at producing even games than
@@ -50,7 +50,7 @@ inverted.
 
 **2. Higher average rank wins.** The honest bar, and the one people skip.
 
-**Measured on the 10,304-match test set: 50.2% accuracy, AUC 0.507** — barely
+**Measured on the 10,316-match test set: 50.4% accuracy, AUC 0.508** — barely
 distinguishable from the coin flip. Matchmaking equalises rank so effectively
 that rank itself hardly predicts the winner. The room above it is all the room
 there is.
@@ -126,9 +126,9 @@ rating beating ACS by +0.345 to +0.304. Re-run on a hundred times the data,
 reliability fell to 0.54 and the edge over ACS vanished. The first figures were
 small-sample noise, written up as a finding.
 
-The same holds where it matters more, predicting match results. Alone, the
-team rating difference scores log loss 0.6914 on the 10,304-match test set, and
-the team ACS difference scores 0.6908: ACS is ahead, by 1.5 standard errors on
+The same holds where it matters more, predicting match results. Alone, on the
+September model's 10,304-match test set at the time, the team rating difference
+scored log loss 0.6914 and the team ACS difference 0.6908: ACS was ahead, by 1.5 standard errors on
 a paired comparison, which is not significant either. The rating stays in the
 model as one of 52 features, but the claim that it measures something ACS
 does not is not supported.
@@ -289,8 +289,8 @@ A model can have good AUC and useless calibration.
 
 - Fit isotonic and Platt calibration on the validation slice, never on test,
   and keep whichever scores better there. **As built, neither ships:** the
-  better of the two, isotonic, made held-out log loss worse (0.6893 against
-  0.6874). The raw logistic model is already calibrated to within a point.
+  better of the two, isotonic, made held-out log loss worse (0.6899 against
+  0.6890). The raw logistic model is already calibrated to within a point.
 - Produce a **reliability diagram** — predicted probability vs observed
   frequency, in bins of equal count. It is in the README.
 - Report expected calibration error (ECE): **0.008** on the shipped model.

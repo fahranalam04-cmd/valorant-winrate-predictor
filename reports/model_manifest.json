@@ -1,37 +1,92 @@
 {
   "artifacts": {
     "model.joblib": {
-      "bytes": 583655,
+      "bytes": 510676,
       "features": 52,
       "model": "logistic regression",
-      "norms_as_of": 1788233215,
-      "sha256": "168b28ffe1651a48710d581f764b9844f7e156d687c3ca89eb41db8910d41139",
+      "norms_as_of": 1788307131,
+      "sha256": "176eda40d413e0219d93f994c92538999127f2d59a1e2785ca06f51a88ce1a52",
       "test": {
-        "accuracy": 0.542605,
-        "auc": 0.560125,
-        "brier": 0.24716,
-        "ece": 0.008011,
-        "log_loss": 0.687427,
-        "n": 10304
+        "accuracy": 0.537515,
+        "auc": 0.551302,
+        "brier": 0.247952,
+        "ece": 0.008113,
+        "log_loss": 0.689015,
+        "n": 10316
       }
     },
     "perf_index.json": {
-      "as_of": 1788233215,
-      "bytes": 828840,
-      "n": 39869,
-      "sha256": "6d3ca5a1f18701c483806cf28dffc3b4b02d10f248f4e590459743c1fa0cdb68",
-      "top1_rate": 0.3047
+      "as_of": 1788307131,
+      "bytes": 829389,
+      "n": 39891,
+      "sha256": "cbd319d78319208e5dabc941e5a0d2e60265e05047d2a6fe3d07daa9e400e257",
+      "top1_rate": 0.296
     },
     "role_index.json": {
-      "as_of": 1788285177,
-      "bytes": 1110576,
-      "n": 26427,
-      "sha256": "598cd98c6917edbb6fc14014b70ac1eab2677982b8a142c77850f999641418ee",
-      "top1_rate": 0.3
+      "as_of": 1788307131,
+      "bytes": 1109801,
+      "n": 26413,
+      "sha256": "385174eaf1a98e1ff934670833bee4801ce2843e040ab5602b4efaf767627d49",
+      "top1_rate": 0.2877
     }
   },
   "built": {
-    "by": null,
-    "note": "described after the fact: how these files were built was not recorded"
+    "at": "2026-10-17T09:00:53Z",
+    "by": "tools/rebuild.py",
+    "commit": "83ed4aa00006abeaff72e6a878b06c98015086d8",
+    "database": {
+      "matches": 80864,
+      "newest_match": 1792220646
+    },
+    "steps": [
+      {
+        "seconds": 619,
+        "step": "train the win model"
+      },
+      {
+        "seconds": 8,
+        "step": "draw the README charts"
+      },
+      {
+        "seconds": 51,
+        "step": "refit the card's reference index"
+      },
+      {
+        "seconds": 35,
+        "step": "measure it"
+      },
+      {
+        "seconds": 32,
+        "step": "measure the above-rank flag"
+      },
+      {
+        "seconds": 14,
+        "step": "refit the per-role index"
+      },
+      {
+        "seconds": 56,
+        "step": "measure the rate the dashboard quotes"
+      },
+      {
+        "seconds": 412,
+        "step": "re-export the sandbox dashboard"
+      },
+      {
+        "seconds": 26,
+        "step": "re-freeze the sandbox benchmark"
+      },
+      {
+        "seconds": 5,
+        "step": "tabulate every model into the docs"
+      }
+    ],
+    "versions": {
+      "joblib": "1.5.3",
+      "lightgbm": "4.7.0",
+      "numpy": "2.5.2",
+      "pandas": "3.0.5",
+      "python": "3.14.2",
+      "scikit-learn": "1.9.0"
+    }
   }
 }

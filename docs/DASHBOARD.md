@@ -94,17 +94,17 @@ from your side, as a lean:
 | beyond that | Leans your way / their way |
 
 Nothing says "favoured". The model is calibrated but modest: across its
-10,304 test matches the lowest tenth of its calls averaged 40% for Blue and the
+10,316 test matches the lowest tenth of its calls averaged 40% for Blue and the
 highest tenth 60%, they meant what they said -- when it rated a side at 60%,
-that side won 61% -- and it picked the winner 54% of the time. So under the verdict is what a number like this has
-meant:
+that side won 59.5% -- and it picked the winner 53.8% of the time. So under
+the verdict is what a number like this has meant:
 
 - **What the same call meant in testing** -- how often the side it leaned to
   won, among the test matches it rated like this one, with the margin on that
-  figure: *the side it leaned to won 56% of the time (±3, 1,030 test matches)*.
+  figure: *the side it leaned to won 55% of the time (±3, 1,031 test matches)*.
   A call stronger than almost any it made in testing says so.
 - **How often it picks the winner with this many players known** -- 52% with 5
-  or 6, 55% with 9 or 10. Below five known, the prediction is outside what it
+  or 6, 54% with 9 or 10. Below five known, the prediction is outside what it
   was tested on, and the line says that instead.
 
 Both come from `reports/results.json`, and only when that file describes the
@@ -384,12 +384,12 @@ between the teams. How it was chosen, and every other model tried, is in
 
 ## What the numbers can and cannot tell you
 
-- **The odds are modest because the games are close.** 54.3% accuracy on
-  10,304 held-out matches is a real edge over rank, which scores 50.2%, and it
+- **The odds are modest because the games are close.** 53.8% accuracy on
+  10,316 held-out matches is a real edge over rank, which scores 50.4%, and it
   holds on matches where both teams' ranks are equal. It is not a forecast to
   bet on.
-- **The score picks the best player on a team 29.6% of the time**, against 20%
-  by chance. A real edge, not a reliable one — the page footer says the same.
+- **The score picks the best player on a team 28.8% of the time**, against 20%
+  by chance, on the newest 3,000 test-period teams. A real edge, not a reliable one — the page footer says the same.
 - **The list order and the number are answering different questions.** The
   0–100 is a percentile *within a role*. The order is across the lobby, by the
   underlying cross-role figure, because a duelist is the best player on their

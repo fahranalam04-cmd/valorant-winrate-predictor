@@ -1,10 +1,10 @@
 """What the model's numbers have meant, so the page can say them honestly.
 
-The win model is calibrated but modest. Across its 10,304 test matches the
-lowest tenth of its calls averaged 40% and the highest tenth 60%, and they meant
-what they said -- when it rated a side at 60%, that side won 61% -- but it
-picked the winner 54% of the time. A bare "58%" beside the word "favoured"
-invited a reading the record does not support. So the page puts beside each
+The win model is calibrated but modest. In testing the extreme tenths of its
+calls average about 40% and 60%, and they mean what they say -- a 60% call is
+won about 60% of the time -- but it picks the winner only about 54% of the
+time (docs/DASHBOARD.md has the current figures). A bare "58%" beside the
+word "favoured" invited a reading the record does not support. So the page puts beside each
 prediction what happened the times the model made the same call in testing,
 and how often it picks the winner with as many players known as this lobby
 has.
