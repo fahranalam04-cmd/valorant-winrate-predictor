@@ -109,7 +109,8 @@ def render(res: dict) -> str:
             + ", ".join(f"**{c['name']}** {c['auc']:.3f}" for c in strata)
             + (". Rising with coverage, as expected."
                if monotonic else
-               ". Not monotonic — see the retraction below."),
+               ". Not monotonic, and it flips between retrains — see "
+               "[docs/MODEL-CHOICE.md](docs/MODEL-CHOICE.md)."),
         ]
     return "\n".join(out)
 

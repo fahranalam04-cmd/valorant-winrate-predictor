@@ -17,7 +17,8 @@ which passes criterion 1 for the first time. Criterion 2 still fails: within a
 role, the old single formula still orders players better. Remeasured after the
 October retrain on newer teams, they score **28.8% against 29.8%** -- and the
 September tables score the same 28.8% there, so the drop is the newer period,
-not the refit (see the end of section 4).
+not the refit (see the end of section 4). After the November retrain, the
+first with Hush in the data, they score **29.0% against 29.4%**.
 
 ---
 
@@ -583,7 +584,8 @@ The September tables, measured on these same teams, also score 28.8%: the
 refit lost nothing, and the drop from 30.0% is the newer, harder period. On
 this sample the per-role score trails the old one by a point -- more than the
 0.7-point standard error -- and is behind it for Sentinels, so criterion 1
-fails here where it passed in September. The dashboard quotes the 28.8%.
+fails here where it passed in September. The dashboard quoted the 28.8%
+until the November retrain.
 
 | role | rho old | rho new | named old | named new |
 |---|---|---|---|---|
@@ -591,6 +593,29 @@ fails here where it passed in September. The dashboard quotes the 28.8%.
 | Sentinel | +0.188 | +0.162 | 30.8% | 28.5% |
 | Controller | +0.164 | +0.160 | 26.7% | 31.4% |
 | Initiator | +0.159 | +0.152 | 24.3% | 29.0% |
+
+**Remeasured after the November 2026 retrain**, the first with Hush in the
+data (Hush scored with the Duelist table, as every Duelist is), on 3,000
+test-period teams:
+
+| | top-1 |
+|---|---|
+| the old score | 29.4% |
+| **the per-role score** | **29.0%** |
+| career ACS alone | 29.0% |
+| shuffled (control) | 19.4% |
+
+The per-role score trails the old one by 0.4 points, inside the 0.7-point
+standard error, so criterion 1 passes again. Criterion 2 still fails: the
+Initiator and Controller correlations are +0.176 and +0.192 against the
++0.200 asked for. The dashboard quotes the 29.0%.
+
+| role | rho old | rho new | named old | named new |
+|---|---|---|---|---|
+| Duelist | +0.167 | +0.175 | 34.0% | 29.0% |
+| Sentinel | +0.202 | +0.182 | 25.4% | 29.4% |
+| Controller | +0.203 | +0.192 | 25.1% | 28.4% |
+| Initiator | +0.179 | +0.176 | 26.4% | 25.5% |
 
 **It passes criterion 1 and still fails criterion 2.** Top-1 is level with the
 old score, where the first tables were two points behind it. The best game is

@@ -1,82 +1,86 @@
 {
   "artifacts": {
     "model.joblib": {
-      "bytes": 510676,
+      "bytes": 754209,
       "features": 52,
       "model": "logistic regression",
-      "norms_as_of": 1788307131,
-      "sha256": "176eda40d413e0219d93f994c92538999127f2d59a1e2785ca06f51a88ce1a52",
+      "norms_as_of": 1788379502,
+      "sha256": "5180dc108dc3d2233ec4a3123a1f2561cb953e5700f7cdc4f733f29fbd442d12",
       "test": {
-        "accuracy": 0.537515,
-        "auc": 0.551302,
-        "brier": 0.247952,
-        "ece": 0.008113,
-        "log_loss": 0.689015,
-        "n": 10316
+        "accuracy": 0.531949,
+        "auc": 0.546463,
+        "brier": 0.248344,
+        "ece": 0.012059,
+        "log_loss": 0.689802,
+        "n": 10063
       }
     },
     "perf_index.json": {
-      "as_of": 1788307131,
-      "bytes": 829389,
-      "n": 39891,
-      "sha256": "cbd319d78319208e5dabc941e5a0d2e60265e05047d2a6fe3d07daa9e400e257",
-      "top1_rate": 0.296
+      "as_of": 1788379502,
+      "bytes": 836866,
+      "n": 40252,
+      "sha256": "f49d46784a0059edd198fb97ce04844d05492fb38a8945c5f318f99e1d47e4f5",
+      "top1_rate": 0.292
     },
     "role_index.json": {
-      "as_of": 1788307131,
-      "bytes": 1109801,
-      "n": 26413,
-      "sha256": "385174eaf1a98e1ff934670833bee4801ce2843e040ab5602b4efaf767627d49",
-      "top1_rate": 0.2877
+      "as_of": 1788379502,
+      "bytes": 1127108,
+      "n": 26827,
+      "sha256": "df7cbed375e82483b64b87dc99e9475b71f15b79c9b97e1f399d8255bcad1f27",
+      "top1_rate": 0.2897
     }
   },
   "built": {
-    "at": "2026-10-17T09:00:53Z",
+    "at": "2026-11-19T07:57:48Z",
     "by": "tools/rebuild.py",
-    "commit": "83ed4aa00006abeaff72e6a878b06c98015086d8",
+    "commit": "9d2b1a3e877be15151cde8067e7882eb99e2f252",
     "database": {
-      "matches": 80864,
-      "newest_match": 1792220646
+      "matches": 87198,
+      "newest_match": 1795070772
     },
     "steps": [
       {
-        "seconds": 619,
+        "seconds": 2,
+        "step": "refresh the agent and map tables"
+      },
+      {
+        "seconds": 566,
         "step": "train the win model"
       },
       {
-        "seconds": 8,
+        "seconds": 6,
         "step": "draw the README charts"
       },
       {
-        "seconds": 51,
+        "seconds": 39,
         "step": "refit the card's reference index"
       },
       {
-        "seconds": 35,
+        "seconds": 28,
         "step": "measure it"
       },
       {
-        "seconds": 32,
+        "seconds": 26,
         "step": "measure the above-rank flag"
       },
       {
-        "seconds": 14,
+        "seconds": 10,
         "step": "refit the per-role index"
       },
       {
-        "seconds": 56,
+        "seconds": 47,
         "step": "measure the rate the dashboard quotes"
       },
       {
-        "seconds": 412,
+        "seconds": 307,
         "step": "re-export the sandbox dashboard"
       },
       {
-        "seconds": 26,
+        "seconds": 22,
         "step": "re-freeze the sandbox benchmark"
       },
       {
-        "seconds": 5,
+        "seconds": 4,
         "step": "tabulate every model into the docs"
       }
     ],
