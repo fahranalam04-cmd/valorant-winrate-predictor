@@ -40,6 +40,9 @@ from valwr.model import manifest  # noqa: E402
 
 PY = sys.executable
 STEPS = (
+    # First, so an agent released since the last rebuild has its role before
+    # the features are built. Training refuses to run without one.
+    ("refresh the agent and map tables", [PY, "-m", "valwr.store.reference"]),
     ("train the win model", [PY, "-m", "valwr.model.train", "--rebuild"]),
     ("draw the README charts", [PY, "-m", "valwr.model.analyze"]),
     ("refit the card's reference index", [PY, "tools/build_perf_index.py"]),

@@ -154,3 +154,31 @@ def agents_without_role(conn: sqlite3.Connection) -> list[str]:
         "LEFT JOIN ref_agents ra ON ra.name = mp.agent "
         "WHERE mp.agent IS NOT NULL AND mp.agent != '' AND ra.role IS NULL "
         "ORDER BY mp.agent")]
+
+
+def main(argv=None) -> int:
+    """Refresh the reference tables, then fail if any stored agent has no role.
+
+        python -m valwr.store.reference
+
+    The first step of tools/rebuild.py, so a new agent is picked up before
+    the features are built rather than noticed by the training guard after.
+    Needs no API key; valorant-api.com is public game data.
+    """
+    from valwr import config
+    from valwr.store import schema
+
+    s = config.load(require_key=False)
+    conn = schema.connect(s.database_path)
+    schema.create_all(conn)
+    counts = load_all(conn)
+    print("  " + ", ".join(f"{k} {n}" for k, n in counts.items()))
+    missing = agents_without_role(conn)
+    if missing:
+        print(f"  still no role for: {', '.join(missing)}")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -118,7 +118,10 @@ def test_the_steps_run_in_dependency_order():
         assert len(hits) == 1, f"{fragment}: {names}"
         return hits[0]
     train = at("valwr.model.train --rebuild")
-    assert train == 0
+    # The reference refresh comes first: a new agent needs its role before
+    # the feature matrix is built, or training stops on the guard.
+    assert at("valwr.store.reference") == 0
+    assert train == 1
     assert train < at("build_perf_index") < at("validate_potential.py --write-index")
     assert train < at("build_role_index") < at("compare_role_score")
     assert at("model_metrics") > max(at("--write-index --json"), at("--flag"),
