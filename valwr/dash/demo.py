@@ -21,9 +21,9 @@ NAMES = [("Meridian", "na1"), ("halcyon", "0000"), ("nine lives", "eu2"),
          ("Winterlight", "eu3")]
 
 AGENTS = ["Jett", "Omen", "Sage", "Sova", "Killjoy",
-          "Reyna", "Fade", "Cypher", "Breach", "Neon"]
+          "Reyna", "Fade", "Cypher", "Breach", "Hush"]
 
-ROLES = {"Jett": "Duelist", "Reyna": "Duelist", "Neon": "Duelist",
+ROLES = {"Jett": "Duelist", "Reyna": "Duelist", "Hush": "Duelist",
          "Omen": "Controller", "Sage": "Sentinel", "Cypher": "Sentinel",
          "Killjoy": "Sentinel", "Sova": "Initiator", "Fade": "Initiator",
          "Breach": "Initiator"}
@@ -386,8 +386,9 @@ def demo_picks() -> dict:
         ("Brimstone", "Controller", 3, 1, 2, -0.19, (1, 1, 0)),
         ("Sova", "Initiator", 6, 2, 4, -0.38, (1, 0, 1)),
     ]
+    # Hush shipped in October, so two games on it is what a real account has.
     few = [
-        ("Neon", "Duelist", 2, 2, 0, 0.71, (0, 0, 0)),
+        ("Hush", "Duelist", 2, 2, 0, 0.71, (0, 0, 0)),
         ("Viper", "Controller", 1, 1, 0, 0.42, (0, 0, 0)),
         ("Sage", "Sentinel", 1, 1, 0, 0.18, (1, 1, 0)),
         ("Raze", "Duelist", 2, 1, 1, -0.07, (0, 0, 0)),
