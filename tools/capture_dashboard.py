@@ -6,7 +6,10 @@
 
 Writes docs/images/:
 
-    dashboard.jpg              the scoreboard with one player's card open
+    dashboard.jpg              a finished match: the result, both teams side
+                               by side, and what moved the prediction
+    dashboard-result.jpg       the same match, scrolled to the prediction
+                               checked against the scoreboard
     dashboard-walkthrough.webp an animated tour: select, switch map and side,
                                a thin lobby, closing the card
     dashboard-phone.jpg        the phone layout, list and card side by side
@@ -89,7 +92,12 @@ MIN_NAME_PX = 90
 # upward -- on a 2560 screen it was unreadable -- while this guard reported all
 # clear, because 144px of name passes a 90px minimum. A width that is never
 # checked is a width that breaks.
-CHECK_WIDTHS = (1280, 1440, 1600, 1920, 2030, 2560, 3440)
+CHECK_WIDTHS = (1280, 1440, 1600, 1920, 2000, 2030, 2560, 3440)
+# The desktop shots are taken this wide. The two teams sit side by side only
+# once the roster's container passes 1180px, which beside the 716px card panel
+# means a window of about 2000px -- at 1600 and 1440 the images showed the
+# teams stacked, a layout the dashboard on a wide monitor never shows.
+WIDE = {"width": 2000, "height": 1000}
 
 
 def check_layout(browser, url: str) -> list[str]:
@@ -257,24 +265,26 @@ def main(argv=None) -> int:
               f"{MIN_NAME_PX}px, at "
               f"{', '.join(map(str, CHECK_WIDTHS))}px")
 
-        # --- the hero: the scoreboard with a card open --------------------
-        page = browser.new_page(viewport={"width": 1600, "height": 1000}, **CSP)
+        # --- the hero: a finished match, as a pinned tab settles into -------
+        # Result, both teams side by side, and what moved the prediction --
+        # what the page looks like on a wide monitor after a game.
+        page = browser.new_page(viewport=WIDE, **CSP)
         page.goto(url + "?clean")
         settle(page)
-        page.click('button.row[data-puuid="demo-05"]')
-        settle(page)
-        page.screenshot(path=str(OUT / "dashboard.jpg"), type="jpeg", quality=86)
-
-        # ...and the same match once it has been played, which is what a
-        # pinned tab settles into.
         page.evaluate("() => window.__demo.set('status', 'finished')")
         settle(page)
-        # The card is closed and the comparison scrolled to, because it is the
-        # point of this shot and it sits below the rosters. Its own top, not
+        cols = page.evaluate("() => getComputedStyle(document.querySelector("
+                             "'.rosters')).gridTemplateColumns.split(' ').length")
+        if cols != 2:
+            print(f"the teams are not side by side at {WIDE['width']}px")
+            browser.close()
+            httpd.shutdown()
+            return 1
+        page.screenshot(path=str(OUT / "dashboard.jpg"), type="jpeg", quality=86)
+
+        # ...then the comparison, scrolled to its own top, not
         # scroll_into_view_if_needed's -- the section is taller than the
-        # viewport now, so "if needed" lands halfway down it.
-        page.keyboard.press("Escape")
-        page.wait_for_timeout(300)
+        # viewport, so "if needed" lands halfway down it.
         page.evaluate(
             "() => window.scrollTo(0, document.querySelector('.compare')"
             ".getBoundingClientRect().top + window.scrollY - 12)")
@@ -284,7 +294,7 @@ def main(argv=None) -> int:
         page.close()
 
         # --- agent select: your team as cards ------------------------------
-        page = browser.new_page(viewport={"width": 1600, "height": 1000}, **CSP)
+        page = browser.new_page(viewport=WIDE, **CSP)
         page.goto(url + "?clean&phase=pregame")
         settle(page, "button.pcard")
         page.screenshot(path=str(OUT / "dashboard-agent-select.jpg"),
@@ -292,7 +302,7 @@ def main(argv=None) -> int:
         page.close()
 
         # --- the walkthrough ------------------------------------------------
-        page = browser.new_page(viewport={"width": 1440, "height": 900}, **CSP)
+        page = browser.new_page(viewport=WIDE, **CSP)
         page.goto(url + "?clean")
         settle(page)
         frames, holds = [], []
@@ -306,7 +316,7 @@ def main(argv=None) -> int:
                 page.keyboard.press(action[1])
             settle(page)
             shot = Image.open(io.BytesIO(page.screenshot(type="png"))).convert("RGB")
-            shot = shot.resize((1080, round(shot.height * 1080 / shot.width)),
+            shot = shot.resize((1400, round(shot.height * 1400 / shot.width)),
                                Image.LANCZOS)
             frames.append(caption(shot, text))
             holds.append(hold)

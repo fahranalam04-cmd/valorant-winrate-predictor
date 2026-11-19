@@ -12,7 +12,7 @@ prediction in plain English.
 > measured on a held-out test set, not estimated. Phase 8, an LLM coaching
 > layer, is not built.
 
-![The live dashboard: both teams, the odds, and one player's card](docs/images/dashboard.jpg)
+![The dashboard after a match: the result, both teams side by side, and what moved the prediction](docs/images/dashboard.jpg)
 
 **[Try the interactive demo](https://fahranalam04-cmd.github.io/valorant-winrate-predictor/)**
 — the real dashboard page in your browser, with invented players. ·

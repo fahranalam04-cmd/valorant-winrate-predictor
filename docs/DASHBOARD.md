@@ -5,7 +5,7 @@ teams' odds, all ten players, and what is known about each of them. It updates
 by itself, from agent select through the match: every three seconds, and at
 once when the game announces agent select, a lock-in or the match starting.
 
-![The dashboard with one player's card open](images/dashboard.jpg)
+![The dashboard after a match: the result, both teams side by side, and what moved the prediction](images/dashboard.jpg)
 
 **[Try the interactive demo](https://fahranalam04-cmd.github.io/valorant-winrate-predictor/)**
 — the real page, running in your browser with invented players. Change the
