@@ -219,6 +219,16 @@ def main(argv=None) -> int:
     s = config.load(require_key=False)
     conn = schema.connect(s.database_path)
 
+    # --- 0. every agent in the data has a role ----------------------
+    # Otherwise the composition features quietly count that player as no
+    # role, and the model trains on teams that look like they are missing one.
+    from valwr.store import reference
+    missing = reference.agents_without_role(conn)
+    if missing:
+        print(f"\nagents with no role in ref_agents: {', '.join(missing)}\n"
+              "refresh the reference tables first: python -m valwr.check")
+        return 1
+
     # --- 1. boundary first, matrix second ---------------------------
     b = split.compute(conn)
     print(f"split boundary: train ends {b.train_end}, val ends {b.val_end} "

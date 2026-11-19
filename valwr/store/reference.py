@@ -138,3 +138,19 @@ def load_all(conn: sqlite3.Connection) -> dict[str, int]:
 def agent_roles(conn: sqlite3.Connection) -> dict[str, str | None]:
     """Agent name -> role. The lookup every composition feature needs."""
     return {r["name"]: r["role"] for r in conn.execute("SELECT name, role FROM ref_agents")}
+
+
+def agents_without_role(conn: sqlite3.Connection) -> list[str]:
+    """Agents that appear in stored matches but have no role in `ref_agents`.
+
+    A new agent reaches the match data on release day, but `ref_agents` only
+    learns about it when the reference tables are refreshed. Until then the
+    composition features count that player as no role at all: a team on Hush
+    read as a team missing its duelist for its first two weeks, silently. The
+    feature build has no way to notice, so training asks this first.
+    """
+    return [r["agent"] for r in conn.execute(
+        "SELECT DISTINCT mp.agent FROM match_players mp "
+        "LEFT JOIN ref_agents ra ON ra.name = mp.agent "
+        "WHERE mp.agent IS NOT NULL AND mp.agent != '' AND ra.role IS NULL "
+        "ORDER BY mp.agent")]

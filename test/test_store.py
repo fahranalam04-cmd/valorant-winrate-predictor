@@ -367,3 +367,24 @@ def test_the_newest_copy_of_a_match_wins_whichever_endpoint_it_came_from(conn):
     N.normalize_all(conn, verbose=False)
     assert conn.execute("SELECT plants FROM match_players WHERE "
                         "match_id='m1' AND puuid='p0'").fetchone()[0] == 2
+
+
+def test_an_agent_with_no_role_is_reported(tmp_path):
+    """A new agent in the match data before ref_agents knows its role.
+
+    Hush reached the matches on release day and ref_agents a fortnight later;
+    in between, composition features counted a Hush team as missing a duelist.
+    """
+    from valwr.store import reference
+    c = schema.connect(tmp_path / "r.db")
+    schema.create_all(c)
+    c.execute("INSERT INTO ref_agents (uuid,name,role) VALUES ('u1','Jett','Duelist')")
+    c.execute("INSERT INTO matches (match_id, started_at, map, mode, region, "
+              "ingested_at) VALUES ('m', 1, 'Ascent', 'Competitive', 'na', 1)")
+    for puuid, agent in (("a", "Jett"), ("b", "Hush"), ("c", "")):
+        c.execute("INSERT INTO match_players (match_id, puuid, team, agent) "
+                  "VALUES ('m', ?, 'Blue', ?)", (puuid, agent))
+    assert reference.agents_without_role(c) == ["Hush"]
+
+    c.execute("INSERT INTO ref_agents (uuid,name,role) VALUES ('u2','Hush','Duelist')")
+    assert reference.agents_without_role(c) == []
