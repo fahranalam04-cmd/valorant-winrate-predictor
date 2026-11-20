@@ -18,7 +18,11 @@ role, the old single formula still orders players better. Remeasured after the
 October retrain on newer teams, they score **28.8% against 29.8%** -- and the
 September tables score the same 28.8% there, so the drop is the newer period,
 not the refit (see the end of section 4). After the November retrain, the
-first with Hush in the data, they score **29.0% against 29.4%**.
+first with Hush in the data, they score **29.0% against 29.4%**. On the
+larger test period of 19 November, with paired error bars for the first time,
+**28.1% against 29.4%** (1.7 standard errors), and the per-role score orders
+Sentinels and Initiators measurably worse than the old formula -- see the end
+of section 10.
 
 ---
 
@@ -617,6 +621,29 @@ Initiator and Controller correlations are +0.176 and +0.192 against the
 | Controller | +0.203 | +0.192 | 25.1% | 28.4% |
 | Initiator | +0.179 | +0.176 | 26.4% | 25.5% |
 
+**With error bars, 19 November 2026.** Every gap above was read without a
+standard error, so `compare_role_score.py` now prints a paired bootstrap: the
+same 3,000 teams resampled whole, both scores measured on each draw. The test
+period had grown with the nightly crawl since the figures above, so this is a
+newer sample, and it is less kind:
+
+| | per-role minus old | SE | gap / SE |
+|---|---|---|---|
+| top-1 | −1.3 points (28.1% vs 29.4%) | 0.8 | −1.7 |
+| Duelist rho | −0.004 | 0.005 | −0.8 |
+| Sentinel rho | −0.023 | 0.011 | −2.2 |
+| Controller rho | −0.020 | 0.010 | −1.9 |
+| Initiator rho | −0.030 | 0.011 | −2.7 |
+
+Within a role, the old single formula orders support players better, and for
+Sentinels and Initiators that is beyond the noise, not a near-miss. Neither
+Initiator (+0.145) nor Controller (+0.182) is within one standard error of the
++0.200 criterion 2 asks for. Overall top-1 is 1.7 standard errors behind:
+suggestive, not established, but criterion 1 no longer passes on this sample.
+The criteria are left exactly as they were written. Fixing this means refitting
+the support-role weights on the training period, which changes the shipped
+score, and is recorded in the open items below rather than done in passing.
+
 **It passes criterion 1 and still fails criterion 2.** Top-1 is level with the
 old score, where the first tables were two points behind it. The best game is
 now recognised about equally often whichever role had it -- 28-30% for every
@@ -654,4 +681,7 @@ least. They should use the same definition, and it should be the rating.
 - **The role-neutral fallback** for agent select was not specified either.
 - **Within-role ordering** (criterion 2) still trails the old single formula
   for every role. The per-role tables recognise the best game more evenly
-  across roles, but order players inside a role less well.
+  across roles, but order players inside a role less well -- by 2.2 and 2.7
+  standard errors for Sentinels and Initiators on the 19 November sample. The
+  next step is refitting the support-role weights on the training period and
+  re-running this comparison, with criteria unchanged.

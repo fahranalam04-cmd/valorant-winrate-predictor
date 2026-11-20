@@ -58,10 +58,65 @@ def _harness():
     return module
 
 
+def _bootstrap(teams, boot: int, seed: int) -> None:
+    """Paired standard errors for every comparison the criteria make."""
+    import numpy as np
+    from scipy.stats import spearmanr
+
+    if boot <= 0:
+        return
+    rng = np.random.default_rng(seed)
+    n = len(teams)
+    best = np.array([[p["actual"] for p in t] for t in teams])
+    hit_old = np.array([abs(t[max(range(5), key=lambda i: t[i]["raw"])]["actual"]
+                            - best[k].max()) < 1e-12 for k, t in enumerate(teams)])
+    hit_new = np.array([abs(t[max(range(5), key=lambda i: t[i]["new_raw"])]["actual"]
+                            - best[k].max()) < 1e-12 for k, t in enumerate(teams)])
+    draws = rng.integers(0, n, size=(boot, n))
+    gap = (hit_new[draws].mean(axis=1) - hit_old[draws].mean(axis=1)) * 100
+    d = (hit_new.mean() - hit_old.mean()) * 100
+
+    print("\n" + "=" * 68)
+    print(f"IS THE GAP BIGGER THAN THE NOISE?   (paired bootstrap, {boot} draws)")
+    print("=" * 68)
+    print(f"  top-1, per-role minus old: {d:+.1f} points +/- {gap.std():.1f}"
+          f"  ({abs(d) / gap.std():.1f} SE)")
+    print(f"  {'role':<12}{'rho new':>9}{'new - old':>11}{'SE':>7}"
+          f"{'gap/SE':>8}{'new - 0.200':>13}{'SE':>7}")
+    print("  " + "-" * 65)
+    for role in ("Duelist", "Sentinel", "Controller", "Initiator"):
+        # Each player tagged with their team, so a draw of teams carries its
+        # players with it: teammates share a match and are not independent.
+        rows = [(k, p["raw"], p["new"], p["actual"])
+                for k, t in enumerate(teams) for p in t if p["role"] == role]
+        if len(rows) < 50:
+            continue
+        team_of = np.array([r[0] for r in rows])
+        old = np.array([r[1] for r in rows])
+        new = np.array([r[2] for r in rows])
+        act = np.array([r[3] for r in rows])
+        by_team = [np.flatnonzero(team_of == k) for k in range(n)]
+        rho_old = spearmanr(old, act)[0]
+        rho_new = spearmanr(new, act)[0]
+        diffs, news = [], []
+        for draw in draws[: min(boot, 400)]:
+            idx = np.concatenate([by_team[k] for k in draw])
+            a = spearmanr(old[idx], act[idx])[0]
+            b = spearmanr(new[idx], act[idx])[0]
+            diffs.append(b - a)
+            news.append(b)
+        se_d, se_n = np.std(diffs), np.std(news)
+        print(f"  {role:<12}{rho_new:>+9.3f}{rho_new - rho_old:>+11.3f}"
+              f"{se_d:>7.3f}{(rho_new - rho_old) / se_d:>+8.1f}"
+              f"{rho_new - 0.2:>+13.3f}{se_n:>7.3f}")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="compare_role_score")
     ap.add_argument("--teams", type=int, default=1500)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--boot", type=int, default=400,
+                    help="paired bootstrap draws for the error bars; 0 skips")
     ap.add_argument("--index", default=str(roleindex.index_path()),
                     help="which role index to measure (default: the shipped one)")
     ap.add_argument("--write-index", action="store_true",
@@ -197,6 +252,13 @@ def main(argv=None) -> int:
               f"(old {was:+.3f} -> new {got:+.3f} on these teams; "
               f"{BASELINE_RHO[role]:+.3f} recorded on the spec's sample)")
     print("  3. per-role numbers reported above, flattering or not.")
+
+    # The criteria above say pass or fail; they do not say whether a gap of
+    # 0.02 in rho is larger than the sampling noise on 3,000 teams. This does,
+    # without changing a single verdict: the same teams resampled with
+    # replacement, both scores measured on each draw, so the error is on the
+    # difference itself.
+    _bootstrap(teams, args.boot, args.seed)
 
     if args.write_index:
         import dataclasses
