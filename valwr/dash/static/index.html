@@ -106,6 +106,11 @@ body .top{border-bottom-color:rgba(160,195,220,.26)}
   .rosters .score{font-size:27px;padding-left:10px}
   .rosters .st b{font-size:15.5px}
   .rosters .st span{letter-spacing:.1em}
+  /* Half a roster leaves the line under the name about 260px: the agent, a
+     run badge and a rank tag can spend most of it, and "damages every round"
+     came out as "damages every r…". Two lines fit in the 66px row. */
+  .rosters .rs{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;
+    -webkit-line-clamp:2;line-clamp:2}
 }
 
 *{box-sizing:border-box}
@@ -262,7 +267,11 @@ body{
   background:var(--sunk);border:1px solid var(--line);color:var(--bone-dim);
   vertical-align:1px}
 .party b{color:var(--gold);font-weight:700}
-.partynote{color:var(--ghost);font-size:11px;margin:-2px 0 8px}
+/* It sits straight on the map art, with no panel behind it. In --ghost and no
+   shadow it vanished wherever the art was bright -- the tower on Ascent, the
+   sky on Bind -- and read as text drawn over other text. */
+.partynote{color:var(--bone-dim);font-size:11px;margin:4px 0 8px;
+  text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 12px rgba(0,0,0,.8)}
 
 /* The result strip, and the table under it: what was predicted against what
    happened. Only a settled match has either. */
@@ -1093,7 +1102,8 @@ function resultHTML(rv){
         right ? "called it" : "wrong"}</b></span>
     ${pick.hit === null || pick.hit === undefined ? "" : `<span class="tp">top
       pick ${pick.hit ? "correct" : "missed"}: ${esc(pick.picked || "—")}${
-        pick.hit ? "" : ` — best was ${esc(pick.actually_best || "—")}`}</span>`}
+        pick.hit || !pick.actually_best ? ""
+          : ` — best was ${esc(pick.actually_best)}`}</span>`}
   </div>`;
 }
 

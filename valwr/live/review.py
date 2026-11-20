@@ -268,8 +268,13 @@ def compare(conn: sqlite3.Connection, match_id: str) -> dict | None:
     their_rounds = row["rounds_red"] if own_team == "Blue" else row["rounds_blue"]
     picked = next((p for p in players
                    if p["puuid"] == _top_pick_id(state, own_team)), None)
-    best = next((p for p in players if p["actual_rank"] == 1
-                 and p["team"] == own_team), None)
+    # Your team's best, which is what the top pick is judged against -- not
+    # the lobby's #1. Asking for actual_rank == 1 on your team found nobody
+    # whenever the lobby's best player was an opponent, and the page printed
+    # "best was —" beside a miss it had in fact measured.
+    finished = [p for p in players
+                if p["team"] == own_team and p["actual_rank"]]
+    best = min(finished, key=lambda p: p["actual_rank"]) if finished else None
     out["actual"] = {
         "winner": row["winner"], "own_won": row["own_won"],
         "rounds_blue": row["rounds_blue"], "rounds_red": row["rounds_red"],

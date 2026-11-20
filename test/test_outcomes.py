@@ -662,6 +662,19 @@ def test_the_games_own_score_decides_who_played_best(conn):
     assert outcomes.actual_best(conn, "m1", "Blue") == "b1"
 
 
+def test_your_teams_best_is_named_when_an_opponent_topped_the_lobby(conn):
+    """The page printed "best was —" whenever the lobby's #1 was on the other
+    team: it looked for actual_rank 1 on your side and found nobody."""
+    outcomes.record(conn, state(scores=(90, 70, 50, 30, 10)), now=1000)
+    outcomes.settle(conn, FakeAPI(finished(best="b3")), "na", "m1", now=2000)
+    everyone = _everyone(conn)
+    enemy = next(p for p in everyone if not p.startswith("b"))
+    _performance(conn, {p: (500.0 if p == enemy else 400.0 if p == "b2"
+                            else 200.0) for p in everyone})
+    got = review.compare(conn, "m1")
+    assert got["top_pick"]["actually_best"] == "b2#NA1"
+
+
 def test_a_partial_set_of_scores_is_never_mixed_with_match_impact(conn):
     """Half a lobby on one measure and half on another is not a ranking."""
     outcomes.record(conn, state(), now=1000)
